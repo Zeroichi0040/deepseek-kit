@@ -21,12 +21,10 @@
   const DEFAULTS = {
     enabled: true,
     showInjected: true, // false = attach context automatically and hide it in the chat
-    systemPrompt: '',
-    mode: 'first', // single-prompt schedule: 'first' | 'every' | 'always'
-    everyN: 5,
-    memoryEnabled: true,
     autoInsertOnEnter: true,
-    multiPrompt: false,
+    memoryEnabled: true,
+    showSummary: true, // the "next message includes" strip in the drawer
+    showChips: true, // the chip row above the message box
     prompts: [], // [{ id, name, text, enabled, schedule, everyN }]
     defaultEnabled: true, // built-in default prompt
     defaultText: '', // '' = use the built-in text
@@ -35,8 +33,49 @@
     snippets: [], // [{ id, name, text }]
   };
 
-  const VARIABLE_NAMES = ['date', 'time', 'datetime', 'weekday', 'timezone', 'message_number', 'selection'];
+  const VARIABLES = [
+    { name: 'date', desc: 'Today, YYYY-MM-DD' },
+    { name: 'time', desc: 'Local time, 24-hour' },
+    { name: 'datetime', desc: 'Date and time' },
+    { name: 'weekday', desc: 'e.g. Saturday' },
+    { name: 'timezone', desc: 'e.g. Asia/Manila' },
+    { name: 'message_number', desc: 'Message # in this chat' },
+    { name: 'selection', desc: 'Text selected on the page' },
+  ];
+  const VARIABLE_NAMES = VARIABLES.map((v) => v.name);
   const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  function newId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+
+  // Normalizes stored settings. Older versions had a single "systemPrompt" plus a multi-prompt switch;
+  // now there is just a list, so a leftover single prompt becomes the first list entry.
+  function migrateSettings(raw) {
+    const s = { ...DEFAULTS, ...(raw || {}) };
+    s.prompts = Array.isArray(s.prompts) ? s.prompts.slice() : [];
+    s.snippets = Array.isArray(s.snippets) ? s.snippets.slice() : [];
+    const legacy = String(s.systemPrompt || '');
+    if (legacy.trim()) {
+      s.prompts.unshift({
+        id: newId(),
+        name: s.multiPrompt ? 'Previous prompt' : 'Custom prompt',
+        text: legacy,
+        enabled: !s.multiPrompt, // in multi mode the single prompt was not in use, so keep it switched off
+        schedule: s.mode || 'first',
+        everyN: s.everyN || 5,
+      });
+    }
+    delete s.systemPrompt;
+    delete s.mode;
+    delete s.everyN;
+    delete s.multiPrompt;
+    return s;
+  }
+
+  function hasLegacyKeys(raw) {
+    return !!raw && ('systemPrompt' in raw || 'multiPrompt' in raw || 'mode' in raw || 'everyN' in raw);
+  }
 
   function tokens(s) {
     return new Set(
@@ -98,36 +137,30 @@
     return (settings.defaultText || '').trim() ? settings.defaultText : BUILTIN_DEFAULT_PROMPT;
   }
 
-  // Every prompt that may take part: the built-in default, then either the single prompt or the multi list.
+  // Every prompt that may take part: the built-in default, then your own list.
   function promptEntries(settings) {
     const list = [];
     if (settings.defaultEnabled !== false) {
       list.push({ id: 'default', name: 'Default', text: defaultPromptText(settings), enabled: true, schedule: settings.defaultSchedule || 'first', everyN: settings.defaultEveryN || 5 });
     }
-    if (settings.multiPrompt) {
-      (settings.prompts || []).forEach((p) => { if (p) list.push(p); });
-    } else {
-      list.push({ id: 'single', name: '', text: settings.systemPrompt || '', enabled: true, schedule: settings.mode, everyN: settings.everyN });
-    }
+    (settings.prompts || []).forEach((p) => { if (p) list.push(p); });
     return list;
   }
 
   function shouldInject(settings, sentCount) {
     if (!settings.enabled) return false;
-    return promptEntries(settings).some((e) => e.enabled && scheduleDue(e.schedule, e.everyN, sentCount));
+    return promptEntries(settings).some((e) => e.enabled && (e.text || '').trim() && scheduleDue(e.schedule, e.everyN, sentCount));
   }
 
   // Prompts that go out with this message. `force` ignores schedules (the "Insert now" button).
   function activePrompts(settings, sentCount, force) {
     return promptEntries(settings)
       .filter((e) => e && e.enabled && (e.text || '').trim() && (force || scheduleDue(e.schedule, e.everyN, sentCount)))
-      .map((e) => ({ name: (e.name || '').trim(), text: e.text.trim() }));
+      .map((e) => ({ name: (e.name || '').trim() || 'Untitled', text: e.text.trim() }));
   }
 
   function buildPrefix(settings, memories, userText, sentCount, force, ctx) {
-    const parts = activePrompts(settings, sentCount || 0, !!force).map((p) =>
-      (p.name ? 'Instructions (' + p.name + '):' : 'Instructions:') + '\n' + p.text
-    );
+    const parts = activePrompts(settings, sentCount || 0, !!force).map((p) => 'Instructions (' + p.name + '):\n' + p.text);
     if (settings.memoryEnabled) {
       const sel = selectMemories(memories, userText);
       if (sel.length) {
@@ -137,6 +170,32 @@
     if (!parts.length) return '';
     const out = MARKER_START + '\n' + parts.join('\n\n') + '\n' + MARKER_END + '\n\n';
     return ctx ? applyVariables(out, ctx) : out;
+  }
+
+  function estimateTokens(text) {
+    return Math.ceil(String(text || '').length / 4);
+  }
+
+  // What the next message will carry, for the strip in the drawer and the chips above the message box.
+  function summarize(settings, memories, userText, sentCount) {
+    if (!settings.enabled) return { state: 'off', names: [], memories: 0, tokens: 0 };
+    if (!shouldInject(settings, sentCount)) return { state: 'idle', names: [], memories: 0, tokens: 0 };
+    const names = activePrompts(settings, sentCount, false).map((p) => p.name);
+    const mem = settings.memoryEnabled ? selectMemories(memories, userText).length : 0;
+    const prefix = buildPrefix(settings, memories, userText, sentCount, false, {});
+    return { state: 'ready', names: names, memories: mem, tokens: estimateTokens(prefix) };
+  }
+
+  function memoryLabel(n) {
+    return n + (n === 1 ? ' memory' : ' memories');
+  }
+
+  function describeSummary(sum) {
+    if (sum.state === 'off') return 'Kit is off';
+    if (sum.state === 'idle') return 'Nothing is due for the next message';
+    let t = sum.names.join(', ');
+    if (sum.memories) t += (t ? ' + ' : '') + memoryLabel(sum.memories);
+    return 'Next message includes ' + t;
   }
 
   function alreadyHasContext(text) {
@@ -170,20 +229,32 @@
       .slice(0, limit || 8);
   }
 
-  function newId() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  // Drawer search box: matches the name or the text, keeps your order.
+  function searchSnippets(snippets, query) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return (snippets || []).filter(Boolean);
+    return (snippets || []).filter((s) => s && ((s.name || '').toLowerCase().includes(q) || (s.text || '').toLowerCase().includes(q)));
   }
 
   function describeSchedule(schedule, everyN) {
-    if (schedule === 'always') return 'Always (every message)';
+    if (schedule === 'always') return 'Every message';
     if (schedule === 'every') return 'Every ' + Math.max(1, parseInt(everyN, 10) || 1) + ' messages';
-    return 'Only on first message';
+    return 'First message';
+  }
+
+  // Inserts text into `value` at the selection; returns the new value and caret position.
+  function insertAt(value, start, end, text) {
+    value = String(value || '');
+    start = Math.max(0, Math.min(start == null ? value.length : start, value.length));
+    end = Math.max(start, Math.min(end == null ? start : end, value.length));
+    return { value: value.slice(0, start) + text + value.slice(end), caret: start + text.length };
   }
 
   const core = {
-    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VARIABLE_NAMES, tokens, selectMemories, scheduleDue, applyVariables,
-    promptEntries, shouldInject, activePrompts, buildPrefix, alreadyHasContext, stripContext, slashQuery,
-    cleanSnippetName, filterSnippets, describeSchedule, MARKER_START, MARKER_END,
+    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
+    scheduleDue, applyVariables, promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens, summarize,
+    describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, cleanSnippetName, filterSnippets,
+    searchSnippets, describeSchedule, insertAt, MARKER_START, MARKER_END,
   };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = core;
@@ -192,32 +263,33 @@
 
   // ---------- Extension runtime ----------
   const store = chrome.storage.local;
-  let settings = { ...DEFAULTS };
+  let settings = migrateSettings({});
   let memories = [];
-  let editingId = null; // prompt id, or 'default'
-  let editingSnippetId = null;
+  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, search: '', showAllVars: false, preview: null };
   let bypass = false; // true while we dispatch our own Enter
   const sentCounts = {}; // per chat path
   let lastPath = location.pathname;
 
-  function normalizeSettings(s) {
-    const out = { ...DEFAULTS, ...(s || {}) };
-    if (!Array.isArray(out.prompts)) out.prompts = [];
-    if (!Array.isArray(out.snippets)) out.snippets = [];
-    return out;
+  function kitVersion() {
+    try { return chrome.runtime.getManifest().version; } catch (e) { return '0.4.0'; }
   }
 
   function load() {
     return new Promise((resolve) => {
       store.get(['dck_settings', 'dck_memories'], (r) => {
-        settings = normalizeSettings(r.dck_settings);
+        settings = migrateSettings(r.dck_settings);
         memories = Array.isArray(r.dck_memories) ? r.dck_memories : [];
+        if (hasLegacyKeys(r.dck_settings)) save(); // write the migrated shape back once
         resolve();
       });
     });
   }
   function save() {
     store.set({ dck_settings: settings, dck_memories: memories });
+  }
+  function commit() {
+    save();
+    refreshAll(true);
   }
 
   // A new chat lives at "/" until the first message creates /a/chat/s/<id>; carry its counter over.
@@ -230,6 +302,7 @@
       }
       lastPath = p;
     }
+    refreshAll(false);
   }, 500);
 
   function getComposer() {
@@ -244,6 +317,10 @@
 
   function selectionText() {
     try { return String(window.getSelection() || '').slice(0, 4000); } catch (e) { return ''; }
+  }
+
+  function chatCount() {
+    return sentCounts[location.pathname] || 0;
   }
 
   function ctxFor(count) {
@@ -267,11 +344,12 @@
     const el = getComposer();
     if (!el) { toast('Message box not found'); return false; }
     const text = el.value;
-    if (!text.trim() || alreadyHasContext(text)) return false;
-    const count = sentCounts[location.pathname] || 0;
+    if (!text.trim()) { if (force) toast('Type a message first'); return false; }
+    if (alreadyHasContext(text)) { if (force) toast('Context is already in the message'); return false; }
+    const count = chatCount();
     if (!force && !shouldInject(settings, count)) return false;
     const prefix = buildPrefix(settings, memories, text, count, force, ctxFor(count));
-    if (!prefix) { if (force) toast('Nothing to insert - add a system prompt or memory first'); return false; }
+    if (!prefix) { if (force) toast('Nothing to insert - switch on a prompt or add a memory note'); return false; }
     setNativeValue(el, prefix + text);
     return true;
   }
@@ -282,7 +360,7 @@
     for (let i = 0; i < 6 && node && node.parentElement; i++) {
       node = node.parentElement;
       const btns = Array.from(node.querySelectorAll('[role="button"], button')).filter(
-        (b) => !b.closest('#dck-drawer, #dck-picker') && b.querySelector('svg') && b.getAttribute('aria-disabled') !== 'true' && !b.disabled
+        (b) => !b.closest('#dck-drawer, #dck-picker, #dck-chips') && b.querySelector('svg') && b.getAttribute('aria-disabled') !== 'true' && !b.disabled
       );
       if (btns.length) { btns[btns.length - 1].click(); return true; }
     }
@@ -302,6 +380,72 @@
       if (!clickSend(el)) toast('Could not send automatically - press Enter to send');
       setTimeout(() => { if (!alreadyHasContext(el.value)) delete el.dataset.dckCounted; }, 600);
     }, 450);
+  }
+
+  // ---------- Chips above the message box + the strip in the drawer ----------
+  const chips = { el: null };
+  let liveSig = '';
+
+  function currentSummary() {
+    const el = getComposer();
+    const text = el ? stripContext(el.value) : '';
+    return summarize(settings, memories, text, chatCount());
+  }
+
+  function renderStrip(sum) {
+    if (!ui.strip) return;
+    ui.strip.textContent = '';
+    if (!settings.showSummary) { ui.strip.style.display = 'none'; return; }
+    ui.strip.style.display = '';
+    if (sum.state !== 'ready') {
+      ui.strip.append(h('span', { class: 'dck-dot off' }), h('span', {}, describeSummary(sum)));
+      return;
+    }
+    const text = h('span', { class: 'dck-grow' }, 'Next message includes ');
+    sum.names.forEach((n, i) => { if (i) text.append(', '); text.append(h('b', {}, n)); });
+    if (sum.memories) text.append(' + ' + memoryLabel(sum.memories));
+    ui.strip.append(h('span', { class: 'dck-dot' }), text, h('span', { class: 'dck-faint' }, '~' + sum.tokens + ' tokens'));
+  }
+
+  function renderChips(sum) {
+    if (!settings.showChips) { if (chips.el) chips.el.style.display = 'none'; return; }
+    if (!chips.el) {
+      chips.el = h('div', { id: 'dck-chips' });
+      document.body.append(chips.el);
+    }
+    chips.el.textContent = '';
+    chips.el.append(h('span', { class: 'dck-chip kit' }, h('span', { class: 'dck-dot' }), 'Kit'));
+    if (sum.state === 'ready') {
+      sum.names.slice(0, 3).forEach((n) => chips.el.append(h('span', { class: 'dck-chip' }, n)));
+      if (sum.names.length > 3) chips.el.append(h('span', { class: 'dck-chip' }, '+' + (sum.names.length - 3)));
+      if (sum.memories) chips.el.append(h('span', { class: 'dck-chip' }, memoryLabel(sum.memories)));
+    } else {
+      chips.el.append(h('span', { class: 'dck-chip' }, sum.state === 'off' ? 'Off' : 'Nothing due'));
+    }
+    chips.el.append(h('span', { class: 'dck-chips-note' }, (settings.showInjected !== false ? 'Visible' : 'Hidden') + (sum.state === 'ready' ? ' - ~' + sum.tokens + ' tokens' : '')));
+  }
+
+  function positionChips() {
+    if (!chips.el) return;
+    const el = getComposer();
+    const r = el ? el.getBoundingClientRect() : null;
+    const show = settings.enabled && settings.showChips && r && r.width > 0;
+    chips.el.style.display = show ? 'flex' : 'none';
+    if (!show) return;
+    chips.el.style.left = Math.max(8, r.left) + 'px';
+    chips.el.style.width = Math.max(260, Math.min(r.width, 760)) + 'px';
+    chips.el.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + 'px';
+  }
+
+  function refreshAll(force) {
+    const sum = currentSummary();
+    const sig = [settings.showInjected, settings.showSummary, settings.showChips, sum.state, sum.names.join('|'), sum.memories, sum.tokens].join('~');
+    if (force || sig !== liveSig) {
+      liveSig = sig;
+      renderStrip(sum);
+      renderChips(sum);
+    }
+    positionChips();
   }
 
   // ---------- Slash picker ----------
@@ -325,6 +469,7 @@
       row.addEventListener('mousedown', (e) => { e.preventDefault(); chooseSnippet(s); });
       picker.el.append(row);
     });
+    picker.el.append(h('div', { class: 'dck-pick-foot' }, h('span', {}, 'Up/Down to move'), h('span', {}, 'Enter to insert')));
   }
 
   function updatePicker() {
@@ -332,7 +477,7 @@
     if (!el || !settings.enabled) { closePicker(); return; }
     const q = slashQuery(el.value);
     if (q === null) { closePicker(); return; }
-    const items = filterSnippets(settings.snippets, q, 8);
+    const items = filterSnippets(settings.snippets, q, 8).filter((s) => (s.text || '').trim()); // skip blank snippets
     if (!items.length) { closePicker(); return; }
     picker.items = items;
     if (picker.index >= items.length) picker.index = 0;
@@ -342,17 +487,17 @@
     }
     renderPicker();
     const r = el.getBoundingClientRect();
+    const lift = chips.el && chips.el.style.display !== 'none' ? 40 : 8;
     picker.el.style.left = Math.max(8, r.left) + 'px';
     picker.el.style.width = Math.max(260, Math.min(r.width, 560)) + 'px';
-    picker.el.style.bottom = Math.max(8, window.innerHeight - r.top + 8) + 'px';
+    picker.el.style.bottom = Math.max(8, window.innerHeight - r.top + lift) + 'px';
     picker.el.style.display = 'block';
   }
 
   function chooseSnippet(s) {
     const el = getComposer();
     if (!el || !s) return;
-    const count = sentCounts[location.pathname] || 0;
-    const text = applyVariables(s.text, ctxFor(count));
+    const text = applyVariables(s.text, ctxFor(chatCount()));
     closePicker();
     setNativeValue(el, text);
     el.focus();
@@ -380,7 +525,9 @@
     },
     true
   );
-  document.addEventListener('input', (e) => { if (e.target instanceof HTMLTextAreaElement) updatePicker(); }, true);
+  document.addEventListener('input', (e) => {
+    if (e.target instanceof HTMLTextAreaElement && !e.target.closest('#dck-drawer')) { updatePicker(); refreshAll(false); }
+  }, true);
 
   // ---------- Enter handling ----------
   document.addEventListener(
@@ -389,6 +536,7 @@
       if (bypass) return; // our own synthetic Enter
       const el = e.target;
       if (!(el instanceof HTMLTextAreaElement)) return;
+      if (el.closest('#dck-drawer')) return; // typing in the drawer never triggers sends
       if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
       if (!settings.enabled || !settings.autoInsertOnEnter) return;
       if (!el.value.trim()) return;
@@ -435,7 +583,7 @@
   function stripNode(node) {
     if (node.nodeType === 3) {
       const par = node.parentElement;
-      if (!par || par.closest('textarea, #dck-drawer, #dck-picker, #dck-toast')) return;
+      if (!par || par.closest('textarea, #dck-drawer, #dck-picker, #dck-chips, #dck-toast')) return;
       if (node.nodeValue && node.nodeValue.indexOf(MARKER_START) !== -1) {
         const v = stripContext(node.nodeValue);
         if (v !== node.nodeValue) node.nodeValue = v;
@@ -475,250 +623,390 @@
     }).observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
-  // ---------- UI ----------
+  // ---------- UI helpers ----------
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const ICONS = {
+    close: 'M18 6 6 18|M6 6l12 12',
+    edit: 'M12 20h9|M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
+    trash: 'M3 6h18|M8 6V4h8v2|M7 6l1 14h8l1-14',
+    plus: 'M12 5v14|M5 12h14',
+    search: 'M21 21l-4.3-4.3|M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z',
+    down: 'M12 3v12|M12 15l-4-4|M12 15l4-4|M4 21h16',
+    up: 'M12 15V3|M12 3L8 7|M12 3l4 4|M4 21h16',
+  };
+
+  function icon(name, size) {
+    const s = document.createElementNS(SVGNS, 'svg');
+    s.setAttribute('width', size || 16);
+    s.setAttribute('height', size || 16);
+    s.setAttribute('viewBox', '0 0 24 24');
+    s.setAttribute('fill', 'none');
+    s.setAttribute('stroke', 'currentColor');
+    s.setAttribute('stroke-width', '2');
+    s.setAttribute('stroke-linecap', 'round');
+    s.setAttribute('stroke-linejoin', 'round');
+    s.setAttribute('aria-hidden', 'true');
+    ICONS[name].split('|').forEach((d) => {
+      const p = document.createElementNS(SVGNS, 'path');
+      p.setAttribute('d', d);
+      s.append(p);
+    });
+    return s;
+  }
+
   function h(tag, attrs, ...kids) {
     const n = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs || {})) {
       if (k === 'class') n.className = v;
-      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else if (k === 'style' || k === 'role' || k.indexOf('aria-') === 0 || k.indexOf('data-') === 0) n.setAttribute(k, v);
+      else if (k.indexOf('on') === 0) n.addEventListener(k.slice(2), v);
       else n[k] = v;
     }
-    for (const c of kids.flat()) n.append(c && c.nodeType ? c : document.createTextNode(c == null ? '' : c));
+    for (const c of kids.flat()) {
+      if (c === null || c === undefined || c === false) continue;
+      n.append(c && c.nodeType ? c : document.createTextNode(String(c)));
+    }
     return n;
   }
 
-  function sw(checked, onchange) {
+  function sw(checked, onchange, label) {
     return h('label', { class: 'dck-switch' },
-      h('input', { type: 'checkbox', checked: !!checked, onchange: (e) => onchange(e.target.checked) }),
+      h('input', { type: 'checkbox', checked: !!checked, 'aria-label': label, onchange: (e) => onchange(e.target.checked) }),
       h('span', { class: 'dck-slider' }));
   }
 
-  function toggleRow(label, checked, onchange, sub) {
-    return h('div', { class: 'dck-toggle' },
-      h('span', { class: 't' }, label, sub ? h('span', { class: 'sub' }, sub) : ''),
-      sw(checked, onchange));
+  function iconBtn(name, label, onclick) {
+    return h('button', { type: 'button', class: 'dck-iconbtn', 'aria-label': label, onclick: onclick }, icon(name));
   }
 
-  function scheduleSelect(value, onchange) {
-    return h('select', { onchange: (e) => onchange(e.target.value) },
-      h('option', { value: 'first', selected: value === 'first' }, 'Only on first message'),
+  function group(text) {
+    return h('div', { class: 'dck-group' }, text);
+  }
+
+  function toggleCard(title, sub, checked, onchange) {
+    return h('div', { class: 'dck-card dck-rowcard' },
+      h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, title), h('div', { class: 'dck-sub' }, sub)),
+      sw(checked, onchange, title));
+  }
+
+  function scheduleSelect(value, onchange, label) {
+    return h('select', { 'aria-label': label || 'Schedule', onchange: (e) => onchange(e.target.value) },
+      h('option', { value: 'first', selected: value === 'first' }, 'First message'),
       h('option', { value: 'every', selected: value === 'every' }, 'Every N messages'),
       h('option', { value: 'always', selected: value === 'always' }, 'Every message'));
   }
 
-  // Shared editor for a prompt-like entry. opts: { showName, onSave(fields), extra: [buttons] }
-  function entryEditor(drawer, entry, opts) {
-    const name = h('input', { value: entry.name || '', placeholder: 'Name', style: opts.showName ? '' : 'display:none' });
-    const text = h('textarea', { value: entry.text, placeholder: 'Prompt text' });
-    let sched = entry.schedule || 'first';
-    const everyN = h('input', { type: 'number', min: 1, value: entry.everyN || 5, style: sched === 'every' ? '' : 'display:none' });
-    const sel = scheduleSelect(sched, (v) => { sched = v; everyN.style.display = v === 'every' ? '' : 'none'; });
-    return h('div', { class: 'dck-card' },
-      name, text, sel, everyN,
-      h('div', { class: 'dck-hint' }, 'Variables: ' + VARIABLE_NAMES.map((v) => '{{' + v + '}}').join(' ')),
-      h('div', { class: 'dck-row' },
-        h('button', {
-          onclick: () => opts.onSave({ name: name.value.trim() || 'Untitled', text: text.value, schedule: sched, everyN: Math.max(1, parseInt(everyN.value, 10) || 5) })
-        }, 'Save'),
-        h('button', { onclick: () => { editingId = null; render(drawer); } }, 'Cancel'),
-        ...(opts.extra || [])));
-  }
-
-  function renderDefault(drawer, body) {
-    body.append(h('h4', {}, 'Built-in default prompt'));
-    if (editingId === 'default') {
-      body.append(entryEditor(drawer,
-        { text: defaultPromptText(settings), schedule: settings.defaultSchedule, everyN: settings.defaultEveryN },
-        {
-          showName: false,
-          onSave: (f) => {
-            settings.defaultText = f.text.trim() === BUILTIN_DEFAULT_PROMPT.trim() ? '' : f.text;
-            settings.defaultSchedule = f.schedule;
-            settings.defaultEveryN = f.everyN;
-            editingId = null; save(); render(drawer);
+  // Inserts {{name}} at the caret of a textarea. Expanding the list redraws only this row, so unsaved typing survives.
+  function varChips(target) {
+    const wrap = h('div', { class: 'dck-chiprow' });
+    const fill = () => {
+      wrap.textContent = '';
+      wrap.append(h('span', { class: 'dck-faint' }, 'Insert'));
+      const list = ui.showAllVars ? VARIABLES : VARIABLES.slice(0, 4);
+      list.forEach((v) => {
+        wrap.append(h('button', {
+          type: 'button',
+          class: 'dck-vchip',
+          onclick: () => {
+            const r = insertAt(target.value, target.selectionStart, target.selectionEnd, '{{' + v.name + '}}');
+            target.value = r.value;
+            target.focus();
+            try { target.setSelectionRange(r.caret, r.caret); } catch (e) { /* ignore */ }
           },
-          extra: [h('button', { class: 'danger', onclick: () => { settings.defaultText = ''; editingId = null; save(); render(drawer); } }, 'Reset to built-in')],
-        }));
-      return;
-    }
-    body.append(h('div', { class: 'dck-card' },
-      h('div', { class: 'dck-toggle' },
-        h('span', { class: 't' },
-          h('span', { class: 'name' }, 'Default' + (settings.defaultText ? ' (customized)' : '')),
-          h('span', { class: 'sub' }, describeSchedule(settings.defaultSchedule, settings.defaultEveryN))),
-        sw(settings.defaultEnabled !== false, (v) => { settings.defaultEnabled = v; save(); })),
-      h('div', { class: 'dck-row' }, h('button', { class: 'link', onclick: () => { editingId = 'default'; render(drawer); } }, 'Edit'))));
+        }, '{{' + v.name + '}}'));
+      });
+      if (VARIABLES.length > 4) {
+        wrap.append(h('button', { type: 'button', class: 'dck-vchip plain', onclick: () => { ui.showAllVars = !ui.showAllVars; fill(); } },
+          ui.showAllVars ? 'Less' : '+' + (VARIABLES.length - 4)));
+      }
+    };
+    fill();
+    return wrap;
   }
 
-  function renderPrompts(drawer, body) {
-    if (!settings.multiPrompt) {
-      const prompt = h('textarea', { value: settings.systemPrompt, placeholder: 'e.g. Answer concisely. I am a Python developer.' });
-      prompt.addEventListener('change', () => { settings.systemPrompt = prompt.value; save(); });
-      const everyN = h('input', { type: 'number', min: 1, value: settings.everyN, onchange: (e) => { settings.everyN = parseInt(e.target.value, 10) || 1; save(); } });
-      body.append(
-        h('h4', {}, 'Your system prompt'),
-        prompt,
-        h('h4', {}, 'When to insert'),
-        scheduleSelect(settings.mode, (v) => { settings.mode = v; save(); render(drawer); }),
-        settings.mode === 'every' ? h('div', { class: 'dck-row' }, 'N =', everyN) : ''
-      );
-      return;
-    }
+  // ---------- Prompts tab ----------
+  function promptRow(p, builtin) {
+    const customized = builtin && (settings.defaultText || '').trim();
+    return h('div', { class: 'dck-card dck-rowcard' },
+      sw(builtin ? settings.defaultEnabled !== false : p.enabled, (v) => {
+        if (builtin) settings.defaultEnabled = v; else p.enabled = v;
+        commit();
+      }, 'Enable ' + (builtin ? 'Default' : (p.name || 'Untitled')) + ' prompt'),
+      h('div', { class: 'dck-grow' },
+        h('div', { class: 'dck-name' }, builtin ? 'Default' : (p.name || 'Untitled'),
+          builtin ? h('span', { class: 'dck-badge' }, customized ? 'Customized' : 'Built-in') : null),
+        h('div', { class: 'dck-sub' }, builtin ? describeSchedule(settings.defaultSchedule, settings.defaultEveryN) : describeSchedule(p.schedule, p.everyN))),
+      iconBtn('edit', 'Edit ' + (builtin ? 'Default' : (p.name || 'Untitled')) + ' prompt', () => { ui.editingId = builtin ? 'default' : p.id; render(); }));
+  }
 
-    body.append(h('h4', {}, 'System prompts'));
-    settings.prompts.forEach((p) => {
-      if (editingId === p.id) {
-        body.append(entryEditor(drawer, p, {
-          showName: true,
-          onSave: (f) => { Object.assign(p, f); editingId = null; save(); render(drawer); },
-        }));
-        return;
-      }
-      body.append(h('div', { class: 'dck-card' },
-        h('div', { class: 'dck-toggle' },
-          h('span', { class: 't' }, h('span', { class: 'name' }, p.name || 'Untitled'), h('span', { class: 'sub' }, describeSchedule(p.schedule, p.everyN))),
-          sw(p.enabled, (v) => { p.enabled = v; save(); })),
-        h('div', { class: 'dck-row' },
-          h('button', { class: 'link', onclick: () => { editingId = p.id; render(drawer); } }, 'Edit'),
-          h('button', {
-            class: 'danger',
-            onclick: () => { settings.prompts = settings.prompts.filter((x) => x.id !== p.id); save(); render(drawer); }
-          }, 'Delete'))));
-    });
-    body.append(h('div', { class: 'dck-row' }, h('button', {
+  function promptEditor(p, builtin) {
+    const name = h('input', { value: builtin ? '' : (p.name || ''), placeholder: 'Name', 'aria-label': 'Prompt name', style: builtin ? 'display:none' : '' });
+    const text = h('textarea', { value: builtin ? defaultPromptText(settings) : p.text, placeholder: 'Prompt text', 'aria-label': 'Prompt text' });
+    let sched = builtin ? (settings.defaultSchedule || 'first') : (p.schedule || 'first');
+    const everyN = h('input', { type: 'number', min: 1, value: builtin ? (settings.defaultEveryN || 5) : (p.everyN || 5), 'aria-label': 'Every N messages', style: sched === 'every' ? '' : 'display:none' });
+    const sel = scheduleSelect(sched, (v) => { sched = v; everyN.style.display = v === 'every' ? '' : 'none'; });
+    return h('div', { class: 'dck-card dck-editor' },
+      name, text, varChips(text), sel, everyN,
+      h('div', { class: 'dck-actions' },
+        h('button', {
+          type: 'button', class: 'dck-btn primary',
+          onclick: () => {
+            const n = Math.max(1, parseInt(everyN.value, 10) || 5);
+            if (builtin) {
+              settings.defaultText = text.value.trim() === BUILTIN_DEFAULT_PROMPT.trim() ? '' : text.value;
+              settings.defaultSchedule = sched;
+              settings.defaultEveryN = n;
+            } else {
+              p.name = name.value.trim() || 'Untitled';
+              p.text = text.value;
+              p.schedule = sched;
+              p.everyN = n;
+            }
+            ui.editingId = null; commit(); render();
+          },
+        }, 'Save'),
+        h('button', { type: 'button', class: 'dck-btn', onclick: () => { ui.editingId = null; render(); } }, 'Cancel'),
+        builtin
+          ? h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings.defaultText = ''; ui.editingId = null; commit(); render(); } }, 'Reset to built-in')
+          : h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings.prompts = settings.prompts.filter((x) => x.id !== p.id); ui.editingId = null; commit(); render(); } }, 'Delete')));
+  }
+
+  function renderPrompts(body) {
+    body.append(group('Built-in'));
+    body.append(ui.editingId === 'default' ? promptEditor(null, true) : promptRow(null, true));
+    body.append(group('Yours'));
+    settings.prompts.forEach((p) => body.append(ui.editingId === p.id ? promptEditor(p, false) : promptRow(p, false)));
+    body.append(h('button', {
+      type: 'button', class: 'dck-btn dashed',
       onclick: () => {
         const p = { id: newId(), name: 'New prompt', text: '', enabled: true, schedule: 'first', everyN: 5 };
-        settings.prompts.push(p); editingId = p.id; save(); render(drawer);
-      }
-    }, '+ Add prompt')));
+        settings.prompts.push(p); ui.editingId = p.id; commit(); render();
+      },
+    }, icon('plus'), 'New prompt'));
   }
 
-  function renderSnippets(drawer, body) {
-    body.append(h('h4', {}, 'Snippets'),
-      h('div', { class: 'dck-hint' }, 'Type / in the message box to pick one. Variables are filled in when you pick it.'));
-    settings.snippets.forEach((s) => {
-      if (editingSnippetId === s.id) {
-        const name = h('input', { value: s.name, placeholder: 'name (used after the /)' });
-        const text = h('textarea', { value: s.text, placeholder: 'Snippet text' });
-        body.append(h('div', { class: 'dck-card' }, name, text,
-          h('div', { class: 'dck-hint' }, 'Variables: ' + VARIABLE_NAMES.map((v) => '{{' + v + '}}').join(' ')),
-          h('div', { class: 'dck-row' },
-            h('button', {
-              onclick: () => {
-                const nm = cleanSnippetName(name.value);
-                if (!nm) { toast('Give the snippet a name'); return; }
-                s.name = nm; s.text = text.value; editingSnippetId = null; save(); render(drawer);
-              }
-            }, 'Save'),
-            h('button', { onclick: () => { editingSnippetId = null; render(drawer); } }, 'Cancel'))));
-        return;
-      }
-      body.append(h('div', { class: 'dck-card' },
-        h('div', { class: 'name' }, '/' + s.name),
-        h('div', { class: 'meta' }, s.text.replace(/\s+/g, ' ').slice(0, 90)),
-        h('div', { class: 'dck-row' },
-          h('button', { class: 'link', onclick: () => { editingSnippetId = s.id; render(drawer); } }, 'Edit'),
-          h('button', { class: 'danger', onclick: () => { settings.snippets = settings.snippets.filter((x) => x.id !== s.id); save(); render(drawer); } }, 'Delete'))));
-    });
-    body.append(h('div', { class: 'dck-row' }, h('button', {
-      onclick: () => {
-        const s = { id: newId(), name: 'snippet' + (settings.snippets.length + 1), text: '' };
-        settings.snippets.push(s); editingSnippetId = s.id; save(); render(drawer);
-      }
-    }, '+ Add snippet')));
-  }
-
-  function render(drawer) {
-    const body = drawer.querySelector('.dck-body');
-    body.textContent = '';
-
-    body.append(
-      toggleRow('Enabled', settings.enabled, (v) => { settings.enabled = v; save(); }),
-      toggleRow('Insert context when I press Enter', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; save(); }),
-      toggleRow('Show inserted context', settings.showInjected !== false, (v) => {
-        settings.showInjected = v; save();
-        if (!v) scheduleStrip([document.body]);
-      }, 'Off: context is attached and sent in one step, and hidden in the chat view'),
-      toggleRow('Multi-system prompt mode', settings.multiPrompt, (v) => {
-        settings.multiPrompt = v;
-        if (v && settings.prompts.length === 0 && settings.systemPrompt.trim()) {
-          settings.prompts.push({ id: newId(), name: 'Custom', text: settings.systemPrompt, enabled: true, schedule: settings.mode, everyN: settings.everyN });
-        }
-        editingId = null; save(); render(drawer);
-      }, 'Several prompts at once, each with its own schedule')
-    );
-
-    renderDefault(drawer, body);
-    renderPrompts(drawer, body);
-
-    body.append(
-      h('div', { class: 'dck-hint' }, settings.showInjected !== false
-        ? 'The text is placed in your message box so you can read and edit it before sending. Nothing is sent automatically.'
-        : 'Hidden mode: when context is due, pressing Enter attaches it and sends the message. It is hidden in the chat view here, but it is part of the message.'),
-      h('h4', {}, 'Memory'),
-      toggleRow('Use memory', settings.memoryEnabled, (v) => { settings.memoryEnabled = v; save(); })
-    );
-
-    const key = h('input', { placeholder: 'key (e.g. my name)' });
-    const val = h('input', { placeholder: 'value' });
-    const imp = h('select', {},
-      h('option', { value: 'always' }, 'always'),
-      h('option', { value: 'called' }, 'only when mentioned'));
-    body.append(
-      key, val,
-      h('div', { class: 'dck-row' }, imp, h('button', {
-        onclick: () => {
-          if (!key.value.trim() || !val.value.trim()) return;
-          memories.push({ key: key.value.trim(), value: val.value.trim(), importance: imp.value });
-          save(); render(drawer);
-        }
-      }, 'Add'))
-    );
-
+  // ---------- Memory tab ----------
+  function renderMemory(body) {
+    body.append(toggleCard('Use memory', 'Notes are added whenever context is inserted', settings.memoryEnabled, (v) => { settings.memoryEnabled = v; commit(); }));
+    body.append(group('Notes'));
+    if (!memories.length) body.append(h('div', { class: 'dck-hint' }, 'No notes yet. Add one below.'));
     memories.forEach((m, i) => {
-      body.append(h('div', { class: 'dck-card' },
-        h('div', { class: 'name' }, m.key),
-        h('div', {}, m.value),
-        h('div', { class: 'dck-row' },
-          h('span', { class: 'meta' }, m.importance === 'always' ? 'always included' : 'included when mentioned'),
-          h('button', { class: 'danger', onclick: () => { memories.splice(i, 1); save(); render(drawer); } }, 'Delete'))));
+      body.append(h('div', { class: 'dck-card dck-rowcard' },
+        h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, m.key), h('div', { class: 'dck-sub' }, m.value)),
+        h('span', { class: 'dck-badge' + (m.importance === 'always' ? '' : ' green') }, m.importance === 'always' ? 'Always' : 'When mentioned'),
+        iconBtn('trash', 'Delete ' + m.key, () => { memories.splice(i, 1); commit(); render(); })));
     });
+    const key = h('input', { placeholder: 'Key, e.g. my city', 'aria-label': 'Key' });
+    const val = h('input', { placeholder: 'Value', 'aria-label': 'Value' });
+    const imp = h('select', { 'aria-label': 'When to include' },
+      h('option', { value: 'always' }, 'Always'),
+      h('option', { value: 'called' }, 'When mentioned'));
+    body.append(h('div', { class: 'dck-card dashed-card' },
+      h('div', { class: 'dck-two' }, key, val),
+      h('div', { class: 'dck-two' }, imp, h('button', {
+        type: 'button', class: 'dck-btn primary',
+        onclick: () => {
+          if (!key.value.trim() || !val.value.trim()) { toast('Add a key and a value'); return; }
+          memories.push({ key: key.value.trim(), value: val.value.trim(), importance: imp.value });
+          commit(); render();
+        },
+      }, icon('plus', 14), 'Add'))));
+  }
 
-    renderSnippets(drawer, body);
+  // ---------- Snippets tab ----------
+  function snippetEditor(s) {
+    const name = h('input', { value: s.name, placeholder: 'name (used after the /)', 'aria-label': 'Snippet name' });
+    const text = h('textarea', { value: s.text, placeholder: 'Snippet text', 'aria-label': 'Snippet text' });
+    return h('div', { class: 'dck-card dck-editor active' },
+      h('div', { class: 'dck-slashname' }, h('span', {}, '/'), name),
+      text, varChips(text),
+      h('div', { class: 'dck-actions' },
+        h('button', {
+          type: 'button', class: 'dck-btn primary',
+          onclick: () => {
+            const nm = cleanSnippetName(name.value);
+            if (!nm) { toast('Give the snippet a name'); return; }
+            s.name = nm; s.text = text.value; ui.editingSnippetId = null; commit(); render();
+          },
+        }, 'Save'),
+        h('button', { type: 'button', class: 'dck-btn', onclick: () => { ui.editingSnippetId = null; render(); } }, 'Cancel'),
+        h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings.snippets = settings.snippets.filter((x) => x.id !== s.id); ui.editingSnippetId = null; commit(); render(); } }, 'Delete')));
+  }
 
-    const importInput = h('input', { type: 'file', accept: 'application/json', style: 'display:none' });
+  function renderSnippets(body) {
+    const search = h('input', { class: 'dck-search', value: ui.search, placeholder: 'Search snippets, or type / in chat', 'aria-label': 'Search snippets' });
+    search.addEventListener('input', () => {
+      ui.search = search.value;
+      render();
+      const again = ui.drawer.querySelector('.dck-search');
+      if (again) { again.focus(); try { again.setSelectionRange(again.value.length, again.value.length); } catch (e) { /* ignore */ } }
+    });
+    body.append(h('div', { class: 'dck-searchwrap' }, h('span', { class: 'dck-searchicon' }, icon('search')), search));
+
+    const editing = settings.snippets.find((s) => s.id === ui.editingSnippetId);
+    if (editing) body.append(snippetEditor(editing));
+
+    const list = searchSnippets(settings.snippets, ui.search).filter((s) => s.id !== ui.editingSnippetId);
+    list.forEach((s) => {
+      body.append(h('div', { class: 'dck-card dck-rowcard' },
+        h('div', { class: 'dck-grow' },
+          h('div', { class: 'dck-name' }, '/' + s.name),
+          h('div', { class: 'dck-sub clip' }, s.text.replace(/\s+/g, ' ').slice(0, 90))),
+        iconBtn('edit', 'Edit /' + s.name, () => { ui.editingSnippetId = s.id; render(); })));
+    });
+    if (!list.length && !editing) {
+      body.append(h('div', { class: 'dck-hint' }, settings.snippets.length ? 'No snippets match your search.' : 'No snippets yet. Type / in the message box to pick one once you add some.'));
+    }
+  }
+
+  // ---------- Settings tab ----------
+  function renderSettings(body, drawer) {
+    body.append(group('Behavior'));
+    body.append(toggleCard('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
+    body.append(toggleCard('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
+    body.append(toggleCard('Chips above message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
+
+    body.append(group('Variables'));
+    const grid = h('div', { class: 'dck-card dck-vargrid' });
+    VARIABLES.forEach((v) => grid.append(h('div', {}, h('span', { class: 'dck-vchip static' }, '{{' + v.name + '}}'), h('div', { class: 'dck-faint' }, v.desc))));
+    body.append(grid);
+
+    const importInput = h('input', { type: 'file', accept: 'application/json', style: 'display:none', 'aria-label': 'Import file' });
     importInput.addEventListener('change', async () => {
       try {
         const data = JSON.parse(await importInput.files[0].text());
-        if (data.settings) settings = normalizeSettings(data.settings);
+        if (data.settings) settings = migrateSettings(data.settings);
         if (Array.isArray(data.memories)) memories = data.memories;
-        save(); render(drawer); toast('Imported');
+        commit(); render(); toast('Imported');
       } catch (err) { toast('Invalid file'); }
     });
+    body.append(group('Backup'));
+    body.append(h('div', { class: 'dck-two' },
+      h('button', {
+        type: 'button', class: 'dck-btn',
+        onclick: () => {
+          const blob = new Blob([JSON.stringify({ settings, memories }, null, 2)], { type: 'application/json' });
+          const a = h('a', { href: URL.createObjectURL(blob), download: 'deepseek-kit.json' });
+          a.click(); URL.revokeObjectURL(a.href);
+        },
+      }, icon('down'), 'Export'),
+      h('button', { type: 'button', class: 'dck-btn', onclick: () => importInput.click() }, icon('up'), 'Import')),
+      importInput);
+  }
 
-    body.append(
-      h('h4', {}, 'Backup'),
-      h('div', { class: 'dck-row' },
+  // ---------- Drawer ----------
+  function previewData() {
+    const el = getComposer();
+    const text = el ? stripContext(el.value) : '';
+    const count = chatCount();
+    const due = shouldInject(settings, count);
+    return { due: due, text: buildPrefix(settings, memories, text, count, !due, ctxFor(count)) };
+  }
+
+  function renderPreview(drawer) {
+    const d = previewData();
+    drawer.append(h('div', { class: 'dck-preview', role: 'dialog', 'aria-label': 'Preview' },
+      h('div', { class: 'dck-head' }, h('span', { class: 'dck-title' }, 'Preview'),
+        iconBtn('close', 'Close preview', () => { ui.preview = null; render(); })),
+      h('div', { class: 'dck-previewbody' },
+        h('div', { class: 'dck-hint' }, d.due ? 'This is added to your next message.' : 'Nothing is due for the next message. Insert now would add:'),
+        h('pre', { class: 'dck-pre' }, d.text || 'Nothing to add yet. Switch on a prompt or add a memory note.'))));
+  }
+
+  function render() {
+    const drawer = ui.drawer;
+    if (!drawer) return;
+    const oldBody = drawer.querySelector('.dck-body');
+    const scroll = oldBody ? oldBody.scrollTop : 0;
+    drawer.textContent = '';
+
+    drawer.append(h('div', { class: 'dck-head' },
+      h('div', { class: 'dck-titlewrap' }, h('span', { class: 'dck-title' }, 'DeepSeek Kit'), h('span', { class: 'dck-faint' }, 'v' + kitVersion())),
+      h('div', { class: 'dck-headright' },
+        h('label', { class: 'dck-onlabel' }, h('span', {}, 'On'), sw(settings.enabled, (v) => { settings.enabled = v; commit(); }, 'Enable DeepSeek Kit')),
+        iconBtn('close', 'Close panel', () => drawer.classList.remove('open')))));
+
+    const segBtns = [];
+    const vis = (label, value) => {
+      const b = h('button', {
+        type: 'button', class: 'dck-seg', 'aria-pressed': 'false',
+        onclick: () => {
+          settings.showInjected = value;
+          segBtns.forEach((x) => { x.el.className = 'dck-seg' + (x.value === value ? ' on' : ''); x.el.setAttribute('aria-pressed', String(x.value === value)); });
+          commit();
+          if (!value) scheduleStrip([document.body]);
+        },
+      }, label);
+      const on = (settings.showInjected !== false) === value;
+      b.className = 'dck-seg' + (on ? ' on' : '');
+      b.setAttribute('aria-pressed', String(on));
+      segBtns.push({ el: b, value: value });
+      return b;
+    };
+    ui.strip = h('div', { class: 'dck-strip', id: 'dck-strip' });
+    drawer.append(h('div', { class: 'dck-ctx' },
+      h('div', { class: 'dck-ctxrow' },
+        h('span', { class: 'dck-ctxlabel' }, 'Context in chat'),
+        h('div', { class: 'dck-segs', role: 'group', 'aria-label': 'Context visibility' }, vis('Visible', true), vis('Hidden', false))),
+      ui.strip));
+
+    const tabs = [
+      { id: 'prompts', label: 'Prompts', count: 0 },
+      { id: 'memory', label: 'Memory', count: memories.length },
+      { id: 'snippets', label: 'Snippets', count: settings.snippets.length },
+      { id: 'settings', label: 'Settings', count: 0 },
+    ];
+    drawer.append(h('div', { class: 'dck-tabs', role: 'tablist', 'aria-label': 'Sections' },
+      tabs.map((t) => h('button', {
+        type: 'button', role: 'tab', class: 'dck-tab' + (ui.tab === t.id ? ' on' : ''), 'aria-selected': String(ui.tab === t.id),
+        onclick: () => { ui.tab = t.id; ui.editingId = null; ui.editingSnippetId = null; render(); },
+      }, t.label, t.count ? h('span', { class: 'dck-badge' }, String(t.count)) : null))));
+
+    const body = h('div', { class: 'dck-body', role: 'tabpanel' });
+    if (ui.tab === 'prompts') renderPrompts(body);
+    else if (ui.tab === 'memory') renderMemory(body);
+    else if (ui.tab === 'snippets') renderSnippets(body);
+    else renderSettings(body, drawer);
+    drawer.append(body);
+    body.scrollTop = scroll;
+
+    let foot;
+    if (ui.tab === 'snippets') {
+      foot = h('div', { class: 'dck-foot' }, h('button', {
+        type: 'button', class: 'dck-btn primary grow',
+        onclick: () => {
+          const s = { id: newId(), name: 'snippet' + (settings.snippets.length + 1), text: '' };
+          settings.snippets.unshift(s); ui.search = ''; ui.editingSnippetId = s.id; commit(); render();
+        },
+      }, icon('plus'), 'New snippet'));
+    } else if (ui.tab === 'settings') {
+      foot = h('div', { class: 'dck-foot between' },
+        h('span', { class: 'dck-faint' }, 'v' + kitVersion() + ' - your data stays on this device'),
         h('button', {
+          type: 'button', class: 'dck-btn danger',
           onclick: () => {
-            const blob = new Blob([JSON.stringify({ settings, memories }, null, 2)], { type: 'application/json' });
-            const a = h('a', { href: URL.createObjectURL(blob), download: 'deepseek-kit.json' });
-            a.click(); URL.revokeObjectURL(a.href);
-          }
-        }, 'Export'),
-        h('button', { onclick: () => importInput.click() }, 'Import'),
-        h('button', { onclick: () => { if (insertContext(true)) toast('Context inserted'); } }, 'Insert now')),
-      importInput
-    );
+            if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
+            settings = migrateSettings({}); memories = []; ui.editingId = null; ui.editingSnippetId = null; commit(); render();
+          },
+        }, 'Reset all'));
+    } else {
+      foot = h('div', { class: 'dck-foot' },
+        h('button', { type: 'button', class: 'dck-btn primary grow', onclick: () => { if (insertContext(true)) toast('Context inserted'); } }, 'Insert now'),
+        h('button', { type: 'button', class: 'dck-btn', onclick: () => { ui.preview = true; render(); } }, 'Preview'));
+    }
+    drawer.append(foot);
+
+    if (ui.preview) renderPreview(drawer);
+    refreshAll(true);
   }
 
   function mount() {
     if (document.getElementById('dck-fab')) return;
-    const drawer = h('div', { id: 'dck-drawer' },
-      h('header', {}, 'DeepSeek Kit', h('button', { onclick: () => drawer.classList.remove('open') }, '\u2715')),
-      h('div', { class: 'dck-body' }));
-    const fab = h('button', { id: 'dck-fab', onclick: () => { render(drawer); drawer.classList.toggle('open'); } }, 'Kit');
+    const drawer = h('div', { id: 'dck-drawer' });
+    ui.drawer = drawer;
+    const fab = h('button', { id: 'dck-fab', type: 'button', onclick: () => { ui.preview = null; render(); drawer.classList.toggle('open'); } }, 'Kit');
     document.body.append(fab, drawer);
+    render();
     startObserver();
     if (settings.showInjected === false) scheduleStrip([document.body]);
   }
