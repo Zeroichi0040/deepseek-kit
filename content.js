@@ -425,16 +425,34 @@
     chips.el.append(h('span', { class: 'dck-chips-note' }, (settings.showInjected !== false ? 'Visible' : 'Hidden') + (sum.state === 'ready' ? ' - ~' + sum.tokens + ' tokens' : '')));
   }
 
+  // The rounded box that visually holds the message input (it wraps the textarea in padding and a toolbar).
+  // Falls back to the textarea itself when no such box is found.
+  function composerRect(el) {
+    const own = el.getBoundingClientRect();
+    let best = own;
+    let node = el.parentElement;
+    for (let i = 0; i < 6 && node && node !== document.body; i++, node = node.parentElement) {
+      const r = node.getBoundingClientRect();
+      if (r.width > own.width + 200) break; // too wide to be the input box
+      let radius = 0;
+      try { radius = parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0; } catch (e) { /* ignore */ }
+      if (radius >= 8 && r.width >= own.width && r.height >= own.height) best = r;
+    }
+    return best;
+  }
+
+  const CHIP_GAP = 12; // space between the chip row and the message box
+
   function positionChips() {
     if (!chips.el) return;
     const el = getComposer();
-    const r = el ? el.getBoundingClientRect() : null;
+    const r = el ? composerRect(el) : null;
     const show = settings.enabled && settings.showChips && r && r.width > 0;
     chips.el.style.display = show ? 'flex' : 'none';
     if (!show) return;
-    chips.el.style.left = Math.max(8, r.left) + 'px';
-    chips.el.style.width = Math.max(260, Math.min(r.width, 760)) + 'px';
-    chips.el.style.bottom = Math.max(8, window.innerHeight - r.top + 6) + 'px';
+    chips.el.style.left = Math.max(8, r.left + 4) + 'px';
+    chips.el.style.width = Math.max(260, Math.min(r.width - 8, 760)) + 'px';
+    chips.el.style.bottom = Math.max(8, window.innerHeight - r.top + CHIP_GAP) + 'px';
   }
 
   function refreshAll(force) {
@@ -486,8 +504,8 @@
       document.body.append(picker.el);
     }
     renderPicker();
-    const r = el.getBoundingClientRect();
-    const lift = chips.el && chips.el.style.display !== 'none' ? 40 : 8;
+    const r = composerRect(el);
+    const lift = chips.el && chips.el.style.display !== 'none' ? CHIP_GAP + 34 : 10;
     picker.el.style.left = Math.max(8, r.left) + 'px';
     picker.el.style.width = Math.max(260, Math.min(r.width, 560)) + 'px';
     picker.el.style.bottom = Math.max(8, window.innerHeight - r.top + lift) + 'px';
