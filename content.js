@@ -1,296 +1,28 @@
 /* DeepSeek Kit - local-only, no network calls, no request patching.
- * It edits the text in your message box (and optionally hides its own inserted block in the chat view). */
+ * It edits the text in your message box (and optionally hides its own inserted block in the chat view).
+ * Pure logic lives in lib.js, which is loaded first. */
 (function () {
   'use strict';
 
-  // ---------- Pure logic (unit-testable) ----------
-  const MARKER_START = '[Context from my notes]';
-  const MARKER_END = '[End of context]';
-
-  const BUILTIN_DEFAULT_PROMPT = [
-    'You are a helpful, honest assistant. Today is {{date}} ({{weekday}}), local time {{time}} {{timezone}}.',
-    '- Answer directly: lead with the answer, then add supporting detail only as needed.',
-    '- Match the length and depth of your reply to the question. Do not pad.',
-    '- If you are unsure or lack current information, say so instead of guessing.',
-    '- Ask one short clarifying question only when the request is genuinely ambiguous; otherwise make a reasonable assumption and state it.',
-    '- Put code, commands and file contents in fenced code blocks with a language tag.',
-    '- Use plain prose by default; use lists or tables only when they make the content easier to scan.',
-    '- Reply in the language the user writes in.',
-  ].join('\n');
-
-  const DEFAULTS = {
-    enabled: true,
-    showInjected: true, // false = attach context automatically and hide it in the chat
-    autoInsertOnEnter: true,
-    memoryEnabled: true,
-    showSummary: true, // the "next message includes" strip in the drawer
-    showChips: true, // the chip row above the message box
-    prompts: [], // [{ id, name, text, enabled, schedule, everyN }]
-    defaultEnabled: true, // built-in default prompt
-    defaultText: '', // '' = use the built-in text
-    defaultSchedule: 'first',
-    defaultEveryN: 5,
-    snippets: [], // [{ id, name, text }]
-  };
-
-  const VARIABLES = [
-    { name: 'date', desc: 'Today, YYYY-MM-DD' },
-    { name: 'time', desc: 'Local time, 24-hour' },
-    { name: 'datetime', desc: 'Date and time' },
-    { name: 'weekday', desc: 'e.g. Saturday' },
-    { name: 'timezone', desc: 'e.g. Asia/Manila' },
-    { name: 'message_number', desc: 'Message # in this chat' },
-    { name: 'selection', desc: 'Text selected on the page' },
-  ];
-  const VARIABLE_NAMES = VARIABLES.map((v) => v.name);
-  const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-  function newId() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  }
-
-  // Normalizes stored settings. Older versions had a single "systemPrompt" plus a multi-prompt switch;
-  // now there is just a list, so a leftover single prompt becomes the first list entry.
-  function migrateSettings(raw) {
-    const s = { ...DEFAULTS, ...(raw || {}) };
-    s.prompts = Array.isArray(s.prompts) ? s.prompts.slice() : [];
-    s.snippets = Array.isArray(s.snippets) ? s.snippets.slice() : [];
-    const legacy = String(s.systemPrompt || '');
-    if (legacy.trim()) {
-      s.prompts.unshift({
-        id: newId(),
-        name: s.multiPrompt ? 'Previous prompt' : 'Custom prompt',
-        text: legacy,
-        enabled: !s.multiPrompt, // in multi mode the single prompt was not in use, so keep it switched off
-        schedule: s.mode || 'first',
-        everyN: s.everyN || 5,
-      });
-    }
-    delete s.systemPrompt;
-    delete s.mode;
-    delete s.everyN;
-    delete s.multiPrompt;
-    return s;
-  }
-
-  function hasLegacyKeys(raw) {
-    return !!raw && ('systemPrompt' in raw || 'multiPrompt' in raw || 'mode' in raw || 'everyN' in raw);
-  }
-
-  function tokens(s) {
-    return new Set(
-      String(s || '')
-        .toLowerCase()
-        .split(/[^a-z0-9\u00c0-\uffff]+/)
-        .filter((t) => t.length > 2)
-    );
-  }
-
-  // "always" memories are always included; "called" ones only when the key's words appear in the message.
-  function selectMemories(memories, userText) {
-    const msg = tokens(userText);
-    return (memories || []).filter((m) => {
-      if (!m || !m.key) return false;
-      if (m.importance === 'always') return true;
-      const kt = tokens(m.key);
-      if (kt.size === 0) return false;
-      for (const t of kt) if (msg.has(t)) return true;
-      return false;
-    });
-  }
-
-  // sentCount = how many messages have already been sent in this chat.
-  function scheduleDue(mode, everyN, sentCount) {
-    if (mode === 'always') return true;
-    if (mode === 'every') {
-      const n = Math.max(1, parseInt(everyN, 10) || 1);
-      return sentCount % n === 0;
-    }
-    return sentCount === 0; // 'first'
-  }
-
-  function pad(n) { return String(n).padStart(2, '0'); }
-  function localTimezone() {
-    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (e) { return 'UTC'; }
-  }
-
-  // Replaces {{date}}, {{time}}, ... Unknown variables are left untouched.
-  function applyVariables(text, ctx) {
-    ctx = ctx || {};
-    const d = ctx.now || new Date();
-    const vars = {
-      date: d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()),
-      time: pad(d.getHours()) + ':' + pad(d.getMinutes()),
-      weekday: WEEKDAYS[d.getDay()],
-      timezone: ctx.timezone || localTimezone(),
-      message_number: String(ctx.messageNumber || 1),
-      selection: ctx.selection || '',
-    };
-    vars.datetime = vars.date + ' ' + vars.time;
-    return String(text == null ? '' : text).replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, k) => {
-      k = k.toLowerCase();
-      return Object.prototype.hasOwnProperty.call(vars, k) ? vars[k] : m;
-    });
-  }
-
-  function defaultPromptText(settings) {
-    return (settings.defaultText || '').trim() ? settings.defaultText : BUILTIN_DEFAULT_PROMPT;
-  }
-
-  // Every prompt that may take part: the built-in default, then your own list.
-  function promptEntries(settings) {
-    const list = [];
-    if (settings.defaultEnabled !== false) {
-      list.push({ id: 'default', name: 'Default', text: defaultPromptText(settings), enabled: true, schedule: settings.defaultSchedule || 'first', everyN: settings.defaultEveryN || 5 });
-    }
-    (settings.prompts || []).forEach((p) => { if (p) list.push(p); });
-    return list;
-  }
-
-  function shouldInject(settings, sentCount) {
-    if (!settings.enabled) return false;
-    return promptEntries(settings).some((e) => e.enabled && (e.text || '').trim() && scheduleDue(e.schedule, e.everyN, sentCount));
-  }
-
-  // Prompts that go out with this message. `force` ignores schedules (the "Insert now" button).
-  function activePrompts(settings, sentCount, force) {
-    return promptEntries(settings)
-      .filter((e) => e && e.enabled && (e.text || '').trim() && (force || scheduleDue(e.schedule, e.everyN, sentCount)))
-      .map((e) => ({ name: (e.name || '').trim() || 'Untitled', text: e.text.trim() }));
-  }
-
-  function buildPrefix(settings, memories, userText, sentCount, force, ctx) {
-    const parts = activePrompts(settings, sentCount || 0, !!force).map((p) => 'Instructions (' + p.name + '):\n' + p.text);
-    if (settings.memoryEnabled) {
-      const sel = selectMemories(memories, userText);
-      if (sel.length) {
-        parts.push('Things to remember about me:\n' + sel.map((m) => '- ' + m.key + ': ' + m.value).join('\n'));
-      }
-    }
-    if (!parts.length) return '';
-    const out = MARKER_START + '\n' + parts.join('\n\n') + '\n' + MARKER_END + '\n\n';
-    return ctx ? applyVariables(out, ctx) : out;
-  }
-
-  function estimateTokens(text) {
-    return Math.ceil(String(text || '').length / 4);
-  }
-
-  // What the next message will carry, for the strip in the drawer and the chips above the message box.
-  function summarize(settings, memories, userText, sentCount) {
-    if (!settings.enabled) return { state: 'off', names: [], memories: 0, tokens: 0 };
-    if (!shouldInject(settings, sentCount)) return { state: 'idle', names: [], memories: 0, tokens: 0 };
-    const names = activePrompts(settings, sentCount, false).map((p) => p.name);
-    const mem = settings.memoryEnabled ? selectMemories(memories, userText).length : 0;
-    const prefix = buildPrefix(settings, memories, userText, sentCount, false, {});
-    return { state: 'ready', names: names, memories: mem, tokens: estimateTokens(prefix) };
-  }
-
-  function memoryLabel(n) {
-    return n + (n === 1 ? ' memory' : ' memories');
-  }
-
-  function describeSummary(sum) {
-    if (sum.state === 'off') return 'Kit is off';
-    if (sum.state === 'idle') return 'Nothing is due for the next message';
-    let t = sum.names.join(', ');
-    if (sum.memories) t += (t ? ' + ' : '') + memoryLabel(sum.memories);
-    return 'Next message includes ' + t;
-  }
-
-  function alreadyHasContext(text) {
-    return String(text || '').trimStart().startsWith(MARKER_START);
-  }
-
-  // Removes the inserted block (used to hide it in the chat view when "show inserted context" is off).
-  function stripContext(text) {
-    return String(text || '').replace(/\[Context from my notes\][\s\S]*?\[End of context\]\s*/, '');
-  }
-
-  // "/foo" (and nothing else) in the message box opens the snippet picker.
-  function slashQuery(value) {
-    const m = /^\/([^\s\/]*)$/.exec(String(value || ''));
-    return m ? m[1] : null;
-  }
-
-  function cleanSnippetName(s) {
-    return String(s || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_\-\u00c0-\uffff]/g, '');
-  }
-
-  function filterSnippets(snippets, query, limit) {
-    const q = String(query || '').toLowerCase();
-    return (snippets || [])
-      .filter((s) => s && s.name && String(s.name).toLowerCase().includes(q))
-      .sort((a, b) => {
-        const as = a.name.toLowerCase().startsWith(q) ? 0 : 1;
-        const bs = b.name.toLowerCase().startsWith(q) ? 0 : 1;
-        return as - bs || a.name.localeCompare(b.name);
-      })
-      .slice(0, limit || 8);
-  }
-
-  // Drawer search box: matches the name or the text, keeps your order.
-  function searchSnippets(snippets, query) {
-    const q = String(query || '').trim().toLowerCase();
-    if (!q) return (snippets || []).filter(Boolean);
-    return (snippets || []).filter((s) => s && ((s.name || '').toLowerCase().includes(q) || (s.text || '').toLowerCase().includes(q)));
-  }
-
-  function describeSchedule(schedule, everyN) {
-    if (schedule === 'always') return 'Every message';
-    if (schedule === 'every') return 'Every ' + Math.max(1, parseInt(everyN, 10) || 1) + ' messages';
-    return 'First message';
-  }
-
-  // A chat other than the new-chat screen ("/") already has messages in it. Used when we have no record of a chat,
-  // for example after a page refresh, so "first message" prompts do not fire again in the middle of a conversation.
-  function isExistingChatPath(path) {
-    const p = String(path == null ? '/' : path);
-    return p !== '/' && p !== '';
-  }
-
-  // How many messages have been sent in this chat. Unknown existing chats count as 1 (already started).
-  function resolveCount(counts, path) {
-    if (counts && Object.prototype.hasOwnProperty.call(counts, path)) {
-      const n = Number(counts[path]);
-      if (Number.isFinite(n) && n >= 0) return Math.floor(n);
-    }
-    return isExistingChatPath(path) ? 1 : 0;
-  }
-
-  // Keeps only the most recently updated chats so the stored counters cannot grow without limit.
-  function pruneCounts(counts, max) {
-    const keys = Object.keys(counts || {});
-    if (keys.length <= max) return counts || {};
-    const out = {};
-    keys.slice(keys.length - max).forEach((k) => { out[k] = counts[k]; });
-    return out;
-  }
-
-  // Inserts text into `value` at the selection; returns the new value and caret position.
-  function insertAt(value, start, end, text) {
-    value = String(value || '');
-    start = Math.max(0, Math.min(start == null ? value.length : start, value.length));
-    end = Math.max(start, Math.min(end == null ? start : end, value.length));
-    return { value: value.slice(0, start) + text + value.slice(end), caret: start + text.length };
-  }
-
-  const core = {
-    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
-    scheduleDue, applyVariables, promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens, summarize,
-    describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, cleanSnippetName, filterSnippets,
-    searchSnippets, describeSchedule, insertAt, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
-  };
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = core;
-    return;
-  }
+  const {
+    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VARIABLES, VARIABLE_NAMES, migrateSettings,
+    hasLegacyKeys, tokens, selectMemories, scheduleDue, applyVariables,
+    promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens,
+    summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext,
+    slashQuery, cleanSnippetName, filterSnippets, searchSnippets, describeSchedule,
+    insertAt, defaultPromptText, newId, LANG_EXT, normalizeLang,
+    langFromClass, extFor, sniffLang, previewKind, detectBlock,
+    suggestFilename, uniqueName, crc32, makeZip, MEMORY_GENERAL,
+    memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens,
+    groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts,
+    MARKER_START, MARKER_END,
+  } = globalThis.DCK_LIB;
 
   // ---------- Extension runtime ----------
   const store = chrome.storage.local;
   let settings = migrateSettings({});
   let memories = [];
-  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, search: '', showAllVars: false, preview: null };
+  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, search: '', showAllVars: false, preview: null };
   let bypass = false; // true while we dispatch our own Enter
   let counts = {}; // messages sent per chat path, saved so a page refresh does not forget them
   let newChatCount = 0; // messages sent from the new-chat screen ("/") before the page moves to the chat's own URL
@@ -443,6 +175,7 @@
     const text = h('span', { class: 'dck-grow' }, 'Next message includes ');
     sum.names.forEach((n, i) => { if (i) text.append(', '); text.append(h('b', {}, n)); });
     if (sum.memories) text.append(' + ' + memoryLabel(sum.memories));
+    if (sum.skipped) text.append(' (' + sum.skipped + ' over budget)');
     ui.strip.append(h('span', { class: 'dck-dot' }), text, h('span', { class: 'dck-faint' }, '~' + sum.tokens + ' tokens'));
   }
 
@@ -458,6 +191,7 @@
       sum.names.slice(0, 3).forEach((n) => chips.el.append(h('span', { class: 'dck-chip' }, n)));
       if (sum.names.length > 3) chips.el.append(h('span', { class: 'dck-chip' }, '+' + (sum.names.length - 3)));
       if (sum.memories) chips.el.append(h('span', { class: 'dck-chip' }, memoryLabel(sum.memories)));
+      if (sum.skipped) chips.el.append(h('span', { class: 'dck-chip warn' }, sum.skipped + ' over budget'));
     } else {
       chips.el.append(h('span', { class: 'dck-chip' }, sum.state === 'off' ? 'Off' : 'Nothing due'));
     }
@@ -496,13 +230,14 @@
 
   function refreshAll(force) {
     const sum = currentSummary();
-    const sig = [settings.showInjected, settings.showSummary, settings.showChips, sum.state, sum.names.join('|'), sum.memories, sum.tokens].join('~');
+    const sig = [settings.showInjected, settings.showSummary, settings.showChips, sum.state, sum.names.join('|'), sum.memories, sum.skipped, sum.tokens].join('~');
     if (force || sig !== liveSig) {
       liveSig = sig;
       renderStrip(sum);
       renderChips(sum);
     }
     positionChips();
+    updateMemoryStatus();
   }
 
   // ---------- Slash picker ----------
@@ -715,7 +450,7 @@
     const n = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs || {})) {
       if (k === 'class') n.className = v;
-      else if (k === 'style' || k === 'role' || k.indexOf('aria-') === 0 || k.indexOf('data-') === 0) n.setAttribute(k, v);
+      else if (k === 'style' || k === 'role' || k === 'list' || k.indexOf('aria-') === 0 || k.indexOf('data-') === 0) n.setAttribute(k, v);
       else if (k.indexOf('on') === 0) n.addEventListener(k.slice(2), v);
       else n[k] = v;
     }
@@ -843,31 +578,116 @@
   }
 
   // ---------- Memory tab ----------
+  const STATUS_INFO = {
+    included: { label: 'In next message', cls: 'on' },
+    idle: { label: 'Not mentioned', cls: '' },
+    budget: { label: 'Over budget', cls: 'warn' },
+    off: { label: 'Off', cls: '' },
+    paused: { label: 'Paused', cls: '' },
+  };
+
+  function memoryTexts() {
+    const el = getComposer();
+    return el ? stripContext(el.value) : '';
+  }
+
+  // Refreshes the per-note status badges and the budget line without redrawing the tab.
+  function updateMemoryStatus() {
+    if (!ui.drawer || ui.tab !== 'memory') return;
+    const text = memoryTexts();
+    const st = memoryStatuses(settings, memories, text);
+    ui.drawer.querySelectorAll('.dck-status').forEach((n) => {
+      const info = STATUS_INFO[st[Number(n.getAttribute('data-mi'))]] || STATUS_INFO.idle;
+      n.className = 'dck-status ' + info.cls;
+      n.textContent = info.label;
+    });
+    const line = ui.drawer.querySelector('#dck-membudget');
+    if (line) {
+      const used = memoryTokens(settings, memories, text);
+      line.textContent = settings.memoryBudget > 0 ? '~' + used + ' of ' + settings.memoryBudget + ' tokens in the next message' : '~' + used + ' tokens in the next message';
+    }
+  }
+
+  function memoryRow(m, index) {
+    const info = STATUS_INFO.idle;
+    return h('div', { class: 'dck-card dck-rowcard' },
+      sw(m.enabled !== false, (v) => { m.enabled = v; commit(); }, 'Enable ' + m.key),
+      h('div', { class: 'dck-grow' },
+        h('div', { class: 'dck-name' }, m.key, h('span', { class: 'dck-status ' + info.cls, 'data-mi': String(index) }, info.label)),
+        h('div', { class: 'dck-sub clip' }, m.value),
+        h('div', { class: 'dck-sub' }, m.importance === 'always' ? 'Always included' : 'Included when mentioned')),
+      iconBtn('edit', 'Edit ' + m.key, () => { ui.editingMemory = index; render(); }));
+  }
+
+  function memoryEditor(m, index) {
+    const key = h('input', { value: m.key, placeholder: 'Key', 'aria-label': 'Key' });
+    const val = h('textarea', { value: m.value, placeholder: 'Value', 'aria-label': 'Value', rows: 3 });
+    const cat = h('input', { value: String(m.category || ''), placeholder: 'Category (optional)', 'aria-label': 'Category', list: 'dck-cats' });
+    const imp = h('select', { 'aria-label': 'When to include' },
+      h('option', { value: 'always', selected: m.importance === 'always' }, 'Always'),
+      h('option', { value: 'called', selected: m.importance !== 'always' }, 'When mentioned'));
+    return h('div', { class: 'dck-card dck-editor active' },
+      key, val, cat, imp,
+      h('div', { class: 'dck-actions' },
+        h('button', {
+          type: 'button', class: 'dck-btn primary',
+          onclick: () => {
+            if (!key.value.trim() || !val.value.trim()) { toast('A note needs a key and a value'); return; }
+            m.key = key.value.trim();
+            m.value = val.value.trim();
+            m.category = cleanCategory(cat.value, memories.filter((x) => x !== m));
+            m.importance = imp.value;
+            ui.editingMemory = null; commit(); render();
+          },
+        }, 'Save'),
+        h('button', { type: 'button', class: 'dck-btn', onclick: () => { ui.editingMemory = null; render(); } }, 'Cancel'),
+        h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { memories.splice(index, 1); ui.editingMemory = null; commit(); render(); } }, 'Delete')));
+  }
+
   function renderMemory(body) {
     body.append(toggleCard('Use memory', 'Notes are added whenever context is inserted', settings.memoryEnabled, (v) => { settings.memoryEnabled = v; commit(); }));
-    body.append(group('Notes'));
-    if (!memories.length) body.append(h('div', { class: 'dck-hint' }, 'No notes yet. Add one below.'));
-    memories.forEach((m, i) => {
-      body.append(h('div', { class: 'dck-card dck-rowcard' },
-        h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, m.key), h('div', { class: 'dck-sub' }, m.value)),
-        h('span', { class: 'dck-badge' + (m.importance === 'always' ? '' : ' green') }, m.importance === 'always' ? 'Always' : 'When mentioned'),
-        iconBtn('trash', 'Delete ' + m.key, () => { memories.splice(i, 1); commit(); render(); })));
+
+    const budget = h('input', { type: 'number', min: 0, step: 50, value: settings.memoryBudget || 0, 'aria-label': 'Memory token budget', class: 'dck-budgetin' });
+    budget.addEventListener('change', () => {
+      settings.memoryBudget = Math.max(0, parseInt(budget.value, 10) || 0);
+      budget.value = settings.memoryBudget;
+      commit();
     });
-    const key = h('input', { placeholder: 'Key, e.g. my city', 'aria-label': 'Key' });
-    const val = h('input', { placeholder: 'Value', 'aria-label': 'Value' });
-    const imp = h('select', { 'aria-label': 'When to include' },
+    body.append(h('div', { class: 'dck-card' },
+      h('div', { class: 'dck-rowcard' },
+        h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Token budget'), h('div', { class: 'dck-sub' }, 'Most memory added to one message. 0 = no limit')),
+        budget),
+      h('div', { class: 'dck-sub', id: 'dck-membudget' }, '')));
+
+    const cats = Array.from(new Set(memories.map((m) => String((m && m.category) || '').trim()).filter(Boolean)));
+    body.append(h('datalist', { id: 'dck-cats' }, cats.map((c) => h('option', { value: c }))));
+
+    if (!memories.length) body.append(group('Notes'), h('div', { class: 'dck-hint' }, 'No notes yet. Add one below.'));
+    const groups = groupMemories(memories);
+    const labelled = groups.length > 1 || (groups[0] && groups[0].category !== MEMORY_GENERAL);
+    groups.forEach((g) => {
+      body.append(group(labelled ? g.category : 'Notes'));
+      g.items.forEach((it) => body.append(ui.editingMemory === it.index ? memoryEditor(it.m, it.index) : memoryRow(it.m, it.index)));
+    });
+
+    const key = h('input', { placeholder: 'Key, e.g. my city', 'aria-label': 'New note key' });
+    const val = h('input', { placeholder: 'Value', 'aria-label': 'New note value' });
+    const cat = h('input', { placeholder: 'Category (optional)', 'aria-label': 'New note category', list: 'dck-cats' });
+    const imp = h('select', { 'aria-label': 'New note: when to include' },
       h('option', { value: 'always' }, 'Always'),
       h('option', { value: 'called' }, 'When mentioned'));
     body.append(h('div', { class: 'dck-card dashed-card' },
       h('div', { class: 'dck-two' }, key, val),
+      cat,
       h('div', { class: 'dck-two' }, imp, h('button', {
         type: 'button', class: 'dck-btn primary',
         onclick: () => {
           if (!key.value.trim() || !val.value.trim()) { toast('Add a key and a value'); return; }
-          memories.push({ key: key.value.trim(), value: val.value.trim(), importance: imp.value });
+          memories.push({ key: key.value.trim(), value: val.value.trim(), importance: imp.value, category: cleanCategory(cat.value, memories), enabled: true });
           commit(); render();
         },
       }, icon('plus', 14), 'Add'))));
+    updateMemoryStatus();
   }
 
   // ---------- Snippets tab ----------
@@ -922,6 +742,10 @@
     body.append(toggleCard('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
     body.append(toggleCard('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
     body.append(toggleCard('Chips above message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
+
+    body.append(group('Code blocks'));
+    body.append(toggleCard('Code block tools', 'Hover a code block for Preview, Download and ZIP', settings.codeTools !== false, (v) => { settings.codeTools = v; if (!v) hideBar(); commit(); }));
+    body.append(toggleCard('Previews can load web assets', 'Lets HTML previews load https scripts, styles and images (CDNs). Off keeps previews fully offline', !!settings.previewExternal, (v) => { settings.previewExternal = v; commit(); }));
 
     body.append(group('Variables'));
     const grid = h('div', { class: 'dck-card dck-vargrid' });
@@ -1016,7 +840,7 @@
     drawer.append(h('div', { class: 'dck-tabs', role: 'tablist', 'aria-label': 'Sections' },
       tabs.map((t) => h('button', {
         type: 'button', role: 'tab', class: 'dck-tab' + (ui.tab === t.id ? ' on' : ''), 'aria-selected': String(ui.tab === t.id),
-        onclick: () => { ui.tab = t.id; ui.editingId = null; ui.editingSnippetId = null; render(); },
+        onclick: () => { ui.tab = t.id; ui.editingId = null; ui.editingSnippetId = null; ui.editingMemory = null; render(); },
       }, t.label, t.count ? h('span', { class: 'dck-badge' }, String(t.count)) : null))));
 
     const body = h('div', { class: 'dck-body', role: 'tabpanel' });
@@ -1043,7 +867,7 @@
           type: 'button', class: 'dck-btn danger',
           onclick: () => {
             if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
-            settings = migrateSettings({}); memories = []; counts = {}; store.set({ dck_counts: counts }); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
+            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; store.set({ dck_counts: counts }); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
           },
         }, 'Reset all'));
     } else {
@@ -1057,6 +881,129 @@
     refreshAll(true);
   }
 
+  // ---------- Code block tools (hover bar, download, ZIP basket, sandboxed preview) ----------
+  const tools = { bar: null, pre: null, basket: [], hideTimer: 0, panel: null, frame: null, ready: false, pending: null };
+
+  function pageUrl(path) {
+    try { return chrome.runtime && chrome.runtime.getURL ? chrome.runtime.getURL(path) : ''; } catch (e) { return ''; }
+  }
+
+  function blockInfo(pre) {
+    const codeEl = pre.querySelector('code');
+    const text = (codeEl || pre).textContent.replace(/\n$/, '');
+    const hints = [langFromClass((codeEl && codeEl.className) || ''), langFromClass(pre.className)];
+    const prev = pre.previousElementSibling || (pre.parentElement && pre.parentElement.firstElementChild !== pre ? pre.parentElement.firstElementChild : null);
+    const label = prev ? String(prev.textContent || '').trim() : '';
+    if (label && label.length <= 20 && !/\s/.test(label)) hints.push(label);
+    const info = detectBlock(hints, text);
+    const all = Array.from(document.querySelectorAll('pre'));
+    return { text, lang: info.lang, kind: info.kind, name: suggestFilename(info.lang, text, all.indexOf(pre) + 1) };
+  }
+
+  function saveFile(name, data, type) {
+    const blob = new Blob([data], { type: type || 'application/octet-stream' });
+    const a = h('a', { href: URL.createObjectURL(blob), download: name, style: 'display:none' });
+    document.body.append(a);
+    a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(a.href); }, 1000);
+  }
+
+  function basketZip() {
+    const used = new Set();
+    const files = tools.basket.map((b) => ({ name: uniqueName(b.name, used), data: b.text }));
+    saveFile('code-blocks.zip', makeZip(files, new Date()), 'application/zip');
+    toast(files.length + (files.length === 1 ? ' file' : ' files') + ' zipped');
+    tools.basket = [];
+    updateBar();
+  }
+
+  function closePreviewPanel() {
+    if (tools.panel) tools.panel.remove();
+    tools.panel = null; tools.frame = null; tools.ready = false; tools.pending = null;
+  }
+
+  function showPreviewPanel(info) {
+    const url = pageUrl('preview.html');
+    if (!url) { toast('Preview is not available here'); return; }
+    const dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    tools.pending = { dck: 'render', kind: info.kind, code: info.text, allowExternal: !!settings.previewExternal, dark };
+    if (!tools.panel) {
+      tools.frame = h('iframe', { id: 'dck-preview-frame', src: url, title: 'Preview' });
+      tools.ready = false;
+      tools.panel = h('div', { id: 'dck-preview-panel' },
+        h('div', { class: 'dck-phead' },
+          h('div', { class: 'dck-ptitle', id: 'dck-ptitle' }, ''),
+          iconBtn('close', 'Close preview', closePreviewPanel)),
+        tools.frame);
+      document.body.append(tools.panel);
+    }
+    const t = tools.panel.querySelector('#dck-ptitle');
+    t.textContent = 'Preview: ' + info.lang + (info.kind !== 'markdown' && info.kind !== 'mermaid' && settings.previewExternal ? ' (web assets allowed)' : '');
+    if (tools.ready) tools.frame.contentWindow.postMessage(tools.pending, '*');
+  }
+
+  function updateBar() {
+    const bar = tools.bar;
+    if (!bar || !tools.pre) return;
+    const info = blockInfo(tools.pre);
+    const inBasket = tools.basket.some((b) => b.el === tools.pre);
+    bar.textContent = '';
+    if (info.kind) bar.append(h('button', { type: 'button', class: 'dck-cbtn', onclick: () => showPreviewPanel(info) }, 'Preview'));
+    bar.append(h('button', { type: 'button', class: 'dck-cbtn', onclick: () => saveFile(info.name, info.text, 'text/plain;charset=utf-8') }, 'Download'));
+    bar.append(h('button', {
+      type: 'button', class: 'dck-cbtn' + (inBasket ? ' on' : ''), title: 'Collect blocks, then download them as one ZIP',
+      onclick: () => {
+        const pre = tools.pre;
+        const at = tools.basket.findIndex((b) => b.el === pre);
+        if (at >= 0) tools.basket.splice(at, 1); else tools.basket.push({ el: pre, name: info.name, text: info.text });
+        updateBar();
+      },
+    }, inBasket ? 'Added' : '+ ZIP'));
+    if (tools.basket.length) bar.append(h('button', { type: 'button', class: 'dck-cbtn primary', title: 'Download the collected blocks as a ZIP', onclick: basketZip }, 'ZIP (' + tools.basket.length + ')'));
+  }
+
+  function placeBar() {
+    if (!tools.bar || !tools.pre || !tools.pre.isConnected) return hideBar();
+    const r = tools.pre.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) return hideBar();
+    tools.bar.style.display = 'flex';
+    tools.bar.style.top = Math.max(6, r.top + 6) + 'px';
+    tools.bar.style.left = Math.max(6, Math.min(window.innerWidth - tools.bar.offsetWidth - 6, r.right - tools.bar.offsetWidth - 8)) + 'px';
+  }
+
+  function hideBar() {
+    if (tools.bar) tools.bar.style.display = 'none';
+    tools.pre = null;
+  }
+
+  function initCodeTools() {
+    if (tools.bar) return;
+    tools.bar = h('div', { id: 'dck-codebar', style: 'display:none' });
+    document.body.append(tools.bar);
+    const keep = () => { clearTimeout(tools.hideTimer); };
+    const later = () => { clearTimeout(tools.hideTimer); tools.hideTimer = setTimeout(hideBar, 350); };
+    tools.bar.addEventListener('mouseenter', keep);
+    tools.bar.addEventListener('mouseleave', later);
+    document.addEventListener('mouseover', (e) => {
+      if (settings.codeTools === false || !(e.target instanceof Element)) return;
+      if (e.target.closest('#dck-codebar, #dck-drawer, #dck-preview-panel')) return;
+      const pre = e.target.closest('pre');
+      if (!pre) { if (tools.pre) later(); return; }
+      keep();
+      if (pre !== tools.pre) { tools.pre = pre; updateBar(); }
+      placeBar();
+    });
+    window.addEventListener('scroll', () => { if (tools.pre) placeBar(); }, true);
+    window.addEventListener('resize', () => { if (tools.pre) placeBar(); });
+    window.addEventListener('message', (e) => {
+      if (!tools.frame || e.source !== tools.frame.contentWindow) return;
+      if (e.data && e.data.dck === 'ready') {
+        tools.ready = true;
+        if (tools.pending) tools.frame.contentWindow.postMessage(tools.pending, '*');
+      }
+    });
+  }
+
   function mount() {
     if (document.getElementById('dck-fab')) return;
     const drawer = h('div', { id: 'dck-drawer' });
@@ -1065,6 +1012,7 @@
     document.body.append(fab, drawer);
     render();
     startObserver();
+    initCodeTools();
     if (settings.showInjected === false) scheduleStrip([document.body]);
   }
 

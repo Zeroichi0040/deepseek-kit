@@ -24,7 +24,7 @@ The panel has four tabs, with the controls you use most pinned above and below t
 - **Built-in** default prompt: a general-purpose prompt that ships with the extension. Switch it off, edit it, change its schedule, or reset it to the built-in text.
 - **Yours**: any number of prompts, each with its own on/off switch and schedule (first message, every N messages, every message). All prompts that are due are inserted together. A single prompt is just a list of one.
 
-**Memory**: notes marked *Always* go in whenever context is inserted; *When mentioned* notes are included when a word from the key appears in your message.
+**Memory**: notes marked *Always* go in whenever context is inserted; *When mentioned* notes are included when a word from the key appears in your message. Edit a note in place (pencil icon), group notes with a category, and switch single notes off without deleting them. Each note shows whether it is in your next message (updates as you type). A **token budget** caps how much memory one message can carry (0 = no limit): *Always* notes are used first, then *When mentioned* ones, and notes that do not fit are shown as "Over budget".
 
 **Snippets**: reusable text. Search them here, or type `/` in the message box to open the picker (keep typing to filter, Up/Down to move, Enter or Tab to insert, Esc to close). Variable chips insert `{{date}}` and friends at the cursor.
 
@@ -35,6 +35,16 @@ The panel has four tabs, with the controls you use most pinned above and below t
 ## In the chat
 
 A small chip row sits above the message box showing what will be attached (Default, Concise tone, 2 memories) and whether context is Visible or Hidden, with the token estimate. Turn it off in Settings.
+
+## Code blocks: preview and download
+
+Hover any code block in the chat for a small bar (turn it off in Settings > Code blocks):
+
+- **Preview** (HTML, SVG, Mermaid, Markdown): opens a panel beside the chat. Previews run in a sandboxed extension page with no access to the chat page, your cookies or the extension's storage, and with network access blocked. HTML previews can run scripts but stay offline unless you enable *Previews can load web assets* (then only https scripts, styles, images and fonts load; requests such as fetch stay blocked). Markdown is sanitized.
+- **Download**: saves the block as a file. The name comes from a comment such as `// file: app.js` or `<!-- index.html -->` in the first lines, otherwise `snippet-N.ext`.
+- **+ ZIP**: collects blocks, then **ZIP (n)** downloads them as one ZIP (duplicate names get -2, -3).
+
+Mermaid, marked and DOMPurify are bundled in `vendor/` (see `vendor/README.md`); nothing is fetched from the web.
 
 ## Show / hide inserted context
 
@@ -57,6 +67,10 @@ Usable in prompts, memory values and snippets:
 
 Unknown `{{names}}` are left as typed.
 
+## Upgrading from 0.4
+
+Data carries over. Existing notes get no category and stay switched on; the memory budget starts at 0 (no limit).
+
 ## Upgrading from 0.3
 
 Your data carries over. The old single "system prompt" box and the multi-prompt switch are gone: a single prompt you had written becomes the first entry under **Yours** (kept switched off if you were using multi-prompt mode, where it was inactive).
@@ -67,16 +81,16 @@ The extension counts the messages you send in each chat and saves the count, so 
 
 ## Caveats
 
-- Not tested against the live site. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust `getComposer()`, `positionChips()` and `clickSend()` in `content.js`.
+- Not tested against the live site. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust `getComposer()`, `positionChips()` and `clickSend()` in `content.js`. Code blocks are found as `pre` elements; if the site changes that, adjust `initCodeTools()`.
 - In hidden mode the inserted block is stripped from user messages in the page. If DeepSeek renders messages in a way that splits the block across elements, it may remain visible. Chat titles generated from the first message may include part of it.
 - Using any extension on a consumer site is at your own risk, and nothing here can promise it won't affect your account.
 
 ## Development
 
-`content.js` keeps its pure logic (settings migration, schedules, variables, summary, snippet search) separate from the browser code and exports it under Node for testing:
+`lib.js` holds the pure logic (settings migration, schedules, variables, memory budget, summary, snippet search, code-block detection, ZIP writer) and exports it under Node for testing; `content.js` is the browser code:
 
 ```
 node tests/logic.test.js
 ```
 
-The file is plain ASCII on purpose, because Chrome refuses content scripts that are not valid UTF-8.
+The JS and CSS files are plain ASCII on purpose, because Chrome refuses content scripts that are not valid UTF-8.
