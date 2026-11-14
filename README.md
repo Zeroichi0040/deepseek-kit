@@ -36,19 +36,14 @@ The panel has four tabs, with the controls you use most pinned above and below t
 
 A small chip row sits above the message box showing what will be attached (Default, Concise tone, 2 memories) and whether context is Visible or Hidden, with the token estimate. Turn it off in Settings.
 
-## Code blocks: preview and download
+## Code blocks: collapse and ZIP
 
 Kit adds buttons to each code block's header, next to the site's own Copy and Download (turn it off in Settings > Code blocks). If a block has no header the buttons appear in a small bar when you hover it.
 
-- **Preview** (HTML, SVG, Mermaid, Markdown): opens a panel beside the chat. Use the expand button in its header for full screen, and Esc to go back. Previews run in a sandboxed extension page with no access to the chat page, your cookies or the extension's storage, and with network access blocked. HTML previews can run scripts but stay offline unless you enable *Previews can load web assets* (then only https scripts, styles, images and fonts load; requests such as fetch stay blocked). Markdown is sanitized.
 - **Collapse / Expand**: folds a long block down to a few lines. *Collapse long blocks* starts blocks over 20 lines collapsed; a block you expand stays open.
-- **+ ZIP**: collects blocks. A pill at the bottom of the page then offers **Download ZIP (n)** (duplicate names get -2, -3). File names come from a comment such as `// file: app.js` or `<!-- index.html -->` in the first lines, otherwise `snippet-N.ext`.
+- **+ ZIP**: collects blocks. A pill at the bottom of the page then offers **Download ZIP (n)** (duplicate names get -2, -3). File names come from a comment such as `// file: app.js` in the first lines, otherwise `snippet-N.ext`.
 
-Mermaid, marked and DOMPurify are bundled in `vendor/` (see `vendor/README.md`); nothing is fetched from the web.
-
-## Diagnostics
-
-Settings > Diagnostics (its summary line turns to a problem count when something is not found) checks whether the message box, send button and chip row were found, how many code blocks are on the page, whether the preview page is available, and what is stored, plus the last events (context inserted, hidden-mode sends, previews, ZIPs). **Copy report** puts it on your clipboard for bug reports; it contains no message text. If something stops working after a DeepSeek update, the red entries show which selector to adjust.
+DeepSeek already has its own Run/preview, so Kit does not add one.
 
 ## Show / hide inserted context
 
@@ -85,7 +80,7 @@ The extension counts the messages you send in each chat and saves the count, so 
 
 ## Caveats
 
-- Not tested against the live site. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust `getComposer()`, `positionChips()` and `clickSend()` in `content.js`. Code blocks are found as `pre` elements; if the site changes that, adjust `initCodeTools()`.
+- Not tested against the live site. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust `getComposer()`, `positionChips()` and `clickSend()` in `content.js`. Code blocks are found as `pre` elements, with the Copy button located by its text; if the site changes that, adjust `initCodeTools()`.
 - In hidden mode the inserted block is stripped from user messages in the page. If DeepSeek renders messages in a way that splits the block across elements, it may remain visible. Chat titles generated from the first message may include part of it.
 - Using any extension on a consumer site is at your own risk, and nothing here can promise it won't affect your account.
 

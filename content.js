@@ -768,7 +768,6 @@
     add('Chip row', settings.showChips === false ? null : !!el && !!document.getElementById('dck-chips') && !!composerRect(el), settings.showChips === false ? 'turned off' : 'placed above the message box');
     add('Hidden-mode cleanup', null, settings.showInjected === false ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
     add('Code blocks on page', null, pres + ' found, tools ' + (settings.codeTools === false ? 'off' : 'on'));
-    add('Preview page', !!pageUrl('preview.html'), pageUrl('preview.html') ? 'available' : 'not available');
     add('Chat', null, chatPathLabel() + ', message count ' + chatCount());
     let bytes = 0;
     try { bytes = JSON.stringify({ settings, memories, counts }).length; } catch (e) { bytes = 0; }
@@ -837,8 +836,8 @@
       box.append(settingRow('Chips above message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
     }));
 
-    body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Preview, collapse and ZIP', (box) => {
-      box.append(settingRow('Code block tools', 'Adds Preview and Collapse next to Copy and Download', settings.codeTools !== false, (v) => {
+    body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse and ZIP', (box) => {
+      box.append(settingRow('Code block tools', 'Adds Collapse and + ZIP next to Copy and Download', settings.codeTools !== false, (v) => {
         settings.codeTools = v;
         if (!v) hideBar();
         commit(); syncAll();
@@ -848,7 +847,6 @@
         if (v) scheduleCollapseScan(); else { document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false)); syncAll(); }
         commit();
       }));
-      box.append(settingRow('Previews can load web assets', 'Lets HTML previews load https scripts, styles and images. Off keeps them fully offline', !!settings.previewExternal, (v) => { settings.previewExternal = v; commit(); }));
     }));
 
     body.append(accordion('vars', 'Variables', VARIABLES.length + ' available in prompts, notes and snippets', (box) => {
@@ -990,13 +988,9 @@
     refreshAll(true);
   }
 
-  // ---------- Code block tools (buttons in the code block header, collapse, ZIP basket, sandboxed preview) ----------
-  const tools = { bar: null, pre: null, basket: [], hideTimer: 0, panel: null, frame: null, ready: false, pending: null, full: false, headed: new WeakMap(), zip: null, scanQueued: false };
+  // ---------- Code block tools (buttons in the code block header: collapse, ZIP basket) ----------
+  const tools = { bar: null, pre: null, basket: [], hideTimer: 0, headed: new WeakMap(), zip: null, scanQueued: false };
   const collapse = { touched: new WeakSet(), queued: false };
-
-  function pageUrl(path) {
-    try { return chrome.runtime && chrome.runtime.getURL ? chrome.runtime.getURL(path) : ''; } catch (e) { return ''; }
-  }
 
   function lineCount(pre) { return (pre.textContent || '').replace(/\n$/, '').split('\n').length; }
 
@@ -1055,44 +1049,6 @@
     syncAll();
   }
 
-  // ----- preview panel
-  function setFull(on) {
-    tools.full = !!on;
-    if (!tools.panel) return;
-    tools.panel.classList.toggle('full', tools.full);
-    const btn = tools.panel.querySelector('#dck-pfull');
-    if (btn) { btn.textContent = ''; btn.append(icon(tools.full ? 'shrink' : 'expand')); btn.setAttribute('aria-label', tools.full ? 'Exit full screen' : 'Full screen'); btn.title = tools.full ? 'Exit full screen (Esc)' : 'Full screen'; }
-  }
-
-  function closePreviewPanel() {
-    if (tools.panel) tools.panel.remove();
-    tools.panel = null; tools.frame = null; tools.ready = false; tools.pending = null; tools.full = false;
-  }
-
-  function showPreviewPanel(info) {
-    const url = pageUrl('preview.html');
-    if (!url) { toast('Preview is not available here'); return; }
-    logEvent('Preview opened (' + info.lang + ')');
-    const dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    tools.pending = { dck: 'render', kind: info.kind, code: info.text, allowExternal: !!settings.previewExternal, dark };
-    if (!tools.panel) {
-      tools.frame = h('iframe', { id: 'dck-preview-frame', src: url, title: 'Preview' });
-      tools.ready = false;
-      const full = iconBtn('expand', 'Full screen', () => setFull(!tools.full));
-      full.id = 'dck-pfull';
-      tools.panel = h('div', { id: 'dck-preview-panel' },
-        h('div', { class: 'dck-phead' },
-          h('div', { class: 'dck-ptitle', id: 'dck-ptitle' }, ''),
-          full,
-          iconBtn('close', 'Close preview', closePreviewPanel)),
-        tools.frame);
-      document.body.append(tools.panel);
-      setFull(tools.full);
-    }
-    tools.panel.querySelector('#dck-ptitle').textContent = 'Preview: ' + info.lang + (settings.previewExternal ? ' (web assets allowed)' : '');
-    if (tools.ready) tools.frame.contentWindow.postMessage(tools.pending, '*');
-  }
-
   // ----- the buttons themselves
   // What a block offers: [id, label, handler]
   function actionsFor(pre) {
@@ -1100,7 +1056,6 @@
     const folded = pre.hasAttribute('data-dck-collapsed');
     const inBasket = tools.basket.some((b) => b.el === pre);
     const list = [];
-    if (info.kind) list.push(['preview', 'Preview', () => showPreviewPanel(blockInfo(pre))]);
     if (folded || lineCount(pre) > 3) list.push(['collapse', folded ? 'Expand' : 'Collapse', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
     list.push(['zip', inBasket ? 'Added' : '+ ZIP', () => toggleBasket(pre)]);
     return list;
@@ -1159,7 +1114,7 @@
 
   function syncAll() {
     document.querySelectorAll('pre').forEach((pre) => {
-      if (pre.closest('#dck-drawer, #dck-preview-panel')) return;
+      if (pre.closest('#dck-drawer')) return;
       if (settings.codeTools === false) { removeHeaderButtons(pre); tools.headed.set(pre, false); return; }
       tools.headed.set(pre, syncHeader(pre));
     });
@@ -1181,7 +1136,7 @@
       const limit = Math.max(3, settings.collapseLines || 20);
       let changed = false;
       document.querySelectorAll('pre').forEach((pre) => {
-        if (collapse.touched.has(pre) || pre.closest('#dck-drawer, #dck-preview-panel')) return;
+        if (collapse.touched.has(pre) || pre.closest('#dck-drawer')) return;
         if (lineCount(pre) > limit) { collapse.touched.add(pre); setCollapsed(pre, true); changed = true; }
       });
       if (changed) syncAll();
@@ -1221,7 +1176,7 @@
     tools.bar.addEventListener('mouseleave', later);
     document.addEventListener('mouseover', (e) => {
       if (settings.codeTools === false || !(e.target instanceof Element)) return;
-      if (e.target.closest('#dck-codebar, #dck-drawer, #dck-preview-panel')) return;
+      if (e.target.closest('#dck-codebar, #dck-drawer')) return;
       const pre = e.target.closest('pre');
       if (!pre || tools.headed.get(pre)) { if (tools.pre) later(); return; }
       keep();
@@ -1230,14 +1185,6 @@
     });
     window.addEventListener('scroll', () => { if (tools.pre) placeBar(); }, true);
     window.addEventListener('resize', () => { if (tools.pre) placeBar(); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && tools.full) { e.stopPropagation(); setFull(false); } }, true);
-    window.addEventListener('message', (e) => {
-      if (!tools.frame || e.source !== tools.frame.contentWindow) return;
-      if (e.data && e.data.dck === 'ready') {
-        tools.ready = true;
-        if (tools.pending) tools.frame.contentWindow.postMessage(tools.pending, '*');
-      }
-    });
     syncAll();
   }
 
