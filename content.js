@@ -1080,6 +1080,17 @@
     return null;
   }
 
+  // Sets the visible text of a cloned button without flattening its inner markup.
+  function setLabel(btn, label) {
+    const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
+    let n = walker.nextNode();
+    while (n && !n.nodeValue.trim()) n = walker.nextNode();
+    if (!n) { btn.textContent = label; return; }
+    if (n.nodeValue !== label) n.nodeValue = label;
+    // any further text (e.g. a second span) is cleared so only the label remains
+    while ((n = walker.nextNode())) { if (n.nodeValue.trim()) n.nodeValue = ''; }
+  }
+
   function removeHeaderButtons(pre) {
     const box = pre.parentElement && pre.parentElement.parentElement;
     if (box) box.querySelectorAll('[data-dck-act]').forEach((n) => n.remove());
@@ -1096,8 +1107,12 @@
     if (!same) {
       have.forEach((n) => n.remove());
       want.forEach((w) => {
-        const b = copy.cloneNode(false);
+        // Deep clone so the label keeps the site's own inner element and styling, then drop the icon.
+        const b = copy.cloneNode(true);
         b.removeAttribute('id');
+        b.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
+        b.querySelectorAll('svg, img').forEach((n) => n.remove());
+        setLabel(b, w[1]);
         b.setAttribute('data-dck-act', w[0]);
         b.setAttribute('role', 'button');
         b.setAttribute('tabindex', '0');
@@ -1106,9 +1121,7 @@
         row.insertBefore(b, copy);
       });
     }
-    row.querySelectorAll(':scope > [data-dck-act]').forEach((n, i) => {
-      if (n.textContent !== want[i][1]) n.textContent = want[i][1];
-    });
+    row.querySelectorAll(':scope > [data-dck-act]').forEach((n, i) => setLabel(n, want[i][1]));
     return true;
   }
 
