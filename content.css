@@ -1,0 +1,57 @@
+#dck-fab {
+  position: fixed; top: 12px; right: 12px; z-index: 2147483000;
+  padding: 6px 14px; border-radius: 999px; border: 1px solid #8884;
+  background: #4d6bfe; color: #fff; font: 600 12px system-ui, sans-serif; cursor: pointer;
+}
+#dck-fab:hover { background: #3f59d6; }
+#dck-drawer {
+  position: fixed; top: 0; right: 0; height: 100vh; width: 380px; max-width: 100vw;
+  z-index: 2147483001; background: #fff; color: #111; box-shadow: -4px 0 24px #0004;
+  font: 13px system-ui, sans-serif; display: none; flex-direction: column;
+}
+#dck-drawer.open { display: flex; }
+@media (prefers-color-scheme: dark) {
+  #dck-drawer { background: #1b1d1f; color: #eee; }
+  #dck-drawer textarea, #dck-drawer input:not([type=checkbox]), #dck-drawer select { background: #26292c; color: #eee; border-color: #444; }
+}
+#dck-drawer header { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid #8883; font-weight: 700; font-size: 15px; }
+#dck-drawer .dck-body { overflow-y: auto; padding: 12px 14px; flex: 1; }
+#dck-drawer h4 { margin: 16px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; opacity: .7; }
+#dck-drawer textarea, #dck-drawer input:not([type=checkbox]), #dck-drawer select {
+  width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #8886; border-radius: 6px; font: inherit; margin: 3px 0;
+}
+#dck-drawer textarea { min-height: 110px; resize: vertical; }
+#dck-drawer button { padding: 5px 10px; border-radius: 6px; border: 1px solid #8886; background: transparent; color: inherit; cursor: pointer; font: inherit; }
+#dck-drawer button:hover { background: #8882; }
+#dck-drawer button.danger { color: #ff6b6b; border-color: transparent; }
+#dck-drawer button.link { border-color: transparent; font-weight: 600; }
+
+.dck-row { display: flex; gap: 6px; margin: 6px 0; align-items: center; }
+.dck-row > * { flex: 1; }
+.dck-row > button { flex: 0 0 auto; }
+
+/* label on the left, switch on the right */
+.dck-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+.dck-toggle .t { flex: 1; }
+.dck-toggle .sub { display: block; opacity: .6; font-size: 11px; }
+
+.dck-switch { position: relative; display: inline-block; width: 38px; height: 22px; flex: 0 0 38px; cursor: pointer; }
+.dck-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+.dck-slider { position: absolute; inset: 0; background: #8886; border-radius: 999px; transition: background .15s; }
+.dck-slider::before {
+  content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%; transition: transform .15s;
+}
+.dck-switch input:checked + .dck-slider { background: #4d6bfe; }
+.dck-switch input:checked + .dck-slider::before { transform: translateX(16px); }
+.dck-switch input:focus-visible + .dck-slider { outline: 2px solid #4d6bfe88; outline-offset: 2px; }
+
+.dck-card { border: 1px solid #8884; border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.dck-card .name { font-weight: 600; }
+.dck-card .meta { opacity: .65; font-size: 11px; }
+.dck-hint { opacity: .65; font-size: 11px; margin: 4px 0; }
+#dck-toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483002;
+  background: #1e2327; color: #fff; padding: 8px 14px; border-radius: 8px; font: 13px system-ui, sans-serif;
+  display: none;
+}
