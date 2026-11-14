@@ -242,6 +242,31 @@
     return 'First message';
   }
 
+  // A chat other than the new-chat screen ("/") already has messages in it. Used when we have no record of a chat,
+  // for example after a page refresh, so "first message" prompts do not fire again in the middle of a conversation.
+  function isExistingChatPath(path) {
+    const p = String(path == null ? '/' : path);
+    return p !== '/' && p !== '';
+  }
+
+  // How many messages have been sent in this chat. Unknown existing chats count as 1 (already started).
+  function resolveCount(counts, path) {
+    if (counts && Object.prototype.hasOwnProperty.call(counts, path)) {
+      const n = Number(counts[path]);
+      if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+    }
+    return isExistingChatPath(path) ? 1 : 0;
+  }
+
+  // Keeps only the most recently updated chats so the stored counters cannot grow without limit.
+  function pruneCounts(counts, max) {
+    const keys = Object.keys(counts || {});
+    if (keys.length <= max) return counts || {};
+    const out = {};
+    keys.slice(keys.length - max).forEach((k) => { out[k] = counts[k]; });
+    return out;
+  }
+
   // Inserts text into `value` at the selection; returns the new value and caret position.
   function insertAt(value, start, end, text) {
     value = String(value || '');
@@ -254,7 +279,7 @@
     DEFAULTS, BUILTIN_DEFAULT_PROMPT, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
     scheduleDue, applyVariables, promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens, summarize,
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, cleanSnippetName, filterSnippets,
-    searchSnippets, describeSchedule, insertAt, MARKER_START, MARKER_END,
+    searchSnippets, describeSchedule, insertAt, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
   };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = core;
@@ -267,18 +292,31 @@
   let memories = [];
   const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, search: '', showAllVars: false, preview: null };
   let bypass = false; // true while we dispatch our own Enter
-  const sentCounts = {}; // per chat path
+  let counts = {}; // messages sent per chat path, saved so a page refresh does not forget them
+  let newChatCount = 0; // messages sent from the new-chat screen ("/") before the page moves to the chat's own URL
   let lastPath = location.pathname;
 
+  function getCount(path) {
+    return path === '/' ? newChatCount : resolveCount(counts, path);
+  }
+  function setCount(path, n) {
+    if (path === '/') { newChatCount = n; return; }
+    delete counts[path]; // re-insert so the most recent chats stay at the end
+    counts[path] = n;
+    counts = pruneCounts(counts, 300);
+    store.set({ dck_counts: counts });
+  }
+
   function kitVersion() {
-    try { return chrome.runtime.getManifest().version; } catch (e) { return '0.4.0'; }
+    try { return chrome.runtime.getManifest().version; } catch (e) { return '0.4.1'; }
   }
 
   function load() {
     return new Promise((resolve) => {
-      store.get(['dck_settings', 'dck_memories'], (r) => {
+      store.get(['dck_settings', 'dck_memories', 'dck_counts'], (r) => {
         settings = migrateSettings(r.dck_settings);
         memories = Array.isArray(r.dck_memories) ? r.dck_memories : [];
+        counts = r.dck_counts && typeof r.dck_counts === 'object' && !Array.isArray(r.dck_counts) ? r.dck_counts : {};
         if (hasLegacyKeys(r.dck_settings)) save(); // write the migrated shape back once
         resolve();
       });
@@ -292,13 +330,14 @@
     refreshAll(true);
   }
 
-  // A new chat lives at "/" until the first message creates /a/chat/s/<id>; carry its counter over.
+  // A new chat lives at "/" until the first message creates /a/chat/s/<id>. Carry the count over only if a message
+  // was really sent from "/"; opening an existing chat from there must not reset that chat's count.
   setInterval(() => {
     const p = location.pathname;
     if (p !== lastPath) {
       if (lastPath === '/' && p !== '/') {
-        sentCounts[p] = sentCounts['/'] || 0;
-        sentCounts['/'] = 0;
+        if (newChatCount > 0) setCount(p, newChatCount);
+        newChatCount = 0;
       }
       lastPath = p;
     }
@@ -320,7 +359,7 @@
   }
 
   function chatCount() {
-    return sentCounts[location.pathname] || 0;
+    return getCount(location.pathname);
   }
 
   function ctxFor(count) {
@@ -563,12 +602,12 @@
       if (alreadyHasContext(el.value)) {
         // Context is already in the box: this Enter sends.
         if (el.dataset.dckCounted) delete el.dataset.dckCounted;
-        else sentCounts[p] = (sentCounts[p] || 0) + 1;
+        else setCount(p, getCount(p) + 1);
         return;
       }
-      const count = sentCounts[p] || 0;
+      const count = getCount(p);
       if (!shouldInject(settings, count)) {
-        sentCounts[p] = count + 1;
+        setCount(p, count + 1);
         return;
       }
 
@@ -579,17 +618,17 @@
           e.stopImmediatePropagation();
           toast('Context added - review it, then press Enter to send');
         } else {
-          sentCounts[p] = count + 1;
+          setCount(p, count + 1);
         }
         return;
       }
 
       // Hidden mode: attach the context and send in one step; the inserted block is hidden in the chat view.
       const prefix = buildPrefix(settings, memories, el.value, count, false, ctxFor(count));
-      if (!prefix) { sentCounts[p] = count + 1; return; }
+      if (!prefix) { setCount(p, count + 1); return; }
       e.preventDefault();
       e.stopImmediatePropagation();
-      sentCounts[p] = count + 1;
+      setCount(p, count + 1);
       el.dataset.dckCounted = '1';
       setNativeValue(el, prefix + el.value);
       triggerSend(el);
@@ -1004,7 +1043,7 @@
           type: 'button', class: 'dck-btn danger',
           onclick: () => {
             if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
-            settings = migrateSettings({}); memories = []; ui.editingId = null; ui.editingSnippetId = null; commit(); render();
+            settings = migrateSettings({}); memories = []; counts = {}; store.set({ dck_counts: counts }); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
           },
         }, 'Reset all'));
     } else {

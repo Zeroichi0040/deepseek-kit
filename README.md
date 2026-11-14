@@ -61,6 +61,10 @@ Unknown `{{names}}` are left as typed.
 
 Your data carries over. The old single "system prompt" box and the multi-prompt switch are gone: a single prompt you had written becomes the first entry under **Yours** (kept switched off if you were using multi-prompt mode, where it was inactive).
 
+## How "first message" is decided
+
+The extension counts the messages you send in each chat and saves the count, so refreshing the page does not make it think a conversation has just started. A chat it has no record of (for example one that was open before you installed or updated it) is treated as already started, so "first message" prompts only attach in a new chat. `{{message_number}}` is approximate in those chats until a few messages have been sent. Reset all clears the saved counts.
+
 ## Caveats
 
 - Not tested against the live site. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust `getComposer()`, `positionChips()` and `clickSend()` in `content.js`.
