@@ -32,6 +32,7 @@
     snippets: [], // [{ id, name, text }]
     memoryBudget: 0, // max tokens of memory per message, 0 = no limit
     codeTools: true, // header buttons (collapse, ZIP) on code blocks
+    lineNumbers: false, // number the lines of code blocks (CSS counters, never part of copied text)
     collapseLong: false, // collapse long code blocks automatically
     collapseLines: 20, // blocks longer than this many lines count as long
   };

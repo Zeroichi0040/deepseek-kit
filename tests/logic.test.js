@@ -207,7 +207,7 @@ assert.strictEqual(c.cleanCategory('personal', notes), 'Personal', 'reuses exist
 assert.strictEqual(c.cleanCategory('  New   Cat ', notes), 'New Cat');
 assert.strictEqual(c.cleanCategory('general', notes), '', 'General means no category');
 assert.strictEqual(c.cleanCategory('', notes), '');
-assert.ok(c.migrateSettings({}).memoryBudget === 0 && c.migrateSettings({}).codeTools === true);
+assert.ok(c.migrateSettings({}).memoryBudget === 0 && c.migrateSettings({}).codeTools === true && c.migrateSettings({}).lineNumbers === false);
 
 // ---- code blocks: language detection
 assert.strictEqual(c.normalizeLang('JS'), 'javascript');
