@@ -428,7 +428,7 @@
 
   function startObserver() {
     new MutationObserver((records) => {
-      if (settings.codeTools !== false) scheduleCodeScan();
+      if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
       if (settings.collapseLong) scheduleCollapseScan();
       if (settings.showInjected !== false) return;
       const nodes = [];
@@ -848,12 +848,13 @@
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { resetFab(); toast('Button position reset'); } }, 'Reset')));
     }));
 
-    body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse and ZIP', (box) => {
+    body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse, ZIP and line numbers', (box) => {
       box.append(settingRow('Code block tools', 'Adds Collapse and + ZIP next to Copy and Download', settings.codeTools !== false, (v) => {
         settings.codeTools = v;
         if (!v) hideBar();
         commit(); syncAll();
       }));
+      box.append(settingRow('Line numbers', 'Number the lines of code blocks. Copying and downloading are unaffected', !!settings.lineNumbers, (v) => { settings.lineNumbers = v; commit(); syncAll(); }));
       box.append(settingRow('Collapse long blocks', 'Blocks over ' + (settings.collapseLines || 20) + ' lines start collapsed', !!settings.collapseLong, (v) => {
         settings.collapseLong = v;
         if (v) scheduleCollapseScan(); else { document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false)); syncAll(); }
@@ -1137,9 +1138,24 @@
     return true;
   }
 
+  // Line numbers: the site renders one <span> per line directly inside the <pre>, so a CSS counter on those
+  // spans numbers them without adding any text (nothing to copy or download by accident).
+  function syncLines(pre) {
+    const kids = pre.children;
+    const ok = settings.lineNumbers && kids.length > 0 && Array.prototype.every.call(kids, (c) => c.tagName === 'SPAN');
+    if (!ok) {
+      if (pre.hasAttribute('data-dck-lines')) { pre.removeAttribute('data-dck-lines'); pre.style.removeProperty('--dck-digits'); }
+      return;
+    }
+    const digits = String(kids.length).length;
+    if (!pre.hasAttribute('data-dck-lines')) pre.setAttribute('data-dck-lines', '');
+    if (pre.style.getPropertyValue('--dck-digits') !== String(digits)) pre.style.setProperty('--dck-digits', String(digits));
+  }
+
   function syncAll() {
     document.querySelectorAll('pre').forEach((pre) => {
       if (pre.closest('#dck-drawer')) return;
+      syncLines(pre);
       if (settings.codeTools === false) { removeHeaderButtons(pre); tools.headed.set(pre, false); return; }
       tools.headed.set(pre, syncHeader(pre));
     });

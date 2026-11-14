@@ -208,3 +208,15 @@ pre[data-dck-collapsed] {
 #dck-zipchip { position: fixed; z-index: 2147482600; left: 50%; bottom: 24px; transform: translateX(-50%); display: none; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--k-line); background: var(--k-pop); box-shadow: 0 6px 24px rgba(0,0,0,.35); font: 13px/1 system-ui, sans-serif; }
 #dck-zipchip .dck-cbtn { height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--k-text); font: inherit; cursor: pointer; }
 #dck-zipchip .dck-cbtn.primary { background: var(--k-accent); color: #fff; }
+
+/* line numbers: CSS counters on the per-line spans. The spans stay inline-level (full-width inline-blocks), so the
+   newline text nodes the site puts between them keep working and copied text is unchanged. */
+pre[data-dck-lines] { counter-reset: dckline; --dck-gutter: calc(var(--dck-digits, 2) * 1ch + 2ch); }
+pre[data-dck-lines] > span {
+  display: inline-block; vertical-align: top; width: 100%; box-sizing: border-box; counter-increment: dckline;
+  padding-left: var(--dck-gutter); text-indent: calc(var(--dck-gutter) * -1);
+}
+pre[data-dck-lines] > span::before {
+  content: counter(dckline); display: inline-block; box-sizing: border-box; width: var(--dck-gutter); padding-right: 2ch; text-indent: 0;
+  text-align: right; opacity: .4; user-select: none; -webkit-user-select: none; pointer-events: none;
+}
