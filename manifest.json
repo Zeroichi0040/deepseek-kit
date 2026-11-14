@@ -1,15 +1,44 @@
 {
   "manifest_version": 3,
   "name": "DeepSeek Kit",
-  "version": "0.4.1",
-  "description": "A small, local-only helper for chat.deepseek.com: system prompts, memory notes and snippets (type / to pick one), with variables.",
-  "permissions": ["storage"],
+  "version": "0.5.1",
+  "description": "A small, local-only helper for chat.deepseek.com: system prompts, memory notes and snippets, plus preview and download for code blocks.",
+  "permissions": [
+    "storage"
+  ],
   "content_scripts": [
     {
-      "matches": ["https://chat.deepseek.com/*"],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "matches": [
+        "https://chat.deepseek.com/*"
+      ],
+      "js": [
+        "lib.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "sandbox": {
+    "pages": [
+      "preview.html"
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "preview.html",
+        "preview.js",
+        "vendor/*"
+      ],
+      "matches": [
+        "https://chat.deepseek.com/*"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "sandbox": "sandbox allow-scripts allow-modals; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; object-src 'self'; style-src 'self' 'unsafe-inline' https:; img-src data: blob: https:; font-src data: https:; connect-src 'none'"
+  }
 }
