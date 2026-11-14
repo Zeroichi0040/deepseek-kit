@@ -20,6 +20,14 @@
 
   // ---------- Extension runtime ----------
   const store = chrome.storage.local;
+  // Where the Kit button lives: docked on one side edge, at a fraction of the window height.
+  const FAB_DEFAULT = { side: 'right', y: 0.62 };
+  let fabPos = { side: FAB_DEFAULT.side, y: FAB_DEFAULT.y };
+  function cleanFab(v) {
+    if (!v || typeof v !== 'object') return { side: FAB_DEFAULT.side, y: FAB_DEFAULT.y };
+    const y = Number(v.y);
+    return { side: v.side === 'left' ? 'left' : 'right', y: isFinite(y) ? Math.min(0.97, Math.max(0.03, y)) : FAB_DEFAULT.y };
+  }
   const diag = { events: [], stripped: 0, started: Date.now() };
   function logEvent(msg) {
     diag.events.push({ t: new Date(), msg: msg });
@@ -50,7 +58,8 @@
 
   function load() {
     return new Promise((resolve) => {
-      store.get(['dck_settings', 'dck_memories', 'dck_counts'], (r) => {
+      store.get(['dck_settings', 'dck_memories', 'dck_counts', 'dck_fab'], (r) => {
+        fabPos = cleanFab(r.dck_fab);
         settings = migrateSettings(r.dck_settings);
         memories = Array.isArray(r.dck_memories) ? r.dck_memories : [];
         counts = r.dck_counts && typeof r.dck_counts === 'object' && !Array.isArray(r.dck_counts) ? r.dck_counts : {};
@@ -834,6 +843,9 @@
       box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
       box.append(settingRow('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
       box.append(settingRow('Chips above message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
+      box.append(h('div', { class: 'dck-setrow' },
+        h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Kit button position'), h('div', { class: 'dck-sub' }, 'Drag the button to move it; it docks to the nearest side')),
+        h('button', { type: 'button', class: 'dck-btn', onclick: () => { resetFab(); toast('Button position reset'); } }, 'Reset')));
     }));
 
     body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse and ZIP', (box) => {
@@ -974,7 +986,7 @@
           type: 'button', class: 'dck-btn danger',
           onclick: () => {
             if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
-            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; store.set({ dck_counts: counts }); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
+            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; store.set({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
           },
         }, 'Reset all'));
     } else {
@@ -1201,12 +1213,71 @@
     syncAll();
   }
 
+  // ---------- Draggable Kit button ----------
+  const fabDrag = { active: false, moved: false, startX: 0, startY: 0, dx: 0, dy: 0 };
+
+  function placeFab(fab) {
+    fab = fab || document.getElementById('dck-fab');
+    if (!fab) return;
+    const hgt = fab.offsetHeight || 36;
+    const top = Math.min(window.innerHeight - hgt - 8, Math.max(8, fabPos.y * window.innerHeight - hgt / 2));
+    fab.classList.toggle('side-left', fabPos.side === 'left');
+    fab.classList.toggle('side-right', fabPos.side !== 'left');
+    fab.style.top = top + 'px';
+    fab.style.left = ''; fab.style.right = '';
+  }
+
+  function saveFab() { store.set({ dck_fab: fabPos }); }
+
+  function resetFab() {
+    fabPos = { side: FAB_DEFAULT.side, y: FAB_DEFAULT.y };
+    placeFab(); saveFab();
+  }
+
+  function initFab(fab) {
+    placeFab(fab);
+    window.addEventListener('resize', () => placeFab());
+    fab.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const r = fab.getBoundingClientRect();
+      fabDrag.active = true; fabDrag.moved = false;
+      fabDrag.startX = e.clientX; fabDrag.startY = e.clientY;
+      fabDrag.dx = e.clientX - r.left; fabDrag.dy = e.clientY - r.top;
+      try { fab.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    });
+    fab.addEventListener('pointermove', (e) => {
+      if (!fabDrag.active) return;
+      if (!fabDrag.moved && Math.abs(e.clientX - fabDrag.startX) + Math.abs(e.clientY - fabDrag.startY) < 6) return;
+      fabDrag.moved = true;
+      fab.classList.add('dragging');
+      fab.style.right = 'auto'; fab.style.left = Math.min(window.innerWidth - fab.offsetWidth, Math.max(0, e.clientX - fabDrag.dx)) + 'px';
+      fab.style.top = Math.min(window.innerHeight - fab.offsetHeight, Math.max(0, e.clientY - fabDrag.dy)) + 'px';
+    });
+    const end = (e) => {
+      if (!fabDrag.active) return;
+      fabDrag.active = false;
+      try { fab.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      fab.classList.remove('dragging');
+      if (!fabDrag.moved) return;
+      const r = fab.getBoundingClientRect();
+      fabPos = cleanFab({ side: r.left + r.width / 2 < window.innerWidth / 2 ? 'left' : 'right', y: (r.top + r.height / 2) / window.innerHeight });
+      placeFab(fab); saveFab();
+      setTimeout(() => { fabDrag.moved = false; }, 0); // a drag never counts as a click
+    };
+    fab.addEventListener('pointerup', end);
+    fab.addEventListener('pointercancel', end);
+  }
+
   function mount() {
     if (document.getElementById('dck-fab')) return;
     const drawer = h('div', { id: 'dck-drawer' });
     ui.drawer = drawer;
-    const fab = h('button', { id: 'dck-fab', type: 'button', onclick: () => { ui.preview = null; render(); drawer.classList.toggle('open'); } }, 'Kit');
+    const fab = h('button', { id: 'dck-fab', type: 'button', title: 'Open Kit (drag to move)', onclick: () => {
+      if (fabDrag.moved) { fabDrag.moved = false; return; }
+      ui.preview = null; render(); drawer.classList.toggle('open');
+    } }, 'Kit');
     document.body.append(fab, drawer);
+    initFab(fab);
     render();
     startObserver();
     initCodeTools();
