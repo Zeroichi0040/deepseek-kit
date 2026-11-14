@@ -9,7 +9,7 @@ It makes no network requests of its own and does not patch `fetch` or XHR. Every
 1. Download or clone this repo.
 2. Open `chrome://extensions` and enable **Developer mode**.
 3. Click **Load unpacked** and choose the folder (when upgrading, click the reload icon on the extension card).
-4. Open chat.deepseek.com. A **Kit** button appears top-right.
+4. Open chat.deepseek.com. A **Kit** tab appears on the right edge. Drag it anywhere; it docks to the nearest side and remembers its position (Settings > Messages > Reset puts it back). While the panel is open, a right-docked tab hides so it never covers the panel.
 
 ## The panel
 
