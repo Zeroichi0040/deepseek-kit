@@ -31,10 +31,9 @@
     defaultEveryN: 5,
     snippets: [], // [{ id, name, text }]
     memoryBudget: 0, // max tokens of memory per message, 0 = no limit
-    codeTools: true, // hover bar (preview / download) on code blocks
+    codeTools: true, // header buttons (collapse, ZIP) on code blocks
     collapseLong: false, // collapse long code blocks automatically
     collapseLines: 20, // blocks longer than this many lines count as long
-    previewExternal: false, // let previews load web assets (CDN scripts, styles, images)
   };
 
   const VARIABLES = [

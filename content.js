@@ -27,7 +27,7 @@
   }
   let settings = migrateSettings({});
   let memories = [];
-  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, search: '', showAllVars: false, preview: null };
+  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: 'messages', search: '', showAllVars: false, preview: null };
   let bypass = false; // true while we dispatch our own Enter
   let counts = {}; // messages sent per chat path, saved so a page refresh does not forget them
   let newChatCount = 0; // messages sent from the new-chat screen ("/") before the page moves to the chat's own URL
@@ -419,6 +419,7 @@
 
   function startObserver() {
     new MutationObserver((records) => {
+      if (settings.codeTools !== false) scheduleCodeScan();
       if (settings.collapseLong) scheduleCollapseScan();
       if (settings.showInjected !== false) return;
       const nodes = [];
@@ -434,6 +435,9 @@
   const SVGNS = 'http://www.w3.org/2000/svg';
   const ICONS = {
     close: 'M18 6 6 18|M6 6l12 12',
+    chev: 'M6 9l6 6 6-6',
+    expand: 'M15 3h6v6|M9 21H3v-6|M21 3l-7 7|M3 21l7-7',
+    shrink: 'M4 14h6v6|M20 10h-6V4|M14 10l7-7|M3 21l7-7',
     edit: 'M12 20h9|M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
     trash: 'M3 6h18|M8 6V4h8v2|M7 6l1 14h8l1-14',
     plus: 'M12 5v14|M5 12h14',
@@ -764,7 +768,6 @@
     add('Chip row', settings.showChips === false ? null : !!el && !!document.getElementById('dck-chips') && !!composerRect(el), settings.showChips === false ? 'turned off' : 'placed above the message box');
     add('Hidden-mode cleanup', null, settings.showInjected === false ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
     add('Code blocks on page', null, pres + ' found, tools ' + (settings.codeTools === false ? 'off' : 'on'));
-    add('Preview page', !!pageUrl('preview.html'), pageUrl('preview.html') ? 'available' : 'not available');
     add('Chat', null, chatPathLabel() + ', message count ' + chatCount());
     let bytes = 0;
     try { bytes = JSON.stringify({ settings, memories, counts }).length; } catch (e) { bytes = 0; }
@@ -785,7 +788,7 @@
   }
 
   function renderDiagnostics(body) {
-    const card = h('div', { class: 'dck-card dck-diag' });
+    const card = h('div', { class: 'dck-diag' });
     diagnostics().forEach((r) => card.append(h('div', { class: 'dck-diagrow' },
       h('span', { class: 'dck-diagdot ' + (r.ok === true ? 'ok' : r.ok === false ? 'bad' : 'info') }),
       h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, r.label), h('div', { class: 'dck-sub' }, r.detail)))));
@@ -806,25 +809,54 @@
       }, 'Copy report')));
   }
 
+  function settingRow(title, sub, checked, onchange) {
+    return h('div', { class: 'dck-setrow' },
+      h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, title), h('div', { class: 'dck-sub' }, sub)),
+      sw(checked, onchange, title));
+  }
+
+  function accordion(id, title, sub, buildBody) {
+    const open = ui.settingsOpen === id;
+    const wrap = h('div', { class: 'dck-acc' + (open ? ' open' : '') },
+      h('button', {
+        type: 'button', class: 'dck-acchead', 'aria-expanded': open ? 'true' : 'false',
+        onclick: () => { ui.settingsOpen = open ? null : id; render(); },
+      },
+        h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, title), h('div', { class: 'dck-sub' }, sub)),
+        icon('chev')));
+    if (open) { const box = h('div', { class: 'dck-accbody' }); buildBody(box); wrap.append(box); }
+    return wrap;
+  }
+
   function renderSettings(body, drawer) {
-    body.append(group('Behavior'));
-    body.append(toggleCard('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
-    body.append(toggleCard('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
-    body.append(toggleCard('Chips above message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
-
-    body.append(group('Code blocks'));
-    body.append(toggleCard('Code block tools', 'Hover a code block for Preview, Download and ZIP', settings.codeTools !== false, (v) => { settings.codeTools = v; if (!v) hideBar(); commit(); }));
-    body.append(toggleCard('Collapse long code blocks', 'Blocks over ' + (settings.collapseLines || 20) + ' lines start collapsed. Expand from the hover bar', !!settings.collapseLong, (v) => {
-      settings.collapseLong = v;
-      if (v) scheduleCollapseScan(); else document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false));
-      commit();
+    const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
+    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips]), (box) => {
+      box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
+      box.append(settingRow('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
+      box.append(settingRow('Chips above message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
     }));
-    body.append(toggleCard('Previews can load web assets', 'Lets HTML previews load https scripts, styles and images (CDNs). Off keeps previews fully offline', !!settings.previewExternal, (v) => { settings.previewExternal = v; commit(); }));
 
-    body.append(group('Variables'));
-    const grid = h('div', { class: 'dck-card dck-vargrid' });
-    VARIABLES.forEach((v) => grid.append(h('div', {}, h('span', { class: 'dck-vchip static' }, '{{' + v.name + '}}'), h('div', { class: 'dck-faint' }, v.desc))));
-    body.append(grid);
+    body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse and ZIP', (box) => {
+      box.append(settingRow('Code block tools', 'Adds Collapse and + ZIP next to Copy and Download', settings.codeTools !== false, (v) => {
+        settings.codeTools = v;
+        if (!v) hideBar();
+        commit(); syncAll();
+      }));
+      box.append(settingRow('Collapse long blocks', 'Blocks over ' + (settings.collapseLines || 20) + ' lines start collapsed', !!settings.collapseLong, (v) => {
+        settings.collapseLong = v;
+        if (v) scheduleCollapseScan(); else { document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false)); syncAll(); }
+        commit();
+      }));
+    }));
+
+    body.append(accordion('vars', 'Variables', VARIABLES.length + ' available in prompts, notes and snippets', (box) => {
+      const grid = h('div', { class: 'dck-vargrid' });
+      VARIABLES.forEach((v) => grid.append(h('div', {}, h('span', { class: 'dck-vchip static' }, '{{' + v.name + '}}'), h('div', { class: 'dck-faint' }, v.desc))));
+      box.append(grid);
+    }));
+
+    const problems = diagnostics().filter((r) => r.ok === false).length;
+    body.append(accordion('diag', 'Diagnostics', problems ? problems + (problems === 1 ? ' problem found' : ' problems found') : 'Everything found', (box) => renderDiagnostics(box)));
 
     const importInput = h('input', { type: 'file', accept: 'application/json', style: 'display:none', 'aria-label': 'Import file' });
     importInput.addEventListener('change', async () => {
@@ -835,20 +867,19 @@
         commit(); render(); toast('Imported');
       } catch (err) { toast('Invalid file'); }
     });
-    body.append(group('Diagnostics'));
-    renderDiagnostics(body);
-    body.append(group('Backup'));
-    body.append(h('div', { class: 'dck-two' },
-      h('button', {
-        type: 'button', class: 'dck-btn',
-        onclick: () => {
-          const blob = new Blob([JSON.stringify({ settings, memories }, null, 2)], { type: 'application/json' });
-          const a = h('a', { href: URL.createObjectURL(blob), download: 'deepseek-kit.json' });
-          a.click(); URL.revokeObjectURL(a.href);
-        },
-      }, icon('down'), 'Export'),
-      h('button', { type: 'button', class: 'dck-btn', onclick: () => importInput.click() }, icon('up'), 'Import')),
-      importInput);
+    body.append(accordion('data', 'Backup', 'Export or import your prompts, notes and snippets', (box) => {
+      box.append(h('div', { class: 'dck-two' },
+        h('button', {
+          type: 'button', class: 'dck-btn',
+          onclick: () => {
+            const blob = new Blob([JSON.stringify({ settings, memories }, null, 2)], { type: 'application/json' });
+            const a = h('a', { href: URL.createObjectURL(blob), download: 'deepseek-kit.json' });
+            a.click(); URL.revokeObjectURL(a.href);
+          },
+        }, icon('down'), 'Export'),
+        h('button', { type: 'button', class: 'dck-btn', onclick: () => importInput.click() }, icon('up'), 'Import')),
+        importInput);
+    }));
   }
 
   // ---------- Drawer ----------
@@ -957,13 +988,8 @@
     refreshAll(true);
   }
 
-  // ---------- Code block tools (hover bar, download, ZIP basket, sandboxed preview) ----------
-  const tools = { bar: null, pre: null, basket: [], hideTimer: 0, panel: null, frame: null, ready: false, pending: null };
-
-  function pageUrl(path) {
-    try { return chrome.runtime && chrome.runtime.getURL ? chrome.runtime.getURL(path) : ''; } catch (e) { return ''; }
-  }
-
+  // ---------- Code block tools (buttons in the code block header: collapse, ZIP basket) ----------
+  const tools = { bar: null, pre: null, basket: [], hideTimer: 0, headed: new WeakMap(), zip: null, scanQueued: false };
   const collapse = { touched: new WeakSet(), queued: false };
 
   function lineCount(pre) { return (pre.textContent || '').replace(/\n$/, '').split('\n').length; }
@@ -972,27 +998,13 @@
     if (on) pre.setAttribute('data-dck-collapsed', ''); else pre.removeAttribute('data-dck-collapsed');
   }
 
-  function scheduleCollapseScan() {
-    if (collapse.queued) return;
-    collapse.queued = true;
-    requestAnimationFrame(() => {
-      collapse.queued = false;
-      if (!settings.collapseLong) return;
-      const limit = Math.max(3, settings.collapseLines || 20);
-      document.querySelectorAll('pre').forEach((pre) => {
-        if (collapse.touched.has(pre) || pre.closest('#dck-drawer, #dck-preview-panel')) return;
-        if (lineCount(pre) > limit) { collapse.touched.add(pre); setCollapsed(pre, true); }
-      });
-    });
-  }
-
   function blockInfo(pre) {
     const codeEl = pre.querySelector('code');
     const text = (codeEl || pre).textContent.replace(/\n$/, '');
     const hints = [langFromClass((codeEl && codeEl.className) || ''), langFromClass(pre.className)];
     const prev = pre.previousElementSibling || (pre.parentElement && pre.parentElement.firstElementChild !== pre ? pre.parentElement.firstElementChild : null);
-    const label = prev ? String(prev.textContent || '').trim() : '';
-    if (label && label.length <= 20 && !/\s/.test(label)) hints.push(label);
+    const label = prev ? String(prev.textContent || '').trim().split(/\s+/)[0] : '';
+    if (label && label.length <= 20) hints.push(label);
     const info = detectBlock(hints, text);
     const all = Array.from(document.querySelectorAll('pre'));
     return { text, lang: info.lang, kind: info.kind, name: suggestFilename(info.lang, text, all.indexOf(pre) + 1) };
@@ -1006,6 +1018,26 @@
     setTimeout(() => { a.remove(); URL.revokeObjectURL(a.href); }, 1000);
   }
 
+  // ----- ZIP basket (a small pill at the bottom of the page)
+  function updateZipChip() {
+    if (!tools.zip) { tools.zip = h('div', { id: 'dck-zipchip', style: 'display:none' }); document.body.append(tools.zip); }
+    const n = tools.basket.length;
+    tools.zip.style.display = n ? 'flex' : 'none';
+    tools.zip.textContent = '';
+    if (!n) return;
+    tools.zip.append(
+      h('button', { type: 'button', class: 'dck-cbtn primary', onclick: basketZip }, 'Download ZIP (' + n + ')'),
+      h('button', { type: 'button', class: 'dck-cbtn', 'aria-label': 'Clear collected blocks', onclick: () => { tools.basket = []; updateZipChip(); syncAll(); } }, 'Clear'));
+  }
+
+  function toggleBasket(pre) {
+    const at = tools.basket.findIndex((b) => b.el === pre);
+    if (at >= 0) tools.basket.splice(at, 1);
+    else { const info = blockInfo(pre); tools.basket.push({ el: pre, name: info.name, text: info.text }); }
+    updateZipChip();
+    syncAll();
+  }
+
   function basketZip() {
     const used = new Set();
     const files = tools.basket.map((b) => ({ name: uniqueName(b.name, used), data: b.text }));
@@ -1013,60 +1045,111 @@
     logEvent('ZIP downloaded (' + files.length + ' files)');
     toast(files.length + (files.length === 1 ? ' file' : ' files') + ' zipped');
     tools.basket = [];
-    updateBar();
+    updateZipChip();
+    syncAll();
   }
 
-  function closePreviewPanel() {
-    if (tools.panel) tools.panel.remove();
-    tools.panel = null; tools.frame = null; tools.ready = false; tools.pending = null;
+  // ----- the buttons themselves
+  // What a block offers: [id, label, handler]
+  function actionsFor(pre) {
+    const info = blockInfo(pre);
+    const folded = pre.hasAttribute('data-dck-collapsed');
+    const inBasket = tools.basket.some((b) => b.el === pre);
+    const list = [];
+    if (folded || lineCount(pre) > 3) list.push(['collapse', folded ? 'Expand' : 'Collapse', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
+    list.push(['zip', inBasket ? 'Added' : '+ ZIP', () => toggleBasket(pre)]);
+    return list;
   }
 
-  function showPreviewPanel(info) {
-    const url = pageUrl('preview.html');
-    if (!url) { toast('Preview is not available here'); return; }
-    const dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    logEvent('Preview opened (' + info.lang + ')');
-    tools.pending = { dck: 'render', kind: info.kind, code: info.text, allowExternal: !!settings.previewExternal, dark };
-    if (!tools.panel) {
-      tools.frame = h('iframe', { id: 'dck-preview-frame', src: url, title: 'Preview' });
-      tools.ready = false;
-      tools.panel = h('div', { id: 'dck-preview-panel' },
-        h('div', { class: 'dck-phead' },
-          h('div', { class: 'dck-ptitle', id: 'dck-ptitle' }, ''),
-          iconBtn('close', 'Close preview', closePreviewPanel)),
-        tools.frame);
-      document.body.append(tools.panel);
+  // The site's own "Copy" button of this block, found by its text. Null when the block has no header.
+  function findCopyButton(pre) {
+    let box = pre.parentElement;
+    for (let i = 0; i < 4 && box && box !== document.body; i++, box = box.parentElement) {
+      if (box.querySelectorAll('pre').length > 1) return null;
+      const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+      let n;
+      while ((n = walker.nextNode())) {
+        const t = n.nodeValue.trim();
+        if (t !== 'Copy' && t !== 'Copy code') continue;
+        if (pre.contains(n) || n.parentElement.closest('[data-dck-act]')) continue;
+        let btn = n.parentElement;
+        while (btn.parentElement && btn.parentElement !== box && btn.parentElement.textContent.trim() === t) btn = btn.parentElement;
+        if (btn.parentElement && !(pre.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING)) return btn;
+      }
     }
-    const t = tools.panel.querySelector('#dck-ptitle');
-    t.textContent = 'Preview: ' + info.lang + (info.kind !== 'markdown' && info.kind !== 'mermaid' && settings.previewExternal ? ' (web assets allowed)' : '');
-    if (tools.ready) tools.frame.contentWindow.postMessage(tools.pending, '*');
+    return null;
   }
 
+  function removeHeaderButtons(pre) {
+    const box = pre.parentElement && pre.parentElement.parentElement;
+    if (box) box.querySelectorAll('[data-dck-act]').forEach((n) => n.remove());
+  }
+
+  // Puts our buttons next to Copy / Download. Returns true when the block has a header to put them in.
+  function syncHeader(pre) {
+    const copy = findCopyButton(pre);
+    if (!copy) return false;
+    const row = copy.parentElement;
+    const want = actionsFor(pre);
+    const have = Array.from(row.querySelectorAll(':scope > [data-dck-act]'));
+    const same = have.length === want.length && have.every((n, i) => n.getAttribute('data-dck-act') === want[i][0]);
+    if (!same) {
+      have.forEach((n) => n.remove());
+      want.forEach((w) => {
+        const b = copy.cloneNode(false);
+        b.removeAttribute('id');
+        b.setAttribute('data-dck-act', w[0]);
+        b.setAttribute('role', 'button');
+        b.setAttribute('tabindex', '0');
+        b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); w[2](); });
+        b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); w[2](); } });
+        row.insertBefore(b, copy);
+      });
+    }
+    row.querySelectorAll(':scope > [data-dck-act]').forEach((n, i) => {
+      if (n.textContent !== want[i][1]) n.textContent = want[i][1];
+    });
+    return true;
+  }
+
+  function syncAll() {
+    document.querySelectorAll('pre').forEach((pre) => {
+      if (pre.closest('#dck-drawer')) return;
+      if (settings.codeTools === false) { removeHeaderButtons(pre); tools.headed.set(pre, false); return; }
+      tools.headed.set(pre, syncHeader(pre));
+    });
+    if (tools.pre) updateBar();
+  }
+
+  function scheduleCodeScan() {
+    if (tools.scanQueued) return;
+    tools.scanQueued = true;
+    requestAnimationFrame(() => { tools.scanQueued = false; syncAll(); });
+  }
+
+  function scheduleCollapseScan() {
+    if (collapse.queued) return;
+    collapse.queued = true;
+    requestAnimationFrame(() => {
+      collapse.queued = false;
+      if (!settings.collapseLong) return;
+      const limit = Math.max(3, settings.collapseLines || 20);
+      let changed = false;
+      document.querySelectorAll('pre').forEach((pre) => {
+        if (collapse.touched.has(pre) || pre.closest('#dck-drawer')) return;
+        if (lineCount(pre) > limit) { collapse.touched.add(pre); setCollapsed(pre, true); changed = true; }
+      });
+      if (changed) syncAll();
+    });
+  }
+
+  // ----- fallback: floating bar for blocks without a header
   function updateBar() {
     const bar = tools.bar;
     if (!bar || !tools.pre) return;
-    const info = blockInfo(tools.pre);
-    const inBasket = tools.basket.some((b) => b.el === tools.pre);
+    const pre = tools.pre;
     bar.textContent = '';
-    if (info.kind) bar.append(h('button', { type: 'button', class: 'dck-cbtn', onclick: () => showPreviewPanel(info) }, 'Preview'));
-    if (lineCount(tools.pre) > 3 || tools.pre.hasAttribute('data-dck-collapsed')) {
-      const folded = tools.pre.hasAttribute('data-dck-collapsed');
-      bar.append(h('button', {
-        type: 'button', class: 'dck-cbtn',
-        onclick: () => { const p = tools.pre; collapse.touched.add(p); setCollapsed(p, !folded); updateBar(); placeBar(); },
-      }, folded ? 'Expand' : 'Collapse'));
-    }
-    bar.append(h('button', { type: 'button', class: 'dck-cbtn', onclick: () => saveFile(info.name, info.text, 'text/plain;charset=utf-8') }, 'Download'));
-    bar.append(h('button', {
-      type: 'button', class: 'dck-cbtn' + (inBasket ? ' on' : ''), title: 'Collect blocks, then download them as one ZIP',
-      onclick: () => {
-        const pre = tools.pre;
-        const at = tools.basket.findIndex((b) => b.el === pre);
-        if (at >= 0) tools.basket.splice(at, 1); else tools.basket.push({ el: pre, name: info.name, text: info.text });
-        updateBar();
-      },
-    }, inBasket ? 'Added' : '+ ZIP'));
-    if (tools.basket.length) bar.append(h('button', { type: 'button', class: 'dck-cbtn primary', title: 'Download the collected blocks as a ZIP', onclick: basketZip }, 'ZIP (' + tools.basket.length + ')'));
+    actionsFor(pre).forEach((w) => bar.append(h('button', { type: 'button', class: 'dck-cbtn' + (w[0] === 'zip' && w[1] === 'Added' ? ' on' : ''), onclick: () => { w[2](); placeBar(); } }, w[1])));
   }
 
   function placeBar() {
@@ -1093,22 +1176,16 @@
     tools.bar.addEventListener('mouseleave', later);
     document.addEventListener('mouseover', (e) => {
       if (settings.codeTools === false || !(e.target instanceof Element)) return;
-      if (e.target.closest('#dck-codebar, #dck-drawer, #dck-preview-panel')) return;
+      if (e.target.closest('#dck-codebar, #dck-drawer')) return;
       const pre = e.target.closest('pre');
-      if (!pre) { if (tools.pre) later(); return; }
+      if (!pre || tools.headed.get(pre)) { if (tools.pre) later(); return; }
       keep();
       if (pre !== tools.pre) { tools.pre = pre; updateBar(); }
       placeBar();
     });
     window.addEventListener('scroll', () => { if (tools.pre) placeBar(); }, true);
     window.addEventListener('resize', () => { if (tools.pre) placeBar(); });
-    window.addEventListener('message', (e) => {
-      if (!tools.frame || e.source !== tools.frame.contentWindow) return;
-      if (e.data && e.data.dck === 'ready') {
-        tools.ready = true;
-        if (tools.pending) tools.frame.contentWindow.postMessage(tools.pending, '*');
-      }
-    });
+    syncAll();
   }
 
   function mount() {
