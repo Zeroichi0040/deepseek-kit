@@ -20,6 +20,11 @@
 
   // ---------- Extension runtime ----------
   const store = chrome.storage.local;
+  const diag = { events: [], stripped: 0, started: Date.now() };
+  function logEvent(msg) {
+    diag.events.push({ t: new Date(), msg: msg });
+    if (diag.events.length > 30) diag.events.shift();
+  }
   let settings = migrateSettings({});
   let memories = [];
   const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, search: '', showAllVars: false, preview: null };
@@ -113,7 +118,7 @@
 
   function insertContext(force) {
     const el = getComposer();
-    if (!el) { toast('Message box not found'); return false; }
+    if (!el) { logEvent('Message box not found'); toast('Message box not found'); return false; }
     const text = el.value;
     if (!text.trim()) { if (force) toast('Type a message first'); return false; }
     if (alreadyHasContext(text)) { if (force) toast('Context is already in the message'); return false; }
@@ -122,20 +127,28 @@
     const prefix = buildPrefix(settings, memories, text, count, force, ctxFor(count));
     if (!prefix) { if (force) toast('Nothing to insert - switch on a prompt or add a memory note'); return false; }
     setNativeValue(el, prefix + text);
+    logEvent('Context inserted (' + prefix.length + ' chars, message #' + count + ')');
     return true;
   }
 
   // ---------- Sending (used only by "hide inserted context" mode) ----------
-  function clickSend(el) {
+  function findSendButton(el) {
     let node = el;
     for (let i = 0; i < 6 && node && node.parentElement; i++) {
       node = node.parentElement;
       const btns = Array.from(node.querySelectorAll('[role="button"], button')).filter(
         (b) => !b.closest('#dck-drawer, #dck-picker, #dck-chips') && b.querySelector('svg') && b.getAttribute('aria-disabled') !== 'true' && !b.disabled
       );
-      if (btns.length) { btns[btns.length - 1].click(); return true; }
+      if (btns.length) return btns[btns.length - 1];
     }
-    return false;
+    return null;
+  }
+
+  function clickSend(el) {
+    const b = findSendButton(el);
+    if (!b) return false;
+    b.click();
+    return true;
   }
 
   // One Enter press from you -> context attached and the message sent. Falls back to the send button, then to asking you.
@@ -147,8 +160,9 @@
       bypass = false;
     }
     setTimeout(() => {
-      if (!alreadyHasContext(el.value)) { delete el.dataset.dckCounted; return; }
-      if (!clickSend(el)) toast('Could not send automatically - press Enter to send');
+      if (!alreadyHasContext(el.value)) { delete el.dataset.dckCounted; logEvent('Hidden send: message went out on Enter'); return; }
+      if (clickSend(el)) logEvent('Hidden send: used the send button');
+      else { logEvent('Hidden send failed: no send button found'); toast('Could not send automatically - press Enter to send'); }
       setTimeout(() => { if (!alreadyHasContext(el.value)) delete el.dataset.dckCounted; }, 600);
     }, 450);
   }
@@ -378,7 +392,7 @@
       if (!par || par.closest('textarea, #dck-drawer, #dck-picker, #dck-chips, #dck-toast')) return;
       if (node.nodeValue && node.nodeValue.indexOf(MARKER_START) !== -1) {
         const v = stripContext(node.nodeValue);
-        if (v !== node.nodeValue) node.nodeValue = v;
+        if (v !== node.nodeValue) { node.nodeValue = v; diag.stripped += 1; }
       }
     } else if (node.nodeType === 1) {
       const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
@@ -405,6 +419,7 @@
 
   function startObserver() {
     new MutationObserver((records) => {
+      if (settings.collapseLong) scheduleCollapseScan();
       if (settings.showInjected !== false) return;
       const nodes = [];
       records.forEach((r) => {
@@ -737,6 +752,60 @@
   }
 
   // ---------- Settings tab ----------
+  // ---------- Diagnostics ----------
+  function diagnostics() {
+    const el = getComposer();
+    const send = el ? findSendButton(el) : null;
+    const pres = document.querySelectorAll('pre').length;
+    const rows = [];
+    const add = (label, ok, detail) => rows.push({ label: label, ok: ok, detail: detail });
+    add('Message box', !!el, el ? '<' + el.tagName.toLowerCase() + '>' : 'not found - the site may have changed');
+    add('Send button', send ? true : (settings.showInjected === false ? false : null), send ? 'found' : (settings.showInjected === false ? 'not found - Hidden mode cannot press send' : 'not found (only needed in Hidden mode)'));
+    add('Chip row', settings.showChips === false ? null : !!el && !!document.getElementById('dck-chips') && !!composerRect(el), settings.showChips === false ? 'turned off' : 'placed above the message box');
+    add('Hidden-mode cleanup', null, settings.showInjected === false ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
+    add('Code blocks on page', null, pres + ' found, tools ' + (settings.codeTools === false ? 'off' : 'on'));
+    add('Preview page', !!pageUrl('preview.html'), pageUrl('preview.html') ? 'available' : 'not available');
+    add('Chat', null, chatPathLabel() + ', message count ' + chatCount());
+    let bytes = 0;
+    try { bytes = JSON.stringify({ settings, memories, counts }).length; } catch (e) { bytes = 0; }
+    add('Stored data', null, memories.length + ' notes, ' + (settings.snippets || []).length + ' snippets, ' + Object.keys(counts || {}).length + ' chats counted, ~' + (bytes / 1024).toFixed(1) + ' KB');
+    return rows;
+  }
+
+  function chatPathLabel() { return location.pathname === '/' ? 'new chat' : 'existing chat'; }
+
+  function diagnosticsText() {
+    const manifest = chrome.runtime && chrome.runtime.getManifest ? chrome.runtime.getManifest() : { version: '?' };
+    const lines = ['DeepSeek Kit ' + manifest.version, 'Page: ' + location.pathname.replace(/[^/]+$/, '<id>'), 'Browser: ' + navigator.userAgent, ''];
+    diagnostics().forEach((r) => lines.push((r.ok === true ? '[ok]   ' : r.ok === false ? '[FAIL] ' : '[info] ') + r.label + ': ' + r.detail));
+    lines.push('', 'Recent events:');
+    diag.events.forEach((e) => lines.push('  ' + e.t.toTimeString().slice(0, 8) + ' ' + e.msg));
+    if (!diag.events.length) lines.push('  (none)');
+    return lines.join('\n');
+  }
+
+  function renderDiagnostics(body) {
+    const card = h('div', { class: 'dck-card dck-diag' });
+    diagnostics().forEach((r) => card.append(h('div', { class: 'dck-diagrow' },
+      h('span', { class: 'dck-diagdot ' + (r.ok === true ? 'ok' : r.ok === false ? 'bad' : 'info') }),
+      h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, r.label), h('div', { class: 'dck-sub' }, r.detail)))));
+    card.append(h('div', { class: 'dck-sub dck-diagevents-title' }, 'Recent events'));
+    if (!diag.events.length) card.append(h('div', { class: 'dck-sub' }, 'Nothing yet this session.'));
+    diag.events.slice(-8).reverse().forEach((e) => card.append(h('div', { class: 'dck-sub dck-diagevent' }, e.t.toTimeString().slice(0, 8) + '  ' + e.msg)));
+    body.append(card);
+    body.append(h('div', { class: 'dck-two' },
+      h('button', { type: 'button', class: 'dck-btn', onclick: () => render() }, 'Refresh'),
+      h('button', {
+        type: 'button', class: 'dck-btn',
+        onclick: () => {
+          const text = diagnosticsText();
+          const done = () => toast('Report copied (no message text included)');
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => toast('Could not copy'));
+          else toast('Could not copy');
+        },
+      }, 'Copy report')));
+  }
+
   function renderSettings(body, drawer) {
     body.append(group('Behavior'));
     body.append(toggleCard('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
@@ -745,6 +814,11 @@
 
     body.append(group('Code blocks'));
     body.append(toggleCard('Code block tools', 'Hover a code block for Preview, Download and ZIP', settings.codeTools !== false, (v) => { settings.codeTools = v; if (!v) hideBar(); commit(); }));
+    body.append(toggleCard('Collapse long code blocks', 'Blocks over ' + (settings.collapseLines || 20) + ' lines start collapsed. Expand from the hover bar', !!settings.collapseLong, (v) => {
+      settings.collapseLong = v;
+      if (v) scheduleCollapseScan(); else document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false));
+      commit();
+    }));
     body.append(toggleCard('Previews can load web assets', 'Lets HTML previews load https scripts, styles and images (CDNs). Off keeps previews fully offline', !!settings.previewExternal, (v) => { settings.previewExternal = v; commit(); }));
 
     body.append(group('Variables'));
@@ -761,6 +835,8 @@
         commit(); render(); toast('Imported');
       } catch (err) { toast('Invalid file'); }
     });
+    body.append(group('Diagnostics'));
+    renderDiagnostics(body);
     body.append(group('Backup'));
     body.append(h('div', { class: 'dck-two' },
       h('button', {
@@ -888,6 +964,28 @@
     try { return chrome.runtime && chrome.runtime.getURL ? chrome.runtime.getURL(path) : ''; } catch (e) { return ''; }
   }
 
+  const collapse = { touched: new WeakSet(), queued: false };
+
+  function lineCount(pre) { return (pre.textContent || '').replace(/\n$/, '').split('\n').length; }
+
+  function setCollapsed(pre, on) {
+    if (on) pre.setAttribute('data-dck-collapsed', ''); else pre.removeAttribute('data-dck-collapsed');
+  }
+
+  function scheduleCollapseScan() {
+    if (collapse.queued) return;
+    collapse.queued = true;
+    requestAnimationFrame(() => {
+      collapse.queued = false;
+      if (!settings.collapseLong) return;
+      const limit = Math.max(3, settings.collapseLines || 20);
+      document.querySelectorAll('pre').forEach((pre) => {
+        if (collapse.touched.has(pre) || pre.closest('#dck-drawer, #dck-preview-panel')) return;
+        if (lineCount(pre) > limit) { collapse.touched.add(pre); setCollapsed(pre, true); }
+      });
+    });
+  }
+
   function blockInfo(pre) {
     const codeEl = pre.querySelector('code');
     const text = (codeEl || pre).textContent.replace(/\n$/, '');
@@ -912,6 +1010,7 @@
     const used = new Set();
     const files = tools.basket.map((b) => ({ name: uniqueName(b.name, used), data: b.text }));
     saveFile('code-blocks.zip', makeZip(files, new Date()), 'application/zip');
+    logEvent('ZIP downloaded (' + files.length + ' files)');
     toast(files.length + (files.length === 1 ? ' file' : ' files') + ' zipped');
     tools.basket = [];
     updateBar();
@@ -926,6 +1025,7 @@
     const url = pageUrl('preview.html');
     if (!url) { toast('Preview is not available here'); return; }
     const dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    logEvent('Preview opened (' + info.lang + ')');
     tools.pending = { dck: 'render', kind: info.kind, code: info.text, allowExternal: !!settings.previewExternal, dark };
     if (!tools.panel) {
       tools.frame = h('iframe', { id: 'dck-preview-frame', src: url, title: 'Preview' });
@@ -949,6 +1049,13 @@
     const inBasket = tools.basket.some((b) => b.el === tools.pre);
     bar.textContent = '';
     if (info.kind) bar.append(h('button', { type: 'button', class: 'dck-cbtn', onclick: () => showPreviewPanel(info) }, 'Preview'));
+    if (lineCount(tools.pre) > 3 || tools.pre.hasAttribute('data-dck-collapsed')) {
+      const folded = tools.pre.hasAttribute('data-dck-collapsed');
+      bar.append(h('button', {
+        type: 'button', class: 'dck-cbtn',
+        onclick: () => { const p = tools.pre; collapse.touched.add(p); setCollapsed(p, !folded); updateBar(); placeBar(); },
+      }, folded ? 'Expand' : 'Collapse'));
+    }
     bar.append(h('button', { type: 'button', class: 'dck-cbtn', onclick: () => saveFile(info.name, info.text, 'text/plain;charset=utf-8') }, 'Download'));
     bar.append(h('button', {
       type: 'button', class: 'dck-cbtn' + (inBasket ? ' on' : ''), title: 'Collect blocks, then download them as one ZIP',
@@ -1013,6 +1120,7 @@
     render();
     startObserver();
     initCodeTools();
+    if (settings.collapseLong) scheduleCollapseScan();
     if (settings.showInjected === false) scheduleStrip([document.body]);
   }
 

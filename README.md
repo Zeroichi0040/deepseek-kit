@@ -42,9 +42,14 @@ Hover any code block in the chat for a small bar (turn it off in Settings > Code
 
 - **Preview** (HTML, SVG, Mermaid, Markdown): opens a panel beside the chat. Previews run in a sandboxed extension page with no access to the chat page, your cookies or the extension's storage, and with network access blocked. HTML previews can run scripts but stay offline unless you enable *Previews can load web assets* (then only https scripts, styles, images and fonts load; requests such as fetch stay blocked). Markdown is sanitized.
 - **Download**: saves the block as a file. The name comes from a comment such as `// file: app.js` or `<!-- index.html -->` in the first lines, otherwise `snippet-N.ext`.
+- **Collapse / Expand**: folds a long block down to a few lines (the hover bar button). *Collapse long code blocks* in Settings starts blocks over 20 lines collapsed; a block you expand stays open.
 - **+ ZIP**: collects blocks, then **ZIP (n)** downloads them as one ZIP (duplicate names get -2, -3).
 
 Mermaid, marked and DOMPurify are bundled in `vendor/` (see `vendor/README.md`); nothing is fetched from the web.
+
+## Diagnostics
+
+Settings > Diagnostics checks whether the message box, send button and chip row were found, how many code blocks are on the page, whether the preview page is available, and what is stored, plus the last events (context inserted, hidden-mode sends, previews, ZIPs). **Copy report** puts it on your clipboard for bug reports; it contains no message text. If something stops working after a DeepSeek update, the red entries show which selector to adjust.
 
 ## Show / hide inserted context
 
