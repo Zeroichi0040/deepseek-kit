@@ -50,8 +50,20 @@
 .dck-card .name { font-weight: 600; }
 .dck-card .meta { opacity: .65; font-size: 11px; }
 .dck-hint { opacity: .65; font-size: 11px; margin: 4px 0; }
+
+/* slash picker */
+#dck-picker {
+  position: fixed; z-index: 2147483002; display: none; max-height: 280px; overflow-y: auto;
+  background: #1e2327; color: #fff; border: 1px solid #ffffff22; border-radius: 10px;
+  box-shadow: 0 6px 24px #0006; font: 13px system-ui, sans-serif; padding: 4px; box-sizing: border-box;
+}
+.dck-pick { display: flex; gap: 10px; align-items: baseline; padding: 7px 10px; border-radius: 7px; cursor: pointer; }
+.dck-pick.sel, .dck-pick:hover { background: #4d6bfe; }
+.dck-pick .pn { font-weight: 700; flex: 0 0 auto; }
+.dck-pick .pp { opacity: .7; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 #dck-toast {
-  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483002;
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 2147483003;
   background: #1e2327; color: #fff; padding: 8px 14px; border-radius: 8px; font: 13px system-ui, sans-serif;
   display: none;
 }

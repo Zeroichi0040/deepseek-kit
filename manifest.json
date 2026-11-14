@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "DeepSeek Kit",
-  "version": "0.2.0",
-  "description": "A small, local-only helper for chat.deepseek.com: keep system prompts and memory notes, and insert them into your message box (visibly) before you send.",
+  "version": "0.3.0",
+  "description": "A small, local-only helper for chat.deepseek.com: system prompts, memory notes and snippets (type / to pick one), with variables.",
   "permissions": ["storage"],
   "content_scripts": [
     {
