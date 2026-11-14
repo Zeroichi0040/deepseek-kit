@@ -137,4 +137,25 @@ assert.deepStrictEqual(c.insertAt('hello world', 6, 6, '{{date}} '), { value: 'h
 assert.deepStrictEqual(c.insertAt('hello world', 0, 5, 'X'), { value: 'X world', caret: 1 });
 assert.deepStrictEqual(c.insertAt('abc', null, null, 'Z'), { value: 'abcZ', caret: 4 });
 
+// ---- per-chat message counts (survive refresh; unknown existing chats count as already started)
+assert.ok(!c.isExistingChatPath('/') && !c.isExistingChatPath('') && !c.isExistingChatPath(undefined));
+assert.ok(c.isExistingChatPath('/a/chat/s/abc'));
+assert.strictEqual(c.resolveCount({}, '/'), 0, 'new chat starts at 0');
+assert.strictEqual(c.resolveCount({}, '/a/chat/s/abc'), 1, 'unknown existing chat is already started');
+assert.strictEqual(c.resolveCount({ '/a/chat/s/abc': 4 }, '/a/chat/s/abc'), 4, 'stored count wins');
+assert.strictEqual(c.resolveCount({ '/a/chat/s/abc': 0 }, '/a/chat/s/abc'), 0, 'a stored 0 is respected');
+assert.strictEqual(c.resolveCount({ '/a/chat/s/abc': 'junk' }, '/a/chat/s/abc'), 1, 'corrupt value falls back');
+assert.strictEqual(c.resolveCount({ '/a/chat/s/abc': -3 }, '/a/chat/s/abc'), 1);
+assert.strictEqual(c.resolveCount(null, '/a/chat/s/abc'), 1);
+// a refresh in an existing chat must not make "first message" prompts due again
+const firstOnly = { enabled: true, memoryEnabled: false, prompts: [{ id: '1', name: 'A', text: 't', enabled: true, schedule: 'first' }] };
+assert.ok(!c.shouldInject(firstOnly, c.resolveCount({}, '/a/chat/s/abc')), 'no first-message prompt after refresh');
+assert.ok(c.shouldInject(firstOnly, c.resolveCount({}, '/')), 'new chat still gets it');
+const many = {};
+for (let i = 0; i < 10; i++) many['/a/chat/s/' + i] = i;
+const pruned = c.pruneCounts(many, 4);
+assert.deepStrictEqual(Object.keys(pruned), ['/a/chat/s/6', '/a/chat/s/7', '/a/chat/s/8', '/a/chat/s/9']);
+assert.strictEqual(c.pruneCounts(many, 50), many);
+assert.deepStrictEqual(c.pruneCounts(undefined, 5), {});
+
 console.log('all logic tests passed');
