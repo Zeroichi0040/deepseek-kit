@@ -433,11 +433,12 @@
       if (settings.showInjected !== false) return;
       const nodes = [];
       records.forEach((r) => {
+        if (r.type === 'attributes') return;
         if (r.type === 'characterData') nodes.push(r.target);
         else r.addedNodes.forEach((n) => nodes.push(n));
       });
       if (nodes.length) scheduleStrip(nodes);
-    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'aria-disabled', 'disabled'] });
   }
 
   // ---------- UI helpers ----------
@@ -1104,27 +1105,9 @@
     while ((n = walker.nextNode())) { if (n.nodeValue.trim()) n.nodeValue = ''; }
   }
 
-  // The site may dim or "disable" buttons by position or state (e.g. structural selectors), which our copies would
-  // inherit. Pin the look of the real Copy button onto ours so they always read as normal, clickable buttons.
-  function labelEl(btn) {
-    const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
-    let n = walker.nextNode();
-    while (n && !n.nodeValue.trim()) n = walker.nextNode();
-    return n ? n.parentElement : btn;
-  }
-
-  function mirrorStyle(btn, src) {
-    const pin = (el, from, props) => {
-      const cs = getComputedStyle(from);
-      props.forEach((p) => { if (el.style.getPropertyValue(p) !== cs.getPropertyValue(p)) el.style.setProperty(p, cs.getPropertyValue(p), 'important'); });
-    };
-    pin(btn, src, ['color', 'opacity', 'filter']);
-    const mine = labelEl(btn), theirs = labelEl(src);
-    if (mine !== btn) pin(mine, theirs, ['color', 'opacity']);
-    ['cursor:pointer', 'pointer-events:auto'].forEach((d) => { const kv = d.split(':'); if (btn.style.getPropertyValue(kv[0]) !== kv[1]) btn.style.setProperty(kv[0], kv[1], 'important'); });
-    ['aria-disabled', 'disabled', 'data-disabled'].forEach((a) => btn.removeAttribute(a));
-    Array.from(btn.classList).filter((c) => /disabled|inactive/i.test(c)).forEach((c) => btn.classList.remove(c));
-  }
+  // What the site's Copy button looks like right now (its markup without the text). Ours are copies of it, so when it
+  // changes (e.g. it is dimmed while a reply streams, then switches to normal) the copies are rebuilt to match.
+  function look(btn) { return btn.outerHTML.replace(/>[^<]*</g, '><'); }
 
   function removeHeaderButtons(pre) {
     const box = pre.parentElement && pre.parentElement.parentElement;
@@ -1138,7 +1121,8 @@
     const row = copy.parentElement;
     const want = actionsFor(pre);
     const have = Array.from(row.querySelectorAll(':scope > [data-dck-act]'));
-    const same = have.length === want.length && have.every((n, i) => n.getAttribute('data-dck-act') === want[i][0]);
+    const sig = look(copy);
+    const same = have.length === want.length && have.every((n, i) => n.getAttribute('data-dck-act') === want[i][0] && n.getAttribute('data-dck-look') === sig);
     if (!same) {
       have.forEach((n) => n.remove());
       want.forEach((w) => {
@@ -1149,6 +1133,7 @@
         b.querySelectorAll('svg, img').forEach((n) => n.remove());
         setLabel(b, w[1]);
         b.setAttribute('data-dck-act', w[0]);
+        b.setAttribute('data-dck-look', sig);
         b.setAttribute('role', 'button');
         b.setAttribute('tabindex', '0');
         b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); w[2](); });
@@ -1156,7 +1141,7 @@
         row.insertBefore(b, copy);
       });
     }
-    row.querySelectorAll(':scope > [data-dck-act]').forEach((n, i) => { setLabel(n, want[i][1]); mirrorStyle(n, copy); });
+    row.querySelectorAll(':scope > [data-dck-act]').forEach((n, i) => { setLabel(n, want[i][1]); });
     return true;
   }
 
