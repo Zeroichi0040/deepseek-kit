@@ -1104,6 +1104,28 @@
     while ((n = walker.nextNode())) { if (n.nodeValue.trim()) n.nodeValue = ''; }
   }
 
+  // The site may dim or "disable" buttons by position or state (e.g. structural selectors), which our copies would
+  // inherit. Pin the look of the real Copy button onto ours so they always read as normal, clickable buttons.
+  function labelEl(btn) {
+    const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
+    let n = walker.nextNode();
+    while (n && !n.nodeValue.trim()) n = walker.nextNode();
+    return n ? n.parentElement : btn;
+  }
+
+  function mirrorStyle(btn, src) {
+    const pin = (el, from, props) => {
+      const cs = getComputedStyle(from);
+      props.forEach((p) => { if (el.style.getPropertyValue(p) !== cs.getPropertyValue(p)) el.style.setProperty(p, cs.getPropertyValue(p), 'important'); });
+    };
+    pin(btn, src, ['color', 'opacity', 'filter']);
+    const mine = labelEl(btn), theirs = labelEl(src);
+    if (mine !== btn) pin(mine, theirs, ['color', 'opacity']);
+    ['cursor:pointer', 'pointer-events:auto'].forEach((d) => { const kv = d.split(':'); if (btn.style.getPropertyValue(kv[0]) !== kv[1]) btn.style.setProperty(kv[0], kv[1], 'important'); });
+    ['aria-disabled', 'disabled', 'data-disabled'].forEach((a) => btn.removeAttribute(a));
+    Array.from(btn.classList).filter((c) => /disabled|inactive/i.test(c)).forEach((c) => btn.classList.remove(c));
+  }
+
   function removeHeaderButtons(pre) {
     const box = pre.parentElement && pre.parentElement.parentElement;
     if (box) box.querySelectorAll('[data-dck-act]').forEach((n) => n.remove());
@@ -1134,7 +1156,7 @@
         row.insertBefore(b, copy);
       });
     }
-    row.querySelectorAll(':scope > [data-dck-act]').forEach((n, i) => setLabel(n, want[i][1]));
+    row.querySelectorAll(':scope > [data-dck-act]').forEach((n, i) => { setLabel(n, want[i][1]); mirrorStyle(n, copy); });
     return true;
   }
 
