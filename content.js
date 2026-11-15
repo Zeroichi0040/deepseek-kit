@@ -299,6 +299,7 @@
   }
 
   function refreshAll(force) {
+    applyFold(); // cheap and idempotent: puts the attribute back if the site ever removes it
     const sum = currentSummary();
     const sig = [settings.showInjected, settings.showSummary, settings.showChips, sum.state, sum.names.join('|'), sum.memories, sum.skipped, sum.tokens].join('~');
     if (force || sig !== liveSig) {
@@ -1058,7 +1059,7 @@
   // first child is the header ("Thought for N seconds") and whose other children are the steps: `.ds-think-content`
   // text plus the "Found N web pages" and "Read N pages" rows. A block the site has closed is just the header plus
   // two empty spacer divs.
-  // With collapseThinking on, <html> gets the class `dck-fold` and a rule in content.css hides every non-empty child
+  // With collapseThinking on, <html> gets the attribute `data-dck-fold` and a rule in content.css hides every non-empty child
   // after the header, so the block looks exactly like a closed one, while streaming and after a refresh alike.
   // Nothing is clicked and no site state changes. That is the point: the site's virtual list measures a folded block
   // from the start, so it never sees a block shrink after it has been measured (closing blocks by clicking their
@@ -1070,12 +1071,16 @@
   const BLOCK_SEL = '[style*="--collapsible-area-title-height"]';
 
   function applyFold() {
-    document.documentElement.classList.toggle('dck-fold', !!(settings.enabled && settings.collapseThinking));
+    const on = !!(settings.enabled && settings.collapseThinking);
+    const root = document.documentElement;
+    if (on !== root.hasAttribute('data-dck-fold')) { if (on) root.setAttribute('data-dck-fold', ''); else root.removeAttribute('data-dck-fold'); }
   }
 
+  // Item keys are positions within one chat, so the chat's path is part of the key: opening a block in one chat must
+  // not open the block with the same key in another chat when you switch without a refresh.
   function thinkKey(el) {
     const item = el.closest('[data-virtual-list-item-key]');
-    return item ? String(item.getAttribute('data-virtual-list-item-key')) : '';
+    return item ? location.pathname + '#' + String(item.getAttribute('data-virtual-list-item-key')) : '';
   }
 
   function scheduleThinkScan() {
