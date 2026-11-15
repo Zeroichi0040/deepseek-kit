@@ -475,6 +475,7 @@
   function startObserver() {
     new MutationObserver((records) => {
       if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
+      if (settings.collapseThinking) scheduleThinkScan();
       if (settings.collapseLong) scheduleCollapseScan();
       if (settings.showInjected !== false) return;
       const nodes = [];
@@ -888,10 +889,11 @@
 
   function renderSettings(body, drawer) {
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
-    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips]), (box) => {
+    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking]), (box) => {
       box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
       box.append(settingRow('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
       box.append(settingRow('Chips near message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
+      box.append(settingRow('Collapse reasoning while thinking', 'Closes the DeepThink block as it starts. Open it yourself any time', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); if (v) scheduleThinkScan(); }));
       box.append(settingRow('Chips in the toolbar', 'Next to DeepThink and Search. Off: above the message box', settings.chipsInline !== false, (v) => { settings.chipsInline = v; commit(); liveSig = ''; refreshAll(true); }));
       box.append(h('div', { class: 'dck-setrow' },
         h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Kit button position'), h('div', { class: 'dck-sub' }, 'Drag the button to move it; it docks to the nearest side')),
@@ -1049,6 +1051,35 @@
 
     if (ui.preview) renderPreview(drawer);
     refreshAll(true);
+  }
+
+  // ---------- DeepThink reasoning: collapse while thinking ----------
+  // An open reasoning block has a `.ds-think-content` body; a closed one has no body at all. Its header is the block's
+  // first child. Only the newest message's blocks that are still thinking are closed, and each at most once, so
+  // blocks you open yourself stay open and old messages that are rebuilt when you scroll are never touched.
+  const think = { done: new WeakSet(), queued: false };
+
+  function scheduleThinkScan() {
+    if (think.queued) return;
+    think.queued = true;
+    requestAnimationFrame(() => { think.queued = false; scanThinking(); });
+  }
+
+  function scanThinking() {
+    if (!settings.enabled || !settings.collapseThinking) return;
+    document.querySelectorAll('.ds-think-content').forEach((body) => {
+      const block = body.parentElement;
+      if (!block || think.done.has(block) || block.closest('#dck-drawer')) return;
+      const header = block.firstElementChild;
+      const label = header ? String(header.textContent || '').trim() : '';
+      if (!label) return; // header not drawn yet; try again on the next change
+      if (/^Thought for/i.test(label)) { think.done.add(block); return; } // already finished: leave it as the user has it
+      const item = block.closest('[data-virtual-list-item-key]');
+      if (item && item.nextElementSibling) { think.done.add(block); return; } // not the newest message
+      think.done.add(block);
+      (header.querySelector('span') || header).click();
+      logEvent('Reasoning block collapsed while thinking');
+    });
   }
 
   // ---------- Code block tools (buttons in the code block header: collapse, ZIP basket) ----------
