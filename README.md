@@ -50,7 +50,7 @@ It relies on the site's markup: a block is the element with an inline `--collaps
 
 ## Code blocks: collapse and ZIP
 
-Kit adds buttons (each with a small icon) to each code block's header, next to the site's own Copy and Download (turn it off in Settings > Code blocks). If a block has no header the buttons appear in a small bar when you hover it.
+Kit adds buttons (each with a small icon) to each code block's header, next to the site's own Copy and Download (turn it off in Settings > Code blocks).
 
 - **Line numbers** (Settings > Code blocks, off by default): numbers each line, with wrapped lines hanging under their number. The numbers are drawn by CSS, so selecting, copying and the site's Copy / Download are unchanged. Blocks the site renders without per-line elements are left alone.
 - **Collapse / Expand**: folds a long block down to a few lines. *Collapse long blocks* starts blocks over 20 lines collapsed; a block you expand stays open.
@@ -93,16 +93,19 @@ The extension counts the messages you send in each chat and saves the count, so 
 
 ## Caveats
 
-- Not tested against the live site. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust `getComposer()`, `positionChips()` and `clickSend()` in `content.js`. Code blocks are found as `pre` elements, with the Copy button located by its text; if the site changes that, adjust `initCodeTools()`.
+- Not tested against the live site. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust the finders in `site.js`; Settings > Diagnostics shows which one stopped finding its target.
 - In hidden mode the inserted block is stripped from user messages in the page. If DeepSeek renders messages in a way that splits the block across elements, it may remain visible. Chat titles generated from the first message may include part of it.
 - Using any extension on a consumer site is at your own risk, and nothing here can promise it won't affect your account.
 
 ## Development
 
-`lib.js` holds the pure logic (settings migration, schedules, variables, memory budget, summary, snippet search, code-block detection, ZIP writer) and exports it under Node for testing; `content.js` is the browser code:
+`lib.js` holds the pure logic (settings migration, schedules, variables, memory budget, summary, snippet search, code-block detection, ZIP writer). `site.js` holds everything that knows DeepSeek's markup (message box, send button, toolbar pills, code block Copy buttons, reasoning blocks) and the probe behind Diagnostics. `content.js` is the browser code that uses them.
 
 ```
-node tests/logic.test.js
+npm install      # once: jsdom and Playwright (Chromium via: npx playwright install chromium)
+npm test         # logic, site finders, UI, and real-Chromium tests; the Chromium part is skipped if unavailable
 ```
+
+Tests live in `tests/`; `tests/fixtures/` holds small pieces of DeepSeek markup the finders are checked against.
 
 The JS and CSS files are plain ASCII on purpose, because Chrome refuses content scripts that are not valid UTF-8.

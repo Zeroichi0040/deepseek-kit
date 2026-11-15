@@ -1,22 +1,17 @@
 /* DeepSeek Kit - local-only, no network calls, no request patching.
  * It edits the text in your message box (and optionally hides its own inserted block in the chat view).
- * Pure logic lives in lib.js, which is loaded first. */
+ * Pure logic lives in lib.js and everything that knows DeepSeek's markup lives in site.js; both load first. */
 (function () {
   'use strict';
 
   const {
-    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VARIABLES, VARIABLE_NAMES, migrateSettings,
-    hasLegacyKeys, tokens, selectMemories, scheduleDue, applyVariables,
-    promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens,
-    summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext,
-    slashQuery, cleanSnippetName, filterSnippets, searchSnippets, describeSchedule,
-    insertAt, defaultPromptText, newId, LANG_EXT, normalizeLang,
-    langFromClass, extFor, sniffLang, previewKind, detectBlock,
-    suggestFilename, uniqueName, crc32, makeZip, MEMORY_GENERAL,
-    memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens,
-    groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts,
-    MARKER_START, MARKER_END,
+    BUILTIN_DEFAULT_PROMPT, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
+    buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery,
+    cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
+    langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
+    memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
   } = globalThis.DCK_LIB;
+  const SITE = globalThis.DCK_SITE;
 
   // ---------- Extension runtime ----------
   const store = chrome.storage.local;
@@ -91,9 +86,7 @@
     refreshAll(false);
   }, 500);
 
-  function getComposer() {
-    return document.querySelector('textarea');
-  }
+  const getComposer = () => SITE.composer();
 
   function setNativeValue(el, value) {
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
@@ -142,20 +135,8 @@
   }
 
   // ---------- Sending (used only by "hide inserted context" mode) ----------
-  function findSendButton(el) {
-    let node = el;
-    for (let i = 0; i < 6 && node && node.parentElement; i++) {
-      node = node.parentElement;
-      const btns = Array.from(node.querySelectorAll('[role="button"], button')).filter(
-        (b) => !b.closest('#dck-drawer, #dck-picker, #dck-chips') && b.querySelector('svg') && b.getAttribute('aria-disabled') !== 'true' && !b.disabled
-      );
-      if (btns.length) return btns[btns.length - 1];
-    }
-    return null;
-  }
-
   function clickSend(el) {
-    const b = findSendButton(el);
+    const b = SITE.sendButton(el);
     if (!b) return false;
     b.click();
     return true;
@@ -233,43 +214,9 @@
     chips.el.append(h('span', { class: 'dck-chips-note' }, note));
   }
 
-  // The rounded box that visually holds the message input (it wraps the textarea in padding and a toolbar).
-  // Falls back to the textarea itself when no such box is found.
-  function composerBox(el) {
-    const own = el.getBoundingClientRect();
-    let best = null;
-    let node = el.parentElement;
-    for (let i = 0; i < 6 && node && node !== document.body; i++, node = node.parentElement) {
-      const r = node.getBoundingClientRect();
-      if (r.width > own.width + 200) break; // too wide to be the input box
-      let radius = 0;
-      try { radius = parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0; } catch (e) { /* ignore */ }
-      if (radius >= 8 && r.width >= own.width && r.height >= own.height) best = node;
-    }
-    return best;
-  }
-
   function composerRect(el) {
-    const box = composerBox(el);
+    const box = SITE.composerBox(el);
     return (box || el).getBoundingClientRect();
-  }
-
-  // The site's toolbar pills (DeepThink, Search) sit in a row inside the message box. Returns the last pill, which
-  // the chip row is placed right after, or null when they cannot be found.
-  function findToolbarPill(box) {
-    if (!box) return null;
-    let last = null;
-    const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
-    let n;
-    while ((n = walker.nextNode())) {
-      const t = n.nodeValue.trim();
-      if (t !== 'DeepThink' && t !== 'Search') continue;
-      if (n.parentElement.closest('#dck-chips')) continue;
-      let pill = n.parentElement;
-      while (pill.parentElement && pill.parentElement !== box && pill.parentElement.textContent.trim() === t) pill = pill.parentElement;
-      if (pill.parentElement && pill.parentElement !== box) last = pill;
-    }
-    return last;
   }
 
   const CHIP_GAP = 12; // space between the chip row and the message box
@@ -281,7 +228,8 @@
     const show = settings.enabled && settings.showChips && r && r.width > 0;
     if (!show) { chips.el.style.display = 'none'; return; }
     // Prefer the message box toolbar (no vertical space needed, so it can never touch the reply above or the heading).
-    const pill = r.width >= 560 ? findToolbarPill(composerBox(el)) : null;
+    const pills = r.width >= 560 ? SITE.toolbarPills(SITE.composerBox(el)) : [];
+    const pill = pills.length ? pills[pills.length - 1] : null; // the chip row goes after the last pill
     const wantInline = !!pill;
     if (wantInline !== chips.inline) { chips.inline = wantInline; liveSig = ''; refreshAll(true); return; }
     if (wantInline) {
@@ -819,16 +767,18 @@
   // ---------- Settings tab ----------
   // ---------- Diagnostics ----------
   function diagnostics() {
-    const el = getComposer();
-    const send = el ? findSendButton(el) : null;
-    const pres = document.querySelectorAll('pre').length;
+    const p = SITE.probe();
     const rows = [];
     const add = (label, ok, detail) => rows.push({ label: label, ok: ok, detail: detail });
-    add('Message box', !!el, el ? '<' + el.tagName.toLowerCase() + '>' : 'not found - the site may have changed');
-    add('Send button', send ? true : (settings.showInjected === false ? false : null), send ? 'found' : (settings.showInjected === false ? 'not found - Hidden mode cannot press send' : 'not found (only needed in Hidden mode)'));
-    add('Chip row', settings.showChips === false ? null : !!el && !!document.getElementById('dck-chips') && !!composerRect(el), settings.showChips === false ? 'turned off' : (chips.inline ? 'in the message box toolbar' : 'toolbar not found or box too narrow'));
-    add('Hidden-mode cleanup', null, settings.showInjected === false ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
-    add('Code blocks on page', null, pres + ' found, tools ' + (settings.codeTools === false ? 'off' : 'on'));
+    const hidden = settings.showInjected === false;
+    add('Message box', p.composer, p.composer ? '<' + p.composerTag + '>' + (p.box ? ', rounded box found (' + p.boxWidth + 'px wide)' : ', rounded box not found') : 'not found - the site may have changed');
+    add('Send button', p.send ? true : (hidden ? false : null), p.send ? 'found' : (hidden ? 'not found - Hidden mode cannot press send' : 'not found (only needed in Hidden mode)'));
+    add('Toolbar pills', settings.showChips === false ? null : (p.pills > 0 ? true : null), p.pills + ' found (DeepThink, Search)' + (p.pills || settings.showChips === false ? '' : ' - chips will sit above the box'));
+    add('Chip row', settings.showChips === false ? null : !!document.getElementById('dck-chips'), settings.showChips === false ? 'turned off' : (chips.inline ? 'in the message box toolbar' : 'above the message box (toolbar not found or box too narrow)'));
+    add('Hidden-mode cleanup', null, hidden ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
+    const toolsState = settings.codeTools === false ? 'tools off' : 'tools on';
+    add('Code block headers', settings.codeTools === false || !p.codeBlocks ? null : p.codeHeaders === p.codeBlocks, p.codeBlocks + ' code block(s), ' + p.codeHeaders + ' with a Copy button found, ' + toolsState);
+    add('Reasoning blocks', null, p.reasoning + ' found (' + p.reasoningOpen + ' open), fold ' + (document.documentElement.hasAttribute('data-dck-fold') ? 'on' : 'off'));
     add('Chat', null, chatPathLabel() + ', message count ' + chatCount());
     let bytes = 0;
     try { bytes = JSON.stringify({ settings, memories, counts }).length; } catch (e) { bytes = 0; }
@@ -904,7 +854,6 @@
     body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse, ZIP and line numbers', (box) => {
       box.append(settingRow('Code block tools', 'Adds Collapse and + ZIP next to Copy and Download', settings.codeTools !== false, (v) => {
         settings.codeTools = v;
-        if (!v) hideBar();
         commit(); syncAll();
       }));
       box.append(settingRow('Line numbers', 'Number the lines of code blocks. Copying and downloading are unaffected', !!settings.lineNumbers, (v) => { settings.lineNumbers = v; commit(); syncAll(); }));
@@ -1067,8 +1016,8 @@
   // The site still thinks a folded block is open, so a click on its header is handled here (initThinkTracker): it
   // unfolds the block by adding `dck-open`. The key of that message is remembered for this page session, so a block
   // you opened stays open when the site rebuilds that message as you scroll.
-  const think = { opened: new Set(), queued: false };
-  const BLOCK_SEL = '[style*="--collapsible-area-title-height"]';
+  const think = { opened: new Set() };
+  const scheduleThinkScan = SITE.oncePerFrame(() => scanThinking());
 
   function applyFold() {
     const on = !!(settings.enabled && settings.collapseThinking);
@@ -1076,25 +1025,12 @@
     if (on !== root.hasAttribute('data-dck-fold')) { if (on) root.setAttribute('data-dck-fold', ''); else root.removeAttribute('data-dck-fold'); }
   }
 
-  // Item keys are positions within one chat, so the chat's path is part of the key: opening a block in one chat must
-  // not open the block with the same key in another chat when you switch without a refresh.
-  function thinkKey(el) {
-    const item = el.closest('[data-virtual-list-item-key]');
-    return item ? location.pathname + '#' + String(item.getAttribute('data-virtual-list-item-key')) : '';
-  }
-
-  function scheduleThinkScan() {
-    if (think.queued) return;
-    think.queued = true;
-    requestAnimationFrame(() => { think.queued = false; scanThinking(); });
-  }
-
   // Marks the blocks you opened again when the site has rebuilt their message.
   function scanThinking() {
     if (!think.opened.size || !settings.enabled || !settings.collapseThinking) return;
-    document.querySelectorAll(BLOCK_SEL).forEach((block) => {
-      if (block.classList.contains('dck-open') || block.closest('#dck-drawer')) return;
-      const key = thinkKey(block);
+    SITE.reasoningBlocks().forEach((block) => {
+      if (block.classList.contains('dck-open')) return;
+      const key = SITE.blockKey(block);
       if (key && think.opened.has(key)) block.classList.add('dck-open');
     });
   }
@@ -1105,13 +1041,13 @@
       if (!e.isTrusted || !settings.enabled || !settings.collapseThinking || !(e.target instanceof Element)) return;
       let el = e.target;
       for (let i = 0; i < 6 && el.parentElement; i++, el = el.parentElement) {
-        const block = el.parentElement;
-        if (el !== block.firstElementChild || !block.matches(BLOCK_SEL)) continue; // not the header of a block
+        const block = SITE.blockOfHeader(el);
+        if (!block) continue; // not the header of a block
         if (block.classList.contains('dck-open')) return; // you already opened it: the site handles this click
-        const key = thinkKey(block);
+        const key = SITE.blockKey(block);
         if (key) think.opened.add(key);
         block.classList.add('dck-open');
-        if (block.querySelector(':scope > .ds-think-content')) {
+        if (SITE.blockIsOpen(block)) {
           // Folded by us, open as far as the site knows: unfold only. Letting the click through would close it.
           e.preventDefault();
           e.stopPropagation();
@@ -1123,8 +1059,8 @@
   }
 
   // ---------- Code block tools (buttons in the code block header: collapse, ZIP basket) ----------
-  const tools = { bar: null, pre: null, basket: [], hideTimer: 0, headed: new WeakMap(), zip: null, scanQueued: false };
-  const collapse = { touched: new WeakSet(), queued: false };
+  const tools = { basket: [], zip: null };
+  const collapse = { touched: new WeakSet() };
 
   function lineCount(pre) { return (pre.textContent || '').replace(/\n$/, '').split('\n').length; }
 
@@ -1140,7 +1076,7 @@
     const label = prev ? String(prev.textContent || '').trim().split(/\s+/)[0] : '';
     if (label && label.length <= 20) hints.push(label);
     const info = detectBlock(hints, text);
-    const all = Array.from(document.querySelectorAll('pre'));
+    const all = SITE.codeBlocks();
     return { text, lang: info.lang, kind: info.kind, name: suggestFilename(info.lang, text, all.indexOf(pre) + 1) };
   }
 
@@ -1195,34 +1131,13 @@
     return list;
   }
 
-  // The site's own "Copy" button of this block, found by its text. Null when the block has no header.
-  function findCopyButton(pre) {
-    let box = pre.parentElement;
-    for (let i = 0; i < 4 && box && box !== document.body; i++, box = box.parentElement) {
-      if (box.querySelectorAll('pre').length > 1) return null;
-      const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
-      let n;
-      while ((n = walker.nextNode())) {
-        const t = n.nodeValue.trim();
-        if (t !== 'Copy' && t !== 'Copy code') continue;
-        if (pre.contains(n) || n.parentElement.closest('[data-dck-act]')) continue;
-        let btn = n.parentElement;
-        while (btn.parentElement && btn.parentElement !== box && btn.parentElement.textContent.trim() === t) btn = btn.parentElement;
-        if (btn.parentElement && !(pre.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING)) return btn;
-      }
-    }
-    return null;
-  }
-
   // Sets the visible text of a cloned button without flattening its inner markup.
   function setLabel(btn, label) {
-    const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
-    let n = walker.nextNode();
-    while (n && !n.nodeValue.trim()) n = walker.nextNode();
-    if (!n) { btn.textContent = label; return; }
-    if (n.nodeValue !== label) n.nodeValue = label;
+    const first = SITE.firstText(btn);
+    if (!first) { btn.textContent = label; return; }
+    if (first.nodeValue !== label) first.nodeValue = label;
     // any further text (e.g. a second span) is cleared so only the label remains
-    while ((n = walker.nextNode())) { if (n.nodeValue.trim()) n.nodeValue = ''; }
+    SITE.textNodes(btn, (n) => n !== first && !!n.nodeValue.trim()).forEach((n) => { n.nodeValue = ''; });
   }
 
   // What the site's Copy button looks like right now (its markup without the text). Ours are copies of it, so when it
@@ -1249,7 +1164,7 @@
 
   // Puts our buttons next to Copy / Download. Returns true when the block has a header to put them in.
   function syncHeader(pre) {
-    const copy = findCopyButton(pre);
+    const copy = SITE.copyButton(pre);
     if (!copy) return false;
     const row = copy.parentElement;
     const want = actionsFor(pre);
@@ -1292,81 +1207,24 @@
   }
 
   function syncAll() {
-    document.querySelectorAll('pre').forEach((pre) => {
-      if (pre.closest('#dck-drawer')) return;
+    SITE.codeBlocks().forEach((pre) => {
       syncLines(pre);
-      if (settings.codeTools === false) { removeHeaderButtons(pre); tools.headed.set(pre, false); return; }
-      tools.headed.set(pre, syncHeader(pre));
-    });
-    if (tools.pre) updateBar();
-  }
-
-  function scheduleCodeScan() {
-    if (tools.scanQueued) return;
-    tools.scanQueued = true;
-    requestAnimationFrame(() => { tools.scanQueued = false; syncAll(); });
-  }
-
-  function scheduleCollapseScan() {
-    if (collapse.queued) return;
-    collapse.queued = true;
-    requestAnimationFrame(() => {
-      collapse.queued = false;
-      if (!settings.collapseLong) return;
-      const limit = Math.max(3, settings.collapseLines || 20);
-      let changed = false;
-      document.querySelectorAll('pre').forEach((pre) => {
-        if (collapse.touched.has(pre) || pre.closest('#dck-drawer')) return;
-        if (lineCount(pre) > limit) { collapse.touched.add(pre); setCollapsed(pre, true); changed = true; }
-      });
-      if (changed) syncAll();
+      if (settings.codeTools === false) removeHeaderButtons(pre); else syncHeader(pre);
     });
   }
 
-  // ----- fallback: floating bar for blocks without a header
-  function updateBar() {
-    const bar = tools.bar;
-    if (!bar || !tools.pre) return;
-    const pre = tools.pre;
-    bar.textContent = '';
-    actionsFor(pre).forEach((w) => bar.append(h('button', { type: 'button', class: 'dck-cbtn' + (w[0] === 'zip' && w[1] === 'Added' ? ' on' : ''), onclick: () => { w[3](); placeBar(); } }, w[1])));
-  }
+  const scheduleCodeScan = SITE.oncePerFrame(syncAll);
 
-  function placeBar() {
-    if (!tools.bar || !tools.pre || !tools.pre.isConnected) return hideBar();
-    const r = tools.pre.getBoundingClientRect();
-    if (r.bottom < 0 || r.top > window.innerHeight) return hideBar();
-    tools.bar.style.display = 'flex';
-    tools.bar.style.top = Math.max(6, r.top + 6) + 'px';
-    tools.bar.style.left = Math.max(6, Math.min(window.innerWidth - tools.bar.offsetWidth - 6, r.right - tools.bar.offsetWidth - 8)) + 'px';
-  }
-
-  function hideBar() {
-    if (tools.bar) tools.bar.style.display = 'none';
-    tools.pre = null;
-  }
-
-  function initCodeTools() {
-    if (tools.bar) return;
-    tools.bar = h('div', { id: 'dck-codebar', style: 'display:none' });
-    document.body.append(tools.bar);
-    const keep = () => { clearTimeout(tools.hideTimer); };
-    const later = () => { clearTimeout(tools.hideTimer); tools.hideTimer = setTimeout(hideBar, 350); };
-    tools.bar.addEventListener('mouseenter', keep);
-    tools.bar.addEventListener('mouseleave', later);
-    document.addEventListener('mouseover', (e) => {
-      if (settings.codeTools === false || !(e.target instanceof Element)) return;
-      if (e.target.closest('#dck-codebar, #dck-drawer')) return;
-      const pre = e.target.closest('pre');
-      if (!pre || tools.headed.get(pre)) { if (tools.pre) later(); return; }
-      keep();
-      if (pre !== tools.pre) { tools.pre = pre; updateBar(); }
-      placeBar();
+  const scheduleCollapseScan = SITE.oncePerFrame(() => {
+    if (!settings.collapseLong) return;
+    const limit = Math.max(3, settings.collapseLines || 20);
+    let changed = false;
+    SITE.codeBlocks().forEach((pre) => {
+      if (collapse.touched.has(pre)) return;
+      if (lineCount(pre) > limit) { collapse.touched.add(pre); setCollapsed(pre, true); changed = true; }
     });
-    window.addEventListener('scroll', () => { if (tools.pre) placeBar(); }, true);
-    window.addEventListener('resize', () => { if (tools.pre) placeBar(); });
-    syncAll();
-  }
+    if (changed) syncAll();
+  });
 
   // ---------- Draggable Kit button ----------
   const fabDrag = { active: false, moved: false, startX: 0, startY: 0, dx: 0, dy: 0 };
@@ -1436,7 +1294,7 @@
     initFab(fab);
     render();
     startObserver();
-    initCodeTools();
+    syncAll();
     initThinkTracker();
     applyFold();
     if (settings.collapseLong) scheduleCollapseScan();
