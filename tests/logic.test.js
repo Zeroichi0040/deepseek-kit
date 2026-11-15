@@ -299,4 +299,16 @@ const zlib = require('zlib');
 if (typeof zlib.crc32 === 'function') zipped.forEach((f, i) => assert.strictEqual(f.crc, zlib.crc32(typeof zipFiles[i].data === 'string' ? Buffer.from(zipFiles[i].data) : Buffer.from(zipFiles[i].data)), 'crc matches zlib for ' + f.name));
 assert.strictEqual(c.makeZip([]).length, 22, 'empty zip is just the end record');
 
+// ---- chip row: one show/hide toggle, always placed in the toolbar (no placement setting)
+assert.strictEqual(c.DEFAULTS.showChips, true);
+assert.ok(!('chipsInline' in c.DEFAULTS), 'placement setting is gone');
+assert.ok(!('chipsInline' in c.migrateSettings({ chipsInline: false })), 'an old stored placement value is dropped');
+assert.strictEqual(c.migrateSettings({ showChips: false }).showChips, false, 'a stored "off" is kept');
+
+// ---- DeepThink reasoning fold: one setting, off by default, kept across migration
+assert.strictEqual(c.DEFAULTS.collapseThinking, false);
+assert.ok(!('collapseFinishedThinking' in c.DEFAULTS), 'one setting only');
+assert.strictEqual(c.migrateSettings(undefined).collapseThinking, false);
+assert.strictEqual(c.migrateSettings({ collapseThinking: true }).collapseThinking, true, 'an existing opt-in is kept');
+
 console.log('all logic tests passed');

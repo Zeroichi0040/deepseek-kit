@@ -34,11 +34,19 @@ The panel has four tabs, with the controls you use most pinned above and below t
 
 ## In the chat
 
-A small chip row shows what will be attached (Default, Concise tone, 2 memories) and whether context is Visible or Hidden. It sits in the message box toolbar next to the DeepThink and Search pills (hover it for the token estimate), and falls back to just above the message box when the toolbar is not found or the box is narrow. Settings can turn the row off, or switch it to the above-the-box placement.
+A small chip row shows what will be attached (Default, Concise tone, 2 memories) and whether context is Visible or Hidden. It sits in the message box toolbar next to the DeepThink and Search pills (hover it for the token estimate), and falls back to just above the message box when the toolbar is not found or the box is narrow. *Chips in the toolbar* (on by default) shows or hides the row.
 
-## DeepThink reasoning: collapse while thinking
+## DeepThink reasoning: collapse
 
-Settings > Messages > *Collapse reasoning while thinking* (off by default). When a new reasoning block starts, Kit clicks the site's own header once so only the "Thinking" header shows; open it yourself any time and it stays open. Only the newest message's block that is still thinking is closed. Blocks that already say "Thought for N seconds", and older messages the site rebuilds as you scroll, are never touched. The "Thought for" check is English-only; the newest-message check applies in any language. It relies on the site's markup (an open block has a `ds-think-content` body), so if DeepSeek changes it, adjust `scanThinking()` in `content.js`.
+Settings > Messages > *Collapse reasoning* (off by default). Reasoning blocks are folded to their header, both while the model is still thinking and once it says "Thought for N seconds", in every message, so they are also folded after a refresh.
+
+Kit does this with a stylesheet rule, not by clicking the site's own header. With the setting on, `<html>` gets the class `dck-fold` and a rule in `content.css` hides everything in a reasoning block except the header and the two empty spacer divs, which is exactly what a block the site has closed consists of (same height, to the pixel). Nothing is clicked and no site state changes. This matters because the site's virtual list measures a message once drawn: closing blocks by clicking made them shrink after they had been measured, and scrolling up after a refresh then made the page jump. A folded block is the right height from the start.
+
+Click a folded header to open it; click again to close it. The first click is handled by Kit (the site thinks the block is already open, so passing the click on would close it), the later ones by the site. A block you opened stays open: Kit remembers it by the message's list key for as long as the page is open, and re-applies it when the site rebuilds that message as you scroll. That memory is not saved, so after a refresh the block is folded again.
+
+The setting was called *Collapse reasoning while thinking* before and only closed the newest, still-thinking block; the stored setting is the same, so an existing opt-in carries over to the new behaviour.
+
+It relies on the site's markup: a block is the element with an inline `--collapsible-area-title-height`, directly containing a `.ds-think-content`. If DeepSeek changes that, adjust the selector in `content.css` and `BLOCK_SEL` in `content.js` (`applyFold()`, `initThinkTracker()`). The `:has()` selector needs Chrome 105 or newer.
 
 ## Code blocks: collapse and ZIP
 

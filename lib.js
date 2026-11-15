@@ -23,7 +23,7 @@
     autoInsertOnEnter: true,
     memoryEnabled: true,
     showSummary: true, // the "next message includes" strip in the drawer
-    showChips: true, // the chip row above the message box
+    showChips: true, // the chip row in the message box toolbar
     prompts: [], // [{ id, name, text, enabled, schedule, everyN }]
     defaultEnabled: true, // built-in default prompt
     defaultText: '', // '' = use the built-in text
@@ -32,8 +32,7 @@
     snippets: [], // [{ id, name, text }]
     memoryBudget: 0, // max tokens of memory per message, 0 = no limit
     codeTools: true, // header buttons (collapse, ZIP) on code blocks
-    collapseThinking: false, // close DeepThink reasoning blocks while they are still thinking
-    chipsInline: true, // put the chip row in the message box toolbar when there is room
+    collapseThinking: false, // close DeepThink reasoning blocks, while thinking and once finished (also after a refresh)
     lineNumbers: false, // number the lines of code blocks (CSS counters, never part of copied text)
     collapseLong: false, // collapse long code blocks automatically
     collapseLines: 20, // blocks longer than this many lines count as long
@@ -76,6 +75,7 @@
     delete s.mode;
     delete s.everyN;
     delete s.multiPrompt;
+    delete s.chipsInline; // placement is automatic now: the toolbar
     return s;
   }
 

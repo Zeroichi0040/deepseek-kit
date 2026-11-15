@@ -35,7 +35,7 @@
   }
   let settings = migrateSettings({});
   let memories = [];
-  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: 'messages', search: '', showAllVars: false, preview: null };
+  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: null, search: '', showAllVars: false, preview: null };
   let bypass = false; // true while we dispatch our own Enter
   let counts = {}; // messages sent per chat path, saved so a page refresh does not forget them
   let newChatCount = 0; // messages sent from the new-chat screen ("/") before the page moves to the chat's own URL
@@ -73,6 +73,7 @@
   }
   function commit() {
     save();
+    applyFold(); // keeps the reasoning fold in step with the On switch and the Collapse reasoning setting
     refreshAll(true);
   }
 
@@ -280,7 +281,7 @@
     const show = settings.enabled && settings.showChips && r && r.width > 0;
     if (!show) { chips.el.style.display = 'none'; return; }
     // Prefer the message box toolbar (no vertical space needed, so it can never touch the reply above or the heading).
-    const pill = settings.chipsInline !== false && r.width >= 560 ? findToolbarPill(composerBox(el)) : null;
+    const pill = r.width >= 560 ? findToolbarPill(composerBox(el)) : null;
     const wantInline = !!pill;
     if (wantInline !== chips.inline) { chips.inline = wantInline; liveSig = ''; refreshAll(true); return; }
     if (wantInline) {
@@ -824,7 +825,7 @@
     const add = (label, ok, detail) => rows.push({ label: label, ok: ok, detail: detail });
     add('Message box', !!el, el ? '<' + el.tagName.toLowerCase() + '>' : 'not found - the site may have changed');
     add('Send button', send ? true : (settings.showInjected === false ? false : null), send ? 'found' : (settings.showInjected === false ? 'not found - Hidden mode cannot press send' : 'not found (only needed in Hidden mode)'));
-    add('Chip row', settings.showChips === false ? null : !!el && !!document.getElementById('dck-chips') && !!composerRect(el), settings.showChips === false ? 'turned off' : (chips.inline ? 'in the message box toolbar' : 'placed above the message box'));
+    add('Chip row', settings.showChips === false ? null : !!el && !!document.getElementById('dck-chips') && !!composerRect(el), settings.showChips === false ? 'turned off' : (chips.inline ? 'in the message box toolbar' : 'toolbar not found or box too narrow'));
     add('Hidden-mode cleanup', null, settings.showInjected === false ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
     add('Code blocks on page', null, pres + ' found, tools ' + (settings.codeTools === false ? 'off' : 'on'));
     add('Chat', null, chatPathLabel() + ', message count ' + chatCount());
@@ -892,9 +893,8 @@
     body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking]), (box) => {
       box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
       box.append(settingRow('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
-      box.append(settingRow('Chips near message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
-      box.append(settingRow('Collapse reasoning while thinking', 'Closes the DeepThink block as it starts. Open it yourself any time', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); if (v) scheduleThinkScan(); }));
-      box.append(settingRow('Chips in the toolbar', 'Next to DeepThink and Search. Off: above the message box', settings.chipsInline !== false, (v) => { settings.chipsInline = v; commit(); liveSig = ''; refreshAll(true); }));
+      box.append(settingRow('Collapse reasoning', 'Folds DeepThink blocks to their header while thinking and when finished, also after a refresh. Click a header to open it', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); }));
+      box.append(settingRow('Chips in the toolbar', 'Shows what will be attached, next to DeepThink and Search', settings.showChips !== false, (v) => { settings.showChips = v; commit(); liveSig = ''; refreshAll(true); }));
       box.append(h('div', { class: 'dck-setrow' },
         h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Kit button position'), h('div', { class: 'dck-sub' }, 'Drag the button to move it; it docks to the nearest side')),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { resetFab(); toast('Button position reset'); } }, 'Reset')));
@@ -1053,11 +1053,30 @@
     refreshAll(true);
   }
 
-  // ---------- DeepThink reasoning: collapse while thinking ----------
-  // An open reasoning block has a `.ds-think-content` body; a closed one has no body at all. Its header is the block's
-  // first child. Only the newest message's blocks that are still thinking are closed, and each at most once, so
-  // blocks you open yourself stay open and old messages that are rebuilt when you scroll are never touched.
-  const think = { done: new WeakSet(), queued: false };
+  // ---------- DeepThink reasoning: fold ----------
+  // The site draws a reasoning block as one container (it carries an inline `--collapsible-area-title-height`) whose
+  // first child is the header ("Thought for N seconds") and whose other children are the steps: `.ds-think-content`
+  // text plus the "Found N web pages" and "Read N pages" rows. A block the site has closed is just the header plus
+  // two empty spacer divs.
+  // With collapseThinking on, <html> gets the class `dck-fold` and a rule in content.css hides every non-empty child
+  // after the header, so the block looks exactly like a closed one, while streaming and after a refresh alike.
+  // Nothing is clicked and no site state changes. That is the point: the site's virtual list measures a folded block
+  // from the start, so it never sees a block shrink after it has been measured (closing blocks by clicking their
+  // header did exactly that, and made the page jump when scrolling up after a refresh).
+  // The site still thinks a folded block is open, so a click on its header is handled here (initThinkTracker): it
+  // unfolds the block by adding `dck-open`. The key of that message is remembered for this page session, so a block
+  // you opened stays open when the site rebuilds that message as you scroll.
+  const think = { opened: new Set(), queued: false };
+  const BLOCK_SEL = '[style*="--collapsible-area-title-height"]';
+
+  function applyFold() {
+    document.documentElement.classList.toggle('dck-fold', !!(settings.enabled && settings.collapseThinking));
+  }
+
+  function thinkKey(el) {
+    const item = el.closest('[data-virtual-list-item-key]');
+    return item ? String(item.getAttribute('data-virtual-list-item-key')) : '';
+  }
 
   function scheduleThinkScan() {
     if (think.queued) return;
@@ -1065,21 +1084,37 @@
     requestAnimationFrame(() => { think.queued = false; scanThinking(); });
   }
 
+  // Marks the blocks you opened again when the site has rebuilt their message.
   function scanThinking() {
-    if (!settings.enabled || !settings.collapseThinking) return;
-    document.querySelectorAll('.ds-think-content').forEach((body) => {
-      const block = body.parentElement;
-      if (!block || think.done.has(block) || block.closest('#dck-drawer')) return;
-      const header = block.firstElementChild;
-      const label = header ? String(header.textContent || '').trim() : '';
-      if (!label) return; // header not drawn yet; try again on the next change
-      if (/^Thought for/i.test(label)) { think.done.add(block); return; } // already finished: leave it as the user has it
-      const item = block.closest('[data-virtual-list-item-key]');
-      if (item && item.nextElementSibling) { think.done.add(block); return; } // not the newest message
-      think.done.add(block);
-      (header.querySelector('span') || header).click();
-      logEvent('Reasoning block collapsed while thinking');
+    if (!think.opened.size || !settings.enabled || !settings.collapseThinking) return;
+    document.querySelectorAll(BLOCK_SEL).forEach((block) => {
+      if (block.classList.contains('dck-open') || block.closest('#dck-drawer')) return;
+      const key = thinkKey(block);
+      if (key && think.opened.has(key)) block.classList.add('dck-open');
     });
+  }
+
+  // A real click on a reasoning block's header. Capture phase, so it runs before the site's own handler.
+  function initThinkTracker() {
+    document.addEventListener('click', (e) => {
+      if (!e.isTrusted || !settings.enabled || !settings.collapseThinking || !(e.target instanceof Element)) return;
+      let el = e.target;
+      for (let i = 0; i < 6 && el.parentElement; i++, el = el.parentElement) {
+        const block = el.parentElement;
+        if (el !== block.firstElementChild || !block.matches(BLOCK_SEL)) continue; // not the header of a block
+        if (block.classList.contains('dck-open')) return; // you already opened it: the site handles this click
+        const key = thinkKey(block);
+        if (key) think.opened.add(key);
+        block.classList.add('dck-open');
+        if (block.querySelector(':scope > .ds-think-content')) {
+          // Folded by us, open as far as the site knows: unfold only. Letting the click through would close it.
+          e.preventDefault();
+          e.stopPropagation();
+          logEvent('Reasoning block opened');
+        } // else the site had it closed: let this click open it, and it will not be folded
+        return;
+      }
+    }, true);
   }
 
   // ---------- Code block tools (buttons in the code block header: collapse, ZIP basket) ----------
@@ -1384,6 +1419,7 @@
   }
 
   function mount() {
+    applyFold(); // first thing, so reasoning blocks are folded before the page measures them
     if (document.getElementById('dck-fab')) return;
     const drawer = h('div', { id: 'dck-drawer' });
     ui.drawer = drawer;
@@ -1396,6 +1432,8 @@
     render();
     startObserver();
     initCodeTools();
+    initThinkTracker();
+    applyFold();
     if (settings.collapseLong) scheduleCollapseScan();
     if (settings.showInjected === false) scheduleStrip([document.body]);
   }
