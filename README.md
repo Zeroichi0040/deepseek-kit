@@ -34,11 +34,15 @@ The panel has four tabs, with the controls you use most pinned above and below t
 
 ## In the chat
 
-A small chip row sits above the message box showing what will be attached (Default, Concise tone, 2 memories) and whether context is Visible or Hidden, with the token estimate. Turn it off in Settings.
+A small chip row shows what will be attached (Default, Concise tone, 2 memories) and whether context is Visible or Hidden. It sits in the message box toolbar next to the DeepThink and Search pills (hover it for the token estimate), and falls back to just above the message box when the toolbar is not found or the box is narrow. Settings can turn the row off, or switch it to the above-the-box placement.
+
+## DeepThink reasoning: collapse while thinking
+
+Settings > Messages > *Collapse reasoning while thinking* (off by default). When a new reasoning block starts, Kit clicks the site's own header once so only the "Thinking" header shows; open it yourself any time and it stays open. Only the newest message's block that is still thinking is closed. Blocks that already say "Thought for N seconds", and older messages the site rebuilds as you scroll, are never touched. The "Thought for" check is English-only; the newest-message check applies in any language. It relies on the site's markup (an open block has a `ds-think-content` body), so if DeepSeek changes it, adjust `scanThinking()` in `content.js`.
 
 ## Code blocks: collapse and ZIP
 
-Kit adds buttons to each code block's header, next to the site's own Copy and Download (turn it off in Settings > Code blocks). If a block has no header the buttons appear in a small bar when you hover it.
+Kit adds buttons (each with a small icon) to each code block's header, next to the site's own Copy and Download (turn it off in Settings > Code blocks). If a block has no header the buttons appear in a small bar when you hover it.
 
 - **Line numbers** (Settings > Code blocks, off by default): numbers each line, with wrapped lines hanging under their number. The numbers are drawn by CSS, so selecting, copying and the site's Copy / Download are unchanged. Blocks the site renders without per-line elements are left alone.
 - **Collapse / Expand**: folds a long block down to a few lines. *Collapse long blocks* starts blocks over 20 lines collapsed; a block you expand stays open.

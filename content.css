@@ -220,3 +220,9 @@ pre[data-dck-lines] > span::before {
   content: counter(dckline); display: inline-block; box-sizing: border-box; width: var(--dck-gutter); padding-right: 2ch; text-indent: 0;
   text-align: right; opacity: .4; user-select: none; -webkit-user-select: none; pointer-events: none;
 }
+
+/* chip row inside the message box toolbar */
+#dck-chips.inline { position: static; display: inline-flex; flex-wrap: nowrap; width: auto; max-width: 340px; min-width: 0; margin-left: 8px; gap: 6px; pointer-events: auto; z-index: auto; }
+#dck-chips.inline .dck-chip { height: 26px; flex: none; }
+#dck-chips.inline .dck-chip.summary { flex: 0 1 auto; min-width: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 24px; }
+#dck-chips.inline .dck-chip.mode { color: var(--k-muted); }

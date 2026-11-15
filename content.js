@@ -177,7 +177,7 @@
   }
 
   // ---------- Chips above the message box + the strip in the drawer ----------
-  const chips = { el: null };
+  const chips = { el: null, inline: false };
   let liveSig = '';
 
   function currentSummary() {
@@ -210,6 +210,17 @@
     }
     chips.el.textContent = '';
     chips.el.append(h('span', { class: 'dck-chip kit' }, h('span', { class: 'dck-dot' }), 'Kit'));
+    const note = (settings.showInjected !== false ? 'Visible' : 'Hidden') + (sum.state === 'ready' ? ' - ~' + sum.tokens + ' tokens' : '');
+    chips.el.title = note;
+    if (chips.inline) {
+      // In the toolbar there is little room: one summary chip (cut with an ellipsis), the full detail in the tooltip.
+      const parts = sum.state === 'ready' ? sum.names.slice() : [sum.state === 'off' ? 'Off' : 'Nothing due'];
+      if (sum.state === 'ready' && sum.memories) parts.push(memoryLabel(sum.memories));
+      if (sum.state === 'ready' && sum.skipped) parts.push(sum.skipped + ' over budget');
+      chips.el.append(h('span', { class: 'dck-chip summary' + (sum.skipped ? ' warn' : '') }, parts.join(', ')));
+      chips.el.append(h('span', { class: 'dck-chip mode' }, settings.showInjected !== false ? 'Visible' : 'Hidden'));
+      return;
+    }
     if (sum.state === 'ready') {
       sum.names.slice(0, 3).forEach((n) => chips.el.append(h('span', { class: 'dck-chip' }, n)));
       if (sum.names.length > 3) chips.el.append(h('span', { class: 'dck-chip' }, '+' + (sum.names.length - 3)));
@@ -218,23 +229,46 @@
     } else {
       chips.el.append(h('span', { class: 'dck-chip' }, sum.state === 'off' ? 'Off' : 'Nothing due'));
     }
-    chips.el.append(h('span', { class: 'dck-chips-note' }, (settings.showInjected !== false ? 'Visible' : 'Hidden') + (sum.state === 'ready' ? ' - ~' + sum.tokens + ' tokens' : '')));
+    chips.el.append(h('span', { class: 'dck-chips-note' }, note));
   }
 
   // The rounded box that visually holds the message input (it wraps the textarea in padding and a toolbar).
   // Falls back to the textarea itself when no such box is found.
-  function composerRect(el) {
+  function composerBox(el) {
     const own = el.getBoundingClientRect();
-    let best = own;
+    let best = null;
     let node = el.parentElement;
     for (let i = 0; i < 6 && node && node !== document.body; i++, node = node.parentElement) {
       const r = node.getBoundingClientRect();
       if (r.width > own.width + 200) break; // too wide to be the input box
       let radius = 0;
       try { radius = parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0; } catch (e) { /* ignore */ }
-      if (radius >= 8 && r.width >= own.width && r.height >= own.height) best = r;
+      if (radius >= 8 && r.width >= own.width && r.height >= own.height) best = node;
     }
     return best;
+  }
+
+  function composerRect(el) {
+    const box = composerBox(el);
+    return (box || el).getBoundingClientRect();
+  }
+
+  // The site's toolbar pills (DeepThink, Search) sit in a row inside the message box. Returns the last pill, which
+  // the chip row is placed right after, or null when they cannot be found.
+  function findToolbarPill(box) {
+    if (!box) return null;
+    let last = null;
+    const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = walker.nextNode())) {
+      const t = n.nodeValue.trim();
+      if (t !== 'DeepThink' && t !== 'Search') continue;
+      if (n.parentElement.closest('#dck-chips')) continue;
+      let pill = n.parentElement;
+      while (pill.parentElement && pill.parentElement !== box && pill.parentElement.textContent.trim() === t) pill = pill.parentElement;
+      if (pill.parentElement && pill.parentElement !== box) last = pill;
+    }
+    return last;
   }
 
   const CHIP_GAP = 12; // space between the chip row and the message box
@@ -244,8 +278,20 @@
     const el = getComposer();
     const r = el ? composerRect(el) : null;
     const show = settings.enabled && settings.showChips && r && r.width > 0;
-    chips.el.style.display = show ? 'flex' : 'none';
-    if (!show) return;
+    if (!show) { chips.el.style.display = 'none'; return; }
+    // Prefer the message box toolbar (no vertical space needed, so it can never touch the reply above or the heading).
+    const pill = settings.chipsInline !== false && r.width >= 560 ? findToolbarPill(composerBox(el)) : null;
+    const wantInline = !!pill;
+    if (wantInline !== chips.inline) { chips.inline = wantInline; liveSig = ''; refreshAll(true); return; }
+    if (wantInline) {
+      if (chips.el.previousElementSibling !== pill) pill.after(chips.el);
+      chips.el.classList.add('inline');
+      chips.el.style.cssText = '';
+      return;
+    }
+    if (chips.el.parentElement !== document.body) document.body.append(chips.el);
+    chips.el.classList.remove('inline');
+    chips.el.style.display = 'flex';
     chips.el.style.left = Math.max(8, r.left + 4) + 'px';
     chips.el.style.width = Math.max(260, Math.min(r.width - 8, 760)) + 'px';
     chips.el.style.bottom = Math.max(8, window.innerHeight - r.top + CHIP_GAP) + 'px';
@@ -429,6 +475,7 @@
   function startObserver() {
     new MutationObserver((records) => {
       if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
+      if (settings.collapseThinking) scheduleThinkScan();
       if (settings.collapseLong) scheduleCollapseScan();
       if (settings.showInjected !== false) return;
       const nodes = [];
@@ -447,6 +494,8 @@
     close: 'M18 6 6 18|M6 6l12 12',
     chev: 'M6 9l6 6 6-6',
     expand: 'M15 3h6v6|M9 21H3v-6|M21 3l-7 7|M3 21l7-7',
+    check: 'M20 6 9 17l-5-5',
+    archive: 'M21 8v13H3V8|M1 3h22v5H1z|M10 12h4',
     shrink: 'M4 14h6v6|M20 10h-6V4|M14 10l7-7|M3 21l7-7',
     edit: 'M12 20h9|M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
     trash: 'M3 6h18|M8 6V4h8v2|M7 6l1 14h8l1-14',
@@ -775,7 +824,7 @@
     const add = (label, ok, detail) => rows.push({ label: label, ok: ok, detail: detail });
     add('Message box', !!el, el ? '<' + el.tagName.toLowerCase() + '>' : 'not found - the site may have changed');
     add('Send button', send ? true : (settings.showInjected === false ? false : null), send ? 'found' : (settings.showInjected === false ? 'not found - Hidden mode cannot press send' : 'not found (only needed in Hidden mode)'));
-    add('Chip row', settings.showChips === false ? null : !!el && !!document.getElementById('dck-chips') && !!composerRect(el), settings.showChips === false ? 'turned off' : 'placed above the message box');
+    add('Chip row', settings.showChips === false ? null : !!el && !!document.getElementById('dck-chips') && !!composerRect(el), settings.showChips === false ? 'turned off' : (chips.inline ? 'in the message box toolbar' : 'placed above the message box'));
     add('Hidden-mode cleanup', null, settings.showInjected === false ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
     add('Code blocks on page', null, pres + ' found, tools ' + (settings.codeTools === false ? 'off' : 'on'));
     add('Chat', null, chatPathLabel() + ', message count ' + chatCount());
@@ -840,10 +889,12 @@
 
   function renderSettings(body, drawer) {
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
-    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips]), (box) => {
+    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking]), (box) => {
       box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
       box.append(settingRow('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
-      box.append(settingRow('Chips above message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
+      box.append(settingRow('Chips near message box', 'Shows what will be attached', settings.showChips, (v) => { settings.showChips = v; commit(); }));
+      box.append(settingRow('Collapse reasoning while thinking', 'Closes the DeepThink block as it starts. Open it yourself any time', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); if (v) scheduleThinkScan(); }));
+      box.append(settingRow('Chips in the toolbar', 'Next to DeepThink and Search. Off: above the message box', settings.chipsInline !== false, (v) => { settings.chipsInline = v; commit(); liveSig = ''; refreshAll(true); }));
       box.append(h('div', { class: 'dck-setrow' },
         h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Kit button position'), h('div', { class: 'dck-sub' }, 'Drag the button to move it; it docks to the nearest side')),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { resetFab(); toast('Button position reset'); } }, 'Reset')));
@@ -1002,6 +1053,35 @@
     refreshAll(true);
   }
 
+  // ---------- DeepThink reasoning: collapse while thinking ----------
+  // An open reasoning block has a `.ds-think-content` body; a closed one has no body at all. Its header is the block's
+  // first child. Only the newest message's blocks that are still thinking are closed, and each at most once, so
+  // blocks you open yourself stay open and old messages that are rebuilt when you scroll are never touched.
+  const think = { done: new WeakSet(), queued: false };
+
+  function scheduleThinkScan() {
+    if (think.queued) return;
+    think.queued = true;
+    requestAnimationFrame(() => { think.queued = false; scanThinking(); });
+  }
+
+  function scanThinking() {
+    if (!settings.enabled || !settings.collapseThinking) return;
+    document.querySelectorAll('.ds-think-content').forEach((body) => {
+      const block = body.parentElement;
+      if (!block || think.done.has(block) || block.closest('#dck-drawer')) return;
+      const header = block.firstElementChild;
+      const label = header ? String(header.textContent || '').trim() : '';
+      if (!label) return; // header not drawn yet; try again on the next change
+      if (/^Thought for/i.test(label)) { think.done.add(block); return; } // already finished: leave it as the user has it
+      const item = block.closest('[data-virtual-list-item-key]');
+      if (item && item.nextElementSibling) { think.done.add(block); return; } // not the newest message
+      think.done.add(block);
+      (header.querySelector('span') || header).click();
+      logEvent('Reasoning block collapsed while thinking');
+    });
+  }
+
   // ---------- Code block tools (buttons in the code block header: collapse, ZIP basket) ----------
   const tools = { bar: null, pre: null, basket: [], hideTimer: 0, headed: new WeakMap(), zip: null, scanQueued: false };
   const collapse = { touched: new WeakSet(), queued: false };
@@ -1070,8 +1150,8 @@
     const folded = pre.hasAttribute('data-dck-collapsed');
     const inBasket = tools.basket.some((b) => b.el === pre);
     const list = [];
-    if (folded || lineCount(pre) > 3) list.push(['collapse', folded ? 'Expand' : 'Collapse', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
-    list.push(['zip', inBasket ? 'Added' : '+ ZIP', () => toggleBasket(pre)]);
+    if (folded || lineCount(pre) > 3) list.push(['collapse', folded ? 'Expand' : 'Collapse', folded ? 'expand' : 'shrink', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
+    list.push(['zip', inBasket ? 'Added' : '+ ZIP', inBasket ? 'check' : 'archive', () => toggleBasket(pre)]);
     return list;
   }
 
@@ -1109,6 +1189,19 @@
   // changes (e.g. it is dimmed while a reply streams, then switches to normal) the copies are rebuilt to match.
   function look(btn) { return btn.outerHTML.replace(/>[^<]*</g, '><'); }
 
+  // Swaps the site's icon in our copy of the button for our own, at the same size, so the row stays evenly spaced.
+  function setHeaderIcon(btn, name, src) {
+    if (btn.getAttribute('data-dck-ic') === name) return;
+    const theirs = src.querySelector('svg');
+    const mine = btn.querySelector('svg');
+    const size = theirs ? (parseFloat(theirs.getAttribute('width')) || theirs.getBoundingClientRect().width || 14) : 14;
+    const ic = icon(name, Math.round(size) || 14);
+    if (theirs && theirs.getAttribute('class')) ic.setAttribute('class', theirs.getAttribute('class'));
+    ic.style.cssText = 'fill:none;stroke:currentColor;flex:none';
+    if (mine) mine.replaceWith(ic); else btn.insertBefore(ic, btn.firstChild);
+    btn.setAttribute('data-dck-ic', name);
+  }
+
   function removeHeaderButtons(pre) {
     const box = pre.parentElement && pre.parentElement.parentElement;
     if (box) box.querySelectorAll('[data-dck-act]').forEach((n) => n.remove());
@@ -1130,18 +1223,17 @@
         const b = copy.cloneNode(true);
         b.removeAttribute('id');
         b.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
-        b.querySelectorAll('svg, img').forEach((n) => n.remove());
         setLabel(b, w[1]);
         b.setAttribute('data-dck-act', w[0]);
         b.setAttribute('data-dck-look', sig);
         b.setAttribute('role', 'button');
         b.setAttribute('tabindex', '0');
-        b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); w[2](); });
-        b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); w[2](); } });
+        b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); w[3](); });
+        b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); w[3](); } });
         row.insertBefore(b, copy);
       });
     }
-    row.querySelectorAll(':scope > [data-dck-act]').forEach((n, i) => { setLabel(n, want[i][1]); });
+    row.querySelectorAll(':scope > [data-dck-act]').forEach((n, i) => { setLabel(n, want[i][1]); setHeaderIcon(n, want[i][2], copy); });
     return true;
   }
 
@@ -1197,7 +1289,7 @@
     if (!bar || !tools.pre) return;
     const pre = tools.pre;
     bar.textContent = '';
-    actionsFor(pre).forEach((w) => bar.append(h('button', { type: 'button', class: 'dck-cbtn' + (w[0] === 'zip' && w[1] === 'Added' ? ' on' : ''), onclick: () => { w[2](); placeBar(); } }, w[1])));
+    actionsFor(pre).forEach((w) => bar.append(h('button', { type: 'button', class: 'dck-cbtn' + (w[0] === 'zip' && w[1] === 'Added' ? ' on' : ''), onclick: () => { w[3](); placeBar(); } }, w[1])));
   }
 
   function placeBar() {
