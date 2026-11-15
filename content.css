@@ -227,8 +227,9 @@ pre[data-dck-lines] > span::before {
 #dck-chips.inline .dck-chip.summary { flex: 0 1 auto; min-width: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; display: block; line-height: 24px; }
 #dck-chips.inline .dck-chip.mode { color: var(--k-muted); }
 
-/* DeepThink reasoning fold (setting "Collapse reasoning"): with <html class="dck-fold">, a reasoning block shows only its
+/* DeepThink reasoning fold (setting "Collapse reasoning"): with <html data-dck-fold> (set by content.js; an attribute,
+   because a site that rewrites <html class> would wipe a class), a reasoning block shows only its
    header. The block is the element carrying --collapsible-area-title-height; its first child is the header, the empty
    spacer divs stay (that is all a block the site has closed consists of) and every other child (thinking text, "Found N
    web pages", "Read N pages") is hidden. Clicking the header adds .dck-open, which shows the block again. */
-html.dck-fold [style*="--collapsible-area-title-height"]:has(> .ds-think-content):not(.dck-open) > :not(:first-child):not(:empty) { display: none !important; }
+html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-content):not(.dck-open) > :not(:first-child):not(:empty) { display: none !important; }
