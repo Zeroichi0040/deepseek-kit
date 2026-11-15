@@ -54,7 +54,7 @@ Kit adds buttons (each with a small icon) to each code block's header, next to t
 
 - **Line numbers** (Settings > Code blocks, off by default): numbers each line, with wrapped lines hanging under their number. The numbers are drawn by CSS, so selecting, copying and the site's Copy / Download are unchanged. Blocks the site renders without per-line elements are left alone.
 - **Collapse / Expand**: folds a long block down to a few lines. *Collapse long blocks* starts blocks over 20 lines collapsed; a block you expand stays open.
-- **+ ZIP**: collects blocks. A pill at the bottom of the page then offers **Download ZIP (n)** (duplicate names get -2, -3). File names come from a comment such as `// file: app.js` in the first lines, otherwise `snippet-N.ext`.
+- **+ ZIP**: collects blocks. A pill just above the right end of the message box then offers **Download ZIP (n)** (duplicate names get -2, -3). File names come from a comment such as `// file: app.js` in the first lines, otherwise `snippet-N.ext`.
 
 DeepSeek already has its own Run/preview, so Kit does not add one.
 

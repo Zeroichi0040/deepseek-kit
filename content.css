@@ -194,7 +194,7 @@ pre[data-dck-collapsed] {
 .dck-accbody .dck-diag { padding-top: 8px; }
 
 /* zip basket chip */
-#dck-zipchip { position: fixed; z-index: 2147482600; left: 50%; bottom: 24px; transform: translateX(-50%); display: none; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--k-line); background: var(--k-pop); box-shadow: 0 6px 24px rgba(0,0,0,.35); font: 13px/1 system-ui, sans-serif; }
+#dck-zipchip { position: fixed; z-index: 2147482600; right: 24px; bottom: 24px; display: none; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--k-line); background: var(--k-pop); box-shadow: 0 6px 24px rgba(0,0,0,.35); font: 13px/1 system-ui, sans-serif; }
 #dck-zipchip .dck-cbtn { height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--k-text); font: inherit; cursor: pointer; }
 #dck-zipchip .dck-cbtn.primary { background: var(--k-accent); color: #fff; }
 

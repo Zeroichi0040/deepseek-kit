@@ -246,6 +246,17 @@
     chips.el.style.bottom = Math.max(8, window.innerHeight - r.top + CHIP_GAP) + 'px';
   }
 
+  // The ZIP pill sits just above the message box, at its right end, so it never covers the toolbar or the chips.
+  function placeZip() {
+    const z = tools.zip;
+    if (!z || z.style.display === 'none') return;
+    const el = getComposer();
+    const r = el ? composerRect(el) : null;
+    if (!r || r.width <= 0) { z.style.right = '24px'; z.style.bottom = '24px'; return; }
+    z.style.right = Math.max(8, window.innerWidth - r.right + 4) + 'px';
+    z.style.bottom = Math.max(8, window.innerHeight - r.top + CHIP_GAP) + 'px';
+  }
+
   function refreshAll(force) {
     applyFold(); // cheap and idempotent: puts the attribute back if the site ever removes it
     const sum = currentSummary();
@@ -256,6 +267,7 @@
       renderChips(sum);
     }
     positionChips();
+    placeZip();
     updateMemoryStatus();
   }
 
@@ -1098,6 +1110,7 @@
     tools.zip.append(
       h('button', { type: 'button', class: 'dck-cbtn primary', onclick: basketZip }, 'Download ZIP (' + n + ')'),
       h('button', { type: 'button', class: 'dck-cbtn', 'aria-label': 'Clear collected blocks', onclick: () => { tools.basket = []; updateZipChip(); syncAll(); } }, 'Clear'));
+    placeZip();
   }
 
   function toggleBasket(pre) {

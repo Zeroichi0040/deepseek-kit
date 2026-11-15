@@ -47,7 +47,7 @@ const noHeader = '<pre id="nohead" style="margin:12px 0;padding:12px">plain bloc
 
 async function codeBlocks() {
   const ctx = await launch(1000, 900);
-  const p = await open(ctx, `<body style="background:#111;color:#eee;width:560px"><textarea></textarea>${blk('html', '&lt;h1&gt;Hi&lt;/h1&gt;')}${blk('python', long)}${blk('python', 'print(1)')}${noHeader}</body>`);
+  const p = await open(ctx, `<body style="background:#111;color:#eee;width:560px">${blk('html', '&lt;h1&gt;Hi&lt;/h1&gt;')}${blk('python', long)}${blk('python', 'print(1)')}${noHeader}<div style="position:fixed;left:200px;right:200px;bottom:30px;height:90px;border-radius:20px;background:#2b2b2e"><textarea style="width:90%"></textarea></div></body>`);
   await p.waitForSelector('[data-dck-act]');
   const acts = () => p.evaluate(() => Array.from(document.querySelectorAll('.cb')).map((cb) => Array.from(cb.querySelectorAll('.acts > div')).map((n) => n.textContent.trim()).join(',')));
   assert.deepStrictEqual(await acts(), ['Collapse,+ ZIP,Copy,Download'.replace('Collapse,', ''), 'Collapse,+ ZIP,Copy,Download', '+ ZIP,Copy,Download']);
@@ -72,6 +72,15 @@ async function codeBlocks() {
   await p.locator('.cb').nth(2).locator('[data-dck-act=zip]').click();
   assert.ok((await acts())[0].startsWith('Added'));
   assert.ok((await p.locator('#dck-zipchip').innerText()).includes('Download ZIP (2)'));
+  // the pill must not cover the message box or its toolbar
+  const overlap = await p.evaluate(() => {
+    const z = document.getElementById('dck-zipchip').getBoundingClientRect();
+    const ta = document.querySelector('textarea');
+    let box = ta; for (let i = 0; i < 3 && box.parentElement && box.parentElement !== document.body; i++) box = box.parentElement;
+    const b = box.getBoundingClientRect();
+    return z.bottom > b.top && z.top < b.bottom && z.right > b.left && z.left < b.right;
+  });
+  assert.ok(!overlap, 'ZIP pill overlaps the message box');
   const [z] = await Promise.all([p.waitForEvent('download'), p.click('#dck-zipchip >> text=Download ZIP')]);
   const zp = path.join(os.tmpdir(), 'dck-test-' + Date.now() + '.zip');
   await z.saveAs(zp);
