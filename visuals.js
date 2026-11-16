@@ -177,8 +177,13 @@
     const left = Math.round(maxY * 6.6 + 14) + (spec.yTitle ? 16 : 0);
     const top = 10;
     const right = 14;
-    const bottom = 26 + (spec.xTitle ? 16 : 0);
     const pw = W - left - right;
+    // Category labels: all of them if they fit, else tilted (up to 24 of them), else every few
+    const maxLen = isScatter ? 0 : spec.labels.reduce((m, l) => Math.max(m, Math.min(l.length, 16)), 1);
+    const flat = Math.max(1, Math.floor(pw / (maxLen * 6.4 + 10)));
+    const tilt = !isScatter && n > flat && n <= 24;
+    const every = isScatter || tilt ? 1 : Math.ceil(n / flat);
+    const bottom = 26 + (tilt ? Math.round(maxLen * 3.4) : 0) + (spec.xTitle ? 16 : 0);
     const ph = H - top - bottom;
     const yPos = (v) => top + ph - (v - yS.min) / (yS.max - yS.min) * ph;
     const g = svgEl(doc, 'g');
@@ -220,13 +225,14 @@
 
     // x labels (skip some when crowded)
     const band = pw / Math.max(1, n);
-    const maxLen = spec.labels.reduce((m, s) => Math.max(m, s.length), 1);
-    const fit = Math.max(1, Math.floor(pw / (maxLen * 6.6 + 10)));
-    const every = Math.ceil(n / fit);
     const xMid = (i) => (isBar ? left + band * (i + 0.5) : n === 1 ? left + pw / 2 : left + pw * (i / (n - 1)));
     spec.labels.forEach((l, i) => {
       if (i % every) return;
-      g.appendChild(svgEl(doc, 'text', { x: f1(xMid(i)), y: top + ph + 17, 'text-anchor': 'middle', class: 'dck-tick' }, l.length > 16 ? l.slice(0, 15) + '...' : l));
+      const txt = l.length > 16 ? l.slice(0, 15) + '...' : l;
+      const lx = f1(xMid(i));
+      g.appendChild(tilt
+        ? svgEl(doc, 'text', { x: lx, y: top + ph + 14, 'text-anchor': 'end', transform: 'rotate(-35 ' + lx + ' ' + (top + ph + 14) + ')', class: 'dck-tick' }, txt)
+        : svgEl(doc, 'text', { x: lx, y: top + ph + 17, 'text-anchor': 'middle', class: 'dck-tick' }, txt));
     });
 
     if (isBar) {
@@ -347,7 +353,10 @@
         sw.style.background = color(i);
         it.appendChild(sw);
         let label = name;
-        if (pieLike && total > 0 && spec.series[0].values[i] > 0) label += ' ' + Math.round(spec.series[0].values[i] / total * 1000) / 10 + '%';
+        if (pieLike && total > 0 && spec.series[0].values[i] > 0) {
+          const pct = spec.series[0].values[i] / total * 100;
+          label += pct < 0.1 ? ' <0.1%' : ' ' + Math.round(pct * 10) / 10 + '%';
+        }
         it.appendChild(doc.createTextNode(label));
         legend.appendChild(it);
       });

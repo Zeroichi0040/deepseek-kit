@@ -88,6 +88,23 @@ const spec = (o) => { const r = V.parseChartSpec(typeof o === 'string' ? o : JSO
   assert.strictEqual(V.buildChart(doc, spec(kinds.line).spec).svg.querySelectorAll('circle.dck-pt').length, 2, 'null values draw no point');
   ok('every chart type draws clean SVG with tooltips, legend and titles');
 }
+// labels: tilt rather than skip, and tiny pie shares
+{
+  const langs = ['C', 'C++', 'Perl', 'Python', 'Java', 'JavaScript', 'C#', 'Go', 'Rust', 'TypeScript'];
+  const r = spec({ type: 'bar', labels: langs, series: [{ values: langs.map((_, i) => 1970 + i * 4) }] });
+  const c = V.buildChart(doc, r.spec);
+  const ticks = Array.from(c.svg.querySelectorAll('text.dck-tick')).map((t) => t.textContent);
+  langs.forEach((l) => assert.ok(ticks.indexOf(l.length > 16 ? l.slice(0, 15) + '...' : l) >= 0, 'label kept: ' + l));
+  assert.ok(c.svg.querySelector('text[transform^="rotate"]'), 'crowded labels are tilted');
+  const many = Array.from({ length: 60 }, (_, i) => 'L' + i);
+  const c2 = V.buildChart(doc, spec({ type: 'line', labels: many, series: [{ values: many.map((_, i) => i) }] }).spec);
+  assert.ok(c2.svg.querySelectorAll('text.dck-tick').length < 40, 'very many labels are thinned out');
+  const c3 = V.buildChart(doc, spec({ type: 'bar', labels: ['a', 'b', 'c'], series: [{ values: [1, 2, 3] }] }).spec);
+  assert.ok(!c3.svg.querySelector('text[transform^="rotate"]'), 'few labels stay flat');
+  const pie = V.buildChart(doc, spec({ type: 'donut', labels: ['a', 'b'], series: [{ values: [99.96, 0.04] }] }).spec);
+  assert.ok(/<0\.1%/.test(pie.el.querySelector('.dck-legend').textContent), 'tiny share is not shown as 0%');
+  ok('labels tilt instead of vanishing; tiny shares read <0.1%');
+}
 // text from the model is never parsed as markup
 {
   const r = spec({ type: 'bar', title: '<img src=x onerror=alert(1)>', labels: ['<b>x</b>'], series: [{ name: '<i>n</i>', values: [1] }] });
