@@ -63,13 +63,6 @@
     return best;
   }
 
-  // Other textareas on the page that are not the message box: the box that opens when you edit an earlier message.
-  function editBoxes(doc) {
-    const d = doc || document;
-    const main = composer(d);
-    return Array.from(d.querySelectorAll('textarea')).filter((t) => t !== main && !t.closest(OURS) && !t.closest('dialog, [role="dialog"], [aria-modal="true"]'));
-  }
-
   const NOT_SEND = /attach|upload|file|mic|voice|record|search|think|reason|model|stop|cancel|clear|emoji/i;
   const IS_SEND = /send|submit|\u53d1\u9001/i;
   const nameOf = (b) => [b.getAttribute('aria-label'), b.getAttribute('title'), b.getAttribute('data-testid'), b.getAttribute('name'), b.id].filter(Boolean).join(' ');
@@ -208,7 +201,7 @@
 
   const api = {
     BLOCK_SEL, oncePerFrame, textNodes, findByText, firstText, composer, sendButton, composerBox, toolbarPills,
-    editBoxes, copyButton, codeBlocks, blockBox, blockLang, blockBusy, reasoningBlocks, blockOfHeader, blockKey, blockIsOpen, probe,
+    copyButton, codeBlocks, blockBox, blockLang, blockBusy, reasoningBlocks, blockOfHeader, blockKey, blockIsOpen, probe,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.DCK_SITE = api;

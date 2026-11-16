@@ -94,16 +94,6 @@ const ok = (m) => console.log('ok  ' + m);
     assert.strictEqual(r.SITE.sendButton(r.ta).id, 'ok', 'disabled buttons are skipped');
     ok('send button: named send wins, attach/mic never chosen, no guess when only those exist');
   }
-  // edit boxes are the textareas that are not the message box
-  {
-    const { doc, SITE } = page('<textarea id="e"></textarea><textarea id="m"></textarea><div id="dck-drawer"><textarea id="o"></textarea></div><div role="dialog"><textarea id="d"></textarea></div>');
-    const w = doc.defaultView;
-    w.HTMLElement.prototype.getClientRects = function () { return [{}]; };
-    w.HTMLElement.prototype.getBoundingClientRect = function () { return this.id === 'm' ? { top: 500, bottom: 540, width: 300, height: 40 } : { top: 50, bottom: 90, width: 300, height: 40 }; };
-    assert.strictEqual(SITE.composer(doc).id, 'm');
-    assert.strictEqual(SITE.editBoxes(doc).map((t) => t.id).join(','), 'e', 'only the edit box: not the composer, our UI or dialogs');
-    ok('editBoxes');
-  }
   // block language and box, also after our own header buttons were added
   {
     const { doc, SITE } = page(fx('codeblock.html') + '<div class="md-code-block"><div><span>chart</span><div><div role="button"><span>+ ZIP</span></div><div role="button"><span>Copy</span></div></div></div><pre>{}</pre></div><pre class="x"><code class="language-viz">a</code></pre>');

@@ -310,7 +310,6 @@
     }
     positionChips();
     placeZip();
-    markEditBoxes();
     if (visOn() || vis.list.length) syncVisuals(); // also ends the wait on a block that stopped changing
     updateMemoryStatus();
   }
@@ -450,7 +449,7 @@
   function stripNode(node) {
     if (node.nodeType === 3) {
       const par = node.parentElement;
-      if (!par || par.closest('textarea, #dck-drawer, #dck-picker, #dck-chips, #dck-toast, .md-code-block')) return;
+      if (!par || par.closest('textarea, #dck-drawer, #dck-picker, #dck-chips, #dck-toast, .md-code-block, [class*="textarea__mirror"]')) return;
       if (node.nodeValue && node.nodeValue.indexOf(MARKER_START) !== -1) {
         const v = stripContext(node.nodeValue);
         if (v !== node.nodeValue) { node.nodeValue = v; diag.stripped += 1; }
@@ -478,40 +477,8 @@
     });
   }
 
-  // Hidden mode shortens the chat bubble to your question, and the site sizes the edit box of an earlier message from the
-  // bubble, so it opens far too small for the full text it holds. The site re-measures a box when you type in it, so we
-  // do the same once: add a space and take it away again (the text ends exactly as it was), then restore the caret.
-  // Only boxes whose text overflows are touched, at most 3 times each, and only in Hidden mode; the message box never.
-  const remeasured = new WeakMap();
-  function remeasure(t) {
-    if (!t.isConnected || t.scrollHeight <= t.clientHeight + 2) return;
-    const n = remeasured.get(t) || 0;
-    if (n >= 3) return;
-    remeasured.set(t, n + 1);
-    const v = t.value;
-    const a = t.selectionStart;
-    const b = t.selectionEnd;
-    setNativeValue(t, v + ' ');
-    setNativeValue(t, v);
-    try { t.setSelectionRange(a, b); } catch (e) { /* ignore */ }
-  }
-  function markEditBoxes() {
-    const want = settings.enabled && settings.showInjected === false;
-    document.querySelectorAll('textarea[data-dck-edit]').forEach((t) => { if (!want) t.removeAttribute('data-dck-edit'); });
-    if (!want) return;
-    const edits = SITE.editBoxes();
-    document.querySelectorAll('textarea[data-dck-edit]').forEach((t) => { if (edits.indexOf(t) < 0) t.removeAttribute('data-dck-edit'); });
-    edits.forEach((t) => {
-      if (t.hasAttribute('data-dck-edit')) return;
-      t.setAttribute('data-dck-edit', '');
-      [150, 600, 1500].forEach((ms) => setTimeout(() => remeasure(t), ms));
-    });
-  }
-  const scheduleEditMark = SITE.oncePerFrame(markEditBoxes);
-
   function startObserver() {
     new MutationObserver((records) => {
-      scheduleEditMark();
       if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
       if (settings.collapseThinking) scheduleThinkScan();
       if (settings.collapseLong) scheduleCollapseScan();
