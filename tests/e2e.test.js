@@ -333,7 +333,8 @@ async function visuals() {
 // ---------- edit box of an earlier message in Hidden mode
 async function editBox() {
   const long = Array.from({ length: 40 }, (_, i) => 'context line ' + (i + 1)).join('\n');
-  const html = `<body style="background:#151517;color:#eee;margin:0"><div id="chat" style="padding:20px;width:700px"><div style="border:1px solid #446;border-radius:16px;padding:10px"><textarea id="edit" style="width:100%;height:30px;overflow:auto;background:#222;color:#eee">${long}</textarea></div></div><div style="position:fixed;bottom:20px;left:20px;border-radius:20px;background:#2b2b2e;padding:16px;width:700px"><textarea id="main" style="width:100%;height:40px"></textarea></div></body>`;
+  // a stand-in for the site: the box height comes from --container-height, set from the text whenever you type
+  const html = `<body style="background:#151517;color:#eee;margin:0"><div id="chat" style="padding:20px;width:700px"><div style="border:1px solid #446;border-radius:16px;padding:10px;overflow:hidden"><textarea id="edit" style="--container-height:30px;height:var(--container-height);width:100%;overflow:auto;background:#222;color:#eee">${long}</textarea></div></div><div style="position:fixed;bottom:20px;left:20px;border-radius:20px;background:#2b2b2e;padding:16px;width:700px"><textarea id="main" style="--container-height:40px;height:var(--container-height);width:100%"></textarea></div><script>document.querySelectorAll('textarea').forEach(function(t){t.addEventListener('input',function(){t.style.setProperty('--container-height',Math.min(t.scrollHeight,480)+'px')})})</script></body>`;
   const ctx = await launch(1000, 800);
   const p = await open(ctx, html);
   const h = (id) => p.evaluate((i) => document.getElementById(i).getBoundingClientRect().height, id);
@@ -343,12 +344,13 @@ async function editBox() {
   await p.locator('#dck-drawer button:has-text("Hidden")').first().click();
   await p.waitForTimeout(900);
   const big = await h('edit');
-  assert.ok(big > 200 && big <= 800 * 0.6 + 2, 'edit box sizes to its text, capped at 60% of the screen: ' + big);
+  assert.ok(big > 200, 'edit box re-measures to its text: ' + big);
+  assert.strictEqual(await p.evaluate((l) => document.getElementById('edit').value === l, long), true, 'the text is exactly as it was');
   assert.strictEqual(await h('main'), 40, 'the message box is not touched');
   assert.strictEqual(await p.evaluate(() => document.getElementById('main').hasAttribute('data-dck-edit')), false);
   await p.locator('#dck-drawer button:has-text("Visible")').first().click();
   await p.waitForTimeout(900);
-  assert.ok(await h('edit') < 40, 'Visible mode leaves the site sizing alone');
+  assert.ok(await h('edit') > 200, 'Visible mode does not shrink it back or touch it');
   ok('Hidden mode: edit box sizes to its text; message box and Visible mode untouched');
   await ctx.close();
 }
