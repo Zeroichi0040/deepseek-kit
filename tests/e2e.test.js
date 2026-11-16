@@ -424,6 +424,31 @@ async function fold() {
   assert.strictEqual(bad.length, 0, bad.length + ' fold check(s) failed');
 }
 
+// ---------- two tabs: a save in one tab must not be overwritten by a tab that was opened earlier
+async function twoTabs() {
+  const ctx = await launch(1000, 900);
+  const PAGE = '<body><textarea></textarea></body>';
+  const memTab = (p) => p.locator('[role=tab]:has-text("Memory")');
+  const B = await open(ctx, PAGE); // opened first, so it holds the older copy of the notes
+  const A = await open(ctx, PAGE);
+  await A.click('#dck-fab');
+  await memTab(A).click();
+  await A.fill('[aria-label="New note key"]', 'my city');
+  await A.fill('[aria-label="New note value"]', 'Manila');
+  await A.locator('.dck-btn.primary:has-text("Add")').click();
+  await B.waitForFunction(() => { const t = Array.from(document.querySelectorAll('[role=tab]')).find((x) => x.textContent.indexOf('Memory') === 0); return !!t && /1$/.test(t.textContent); }, null, { timeout: 3000 });
+  ok('a note added in one tab shows up in the other without a reload');
+  const sw = 'input[aria-label="Enable DeepSeek Kit"]';
+  await B.evaluate((s) => { document.querySelector(s).click(); document.querySelector(s).click(); }, sw); // a save from the tab that was open earlier
+  await B.waitForTimeout(300);
+  const C = await open(ctx, PAGE);
+  const txt = (await memTab(C).textContent()).trim();
+  assert.ok(/1$/.test(txt), 'the note was lost after the other tab saved (tab shows "' + txt + '")');
+  assert.ok(await C.locator(sw).isChecked(), 'switch state');
+  ok('a save in the older tab does not erase the new note');
+  await ctx.close();
+}
+
 (async () => {
   try {
     await codeBlocks();
@@ -434,6 +459,7 @@ async function fold() {
     await visuals();
     await mirror();
     await fold();
+    await twoTabs();
   } catch (e) {
     if (/Executable doesn't exist|browserType.launch/.test(e.message)) { console.log('skip  e2e (Chromium is not installed)'); process.exit(0); }
     console.error('FAIL:', e.stack || e.message);
