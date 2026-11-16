@@ -19,7 +19,7 @@
 
   const VISUALS_PROMPT = [
     'When a chart or an interactive demo would explain something better than text, put it in a fenced code block whose language is chart or viz. The chat draws it automatically, so do not also describe the code.',
-    '- chart: one JSON object: {"type":"bar|line|area|scatter|pie|donut","title":"...","subtitle":"one-line takeaway","labels":["Jan","Feb"],"series":[{"name":"Calls","values":[12,19]}],"xTitle":"","yTitle":"","unit":"","stacked":false}. For scatter, give series[].points as [[x,y],...] and no labels. Use only numbers you were given or actually know; never invent data.',
+    '- chart: one JSON object: {"type":"bar|line|area|scatter|pie|donut","title":"...","subtitle":"one-line takeaway","labels":["Jan","Feb"],"series":[{"name":"Calls","values":[12,19]}],"xTitle":"","yTitle":"","unit":"","stacked":false}. For scatter, give series[].points as [[x,y],...] and no labels. Bars always start at zero, so use line or scatter for years and other values that sit far from zero. Use only numbers you were given or actually know; never invent data.',
     '- viz: one self-contained HTML snippet (HTML, CSS and JS together) for simulations, calculators and interactive diagrams. It runs in an isolated frame with no network: no external scripts, fonts, images or libraries. Ready-made classes: v-card, v-title, v-btn, v-btn-outline, v-row, v-control-group, v-label, v-stat; buttons, sliders, inputs and selects are already styled. Keep the background transparent so it reads on dark and light pages, never size anything with vh, and keep it simple.',
     '- Use ordinary markdown for anything else, and do not make a visual when plain text answers the question.',
   ].join('\n');
