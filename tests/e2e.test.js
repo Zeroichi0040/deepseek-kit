@@ -330,28 +330,20 @@ async function visuals() {
   await ctx4.close();
 }
 
-// ---------- edit box of an earlier message in Hidden mode
-async function editBox() {
-  const long = Array.from({ length: 40 }, (_, i) => 'context line ' + (i + 1)).join('\n');
-  // a stand-in for the site: the box height comes from --container-height, set from the text whenever you type
-  const html = `<body style="background:#151517;color:#eee;margin:0"><div id="chat" style="padding:20px;width:700px"><div style="border:1px solid #446;border-radius:16px;padding:10px;overflow:hidden"><textarea id="edit" style="--container-height:30px;height:var(--container-height);width:100%;overflow:auto;background:#222;color:#eee">${long}</textarea></div></div><div style="position:fixed;bottom:20px;left:20px;border-radius:20px;background:#2b2b2e;padding:16px;width:700px"><textarea id="main" style="--container-height:40px;height:var(--container-height);width:100%"></textarea></div><script>document.querySelectorAll('textarea').forEach(function(t){t.addEventListener('input',function(){t.style.setProperty('--container-height',Math.min(t.scrollHeight,480)+'px')})})</script></body>`;
+// ---------- Hidden mode must not touch the site's hidden measuring copy of a box (its height comes from that text)
+async function mirror() {
+  const ctxText = '[Context from my notes]\nInstructions (Default):\nline\n[End of context]\n\nhello';
+  const html = `<body style="background:#151517;color:#eee;margin:0"><div id="bubble">${ctxText.replace(/\n/g, '<br>')}</div><div id="wrap"><textarea id="ta"></textarea><div class="ds-textarea__mirror" id="mir"></div></div></body>`;
   const ctx = await launch(1000, 800);
   const p = await open(ctx, html);
-  const h = (id) => p.evaluate((i) => document.getElementById(i).getBoundingClientRect().height, id);
-  assert.ok(await h('edit') < 40, 'starts small');
   await p.click('#dck-fab');
-  await p.click('[role=tab]:has-text("Prompts")').catch(() => {});
   await p.locator('#dck-drawer button:has-text("Hidden")').first().click();
-  await p.waitForTimeout(900);
-  const big = await h('edit');
-  assert.ok(big > 200, 'edit box re-measures to its text: ' + big);
-  assert.strictEqual(await p.evaluate((l) => document.getElementById('edit').value === l, long), true, 'the text is exactly as it was');
-  assert.strictEqual(await h('main'), 40, 'the message box is not touched');
-  assert.strictEqual(await p.evaluate(() => document.getElementById('main').hasAttribute('data-dck-edit')), false);
-  await p.locator('#dck-drawer button:has-text("Visible")').first().click();
-  await p.waitForTimeout(900);
-  assert.ok(await h('edit') > 200, 'Visible mode does not shrink it back or touch it');
-  ok('Hidden mode: edit box sizes to its text; message box and Visible mode untouched');
+  await p.waitForTimeout(500);
+  await p.evaluate((t) => { document.getElementById('mir').textContent = t; document.getElementById('bubble').textContent = t; }, ctxText);
+  await p.waitForTimeout(600);
+  assert.strictEqual(await p.evaluate(() => document.getElementById('mir').textContent.indexOf('[Context from my notes]') === 0), true, 'the measuring copy keeps its full text');
+  assert.strictEqual(await p.evaluate(() => document.getElementById('bubble').textContent.indexOf('[Context from my notes]') === -1), true, 'the chat bubble is still shortened');
+  ok('Hidden mode: bubbles are shortened, the site measuring copy of a box is left alone');
   await ctx.close();
 }
 
@@ -439,7 +431,7 @@ async function fold() {
     await streamingCopy();
     await toolbarChips();
     await visuals();
-    await editBox();
+    await mirror();
     await fold();
   } catch (e) {
     if (/Executable doesn't exist|browserType.launch/.test(e.message)) { console.log('skip  e2e (Chromium is not installed)'); process.exit(0); }
