@@ -90,8 +90,34 @@
       } catch (e) { storage.error = String((e && e.message) || e); done({}); }
     });
   }
+  // Every save carries a fresh tag. Other tabs see the tag change and reload; this tab recognises its own tags and ignores them.
+  const myRevs = [];
   function save() {
-    storeSet({ dck_settings: settings, dck_memories: memories });
+    const rev = newId();
+    myRevs.push(rev);
+    if (myRevs.length > 20) myRevs.shift();
+    storeSet({ dck_settings: settings, dck_memories: memories, dck_rev: rev });
+  }
+  // Without this, a tab opened earlier keeps its old copy of your notes and overwrites newer ones on its next save.
+  function listenForOtherTabs() {
+    try {
+      if (!chrome.storage.onChanged) return;
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local' || !changes.dck_rev || myRevs.indexOf(changes.dck_rev.newValue) >= 0) return;
+        const s = changes.dck_settings;
+        const m = changes.dck_memories;
+        if (s && s.newValue) settings = migrateSettings(s.newValue);
+        if (m && Array.isArray(m.newValue)) memories = cleanMemories(m.newValue);
+        const editing = ui.editingId !== null || ui.editingSnippetId !== null || ui.editingMemory !== null;
+        ui.editingId = null; ui.editingSnippetId = null; ui.editingMemory = null;
+        applyFold();
+        render();
+        syncAll();
+        if (settings.showInjected === false) scheduleStrip([document.body]);
+        logEvent('Updated from another tab');
+        if (editing) toast('Updated from another tab - your open edit was closed');
+      });
+    } catch (e) { logEvent('Could not watch for changes from other tabs'); }
   }
   function commit() {
     save();
@@ -910,7 +936,7 @@
     return wrap;
   }
 
-  function renderSettings(body, drawer) {
+  function renderSettings(body) {
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
     body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking]), (box) => {
       box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
@@ -964,6 +990,7 @@
         if (Array.isArray(data.memories)) memories = cleanMemories(data.memories);
         commit(); render(); toast('Imported');
       } catch (err) { toast('Invalid file'); }
+      importInput.value = ''; // so choosing the same file again still counts as a change
     });
     body.append(accordion('data', 'Backup', 'Export or import your prompts, notes and snippets', (box) => {
       box.append(h('div', { class: 'dck-two' },
@@ -972,7 +999,8 @@
           onclick: () => {
             const blob = new Blob([JSON.stringify({ settings, memories }, null, 2)], { type: 'application/json' });
             const a = h('a', { href: URL.createObjectURL(blob), download: 'deepseek-kit.json' });
-            a.click(); URL.revokeObjectURL(a.href);
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000); // not at once: some browsers cancel the download
           },
         }, icon('down'), 'Export'),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => importInput.click() }, icon('up'), 'Import')),
@@ -1052,7 +1080,7 @@
     if (ui.tab === 'prompts') renderPrompts(body);
     else if (ui.tab === 'memory') renderMemory(body);
     else if (ui.tab === 'snippets') renderSnippets(body);
-    else renderSettings(body, drawer);
+    else renderSettings(body);
     drawer.append(body);
     body.scrollTop = scroll;
 
@@ -1206,7 +1234,6 @@
   // ----- the buttons themselves
   // What a block offers: [id, label, handler]
   function actionsFor(pre) {
-    const info = blockInfo(pre);
     const folded = pre.hasAttribute('data-dck-collapsed');
     const inBasket = tools.basket.some((b) => b.el === pre);
     const list = [];
@@ -1597,6 +1624,7 @@
     syncVisuals();
     setTimeout(() => { if (visOn()) runSandboxProbe(); }, 1500);
     initThinkTracker();
+    listenForOtherTabs();
     applyFold();
     if (settings.collapseLong) scheduleCollapseScan();
     if (settings.showInjected === false) scheduleStrip([document.body]);
