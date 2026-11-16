@@ -330,6 +330,29 @@ async function visuals() {
   await ctx4.close();
 }
 
+// ---------- edit box of an earlier message in Hidden mode
+async function editBox() {
+  const long = Array.from({ length: 40 }, (_, i) => 'context line ' + (i + 1)).join('\n');
+  const html = `<body style="background:#151517;color:#eee;margin:0"><div id="chat" style="padding:20px;width:700px"><div style="border:1px solid #446;border-radius:16px;padding:10px"><textarea id="edit" style="width:100%;height:30px;overflow:auto;background:#222;color:#eee">${long}</textarea></div></div><div style="position:fixed;bottom:20px;left:20px;border-radius:20px;background:#2b2b2e;padding:16px;width:700px"><textarea id="main" style="width:100%;height:40px"></textarea></div></body>`;
+  const ctx = await launch(1000, 800);
+  const p = await open(ctx, html);
+  const h = (id) => p.evaluate((i) => document.getElementById(i).getBoundingClientRect().height, id);
+  assert.ok(await h('edit') < 40, 'starts small');
+  await p.click('#dck-fab');
+  await p.click('[role=tab]:has-text("Prompts")').catch(() => {});
+  await p.locator('#dck-drawer button:has-text("Hidden")').first().click();
+  await p.waitForTimeout(900);
+  const big = await h('edit');
+  assert.ok(big > 200 && big <= 800 * 0.6 + 2, 'edit box sizes to its text, capped at 60% of the screen: ' + big);
+  assert.strictEqual(await h('main'), 40, 'the message box is not touched');
+  assert.strictEqual(await p.evaluate(() => document.getElementById('main').hasAttribute('data-dck-edit')), false);
+  await p.locator('#dck-drawer button:has-text("Visible")').first().click();
+  await p.waitForTimeout(900);
+  assert.ok(await h('edit') < 40, 'Visible mode leaves the site sizing alone');
+  ok('Hidden mode: edit box sizes to its text; message box and Visible mode untouched');
+  await ctx.close();
+}
+
 // ---------- reasoning fold
 const chevOpen = openHTML.match(/<div class="ds-icon" style="font-size: 14px[^>]*>.*?<\/svg><\/div>/s)[0];
 const chevClosed = closedHTML.match(/<div class="ds-icon _3d79d66"[^>]*>.*?<\/svg><\/div>/s)[0];
@@ -414,6 +437,7 @@ async function fold() {
     await streamingCopy();
     await toolbarChips();
     await visuals();
+    await editBox();
     await fold();
   } catch (e) {
     if (/Executable doesn't exist|browserType.launch/.test(e.message)) { console.log('skip  e2e (Chromium is not installed)'); process.exit(0); }

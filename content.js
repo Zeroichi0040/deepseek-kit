@@ -310,6 +310,7 @@
     }
     positionChips();
     placeZip();
+    markEditBoxes();
     if (visOn() || vis.list.length) syncVisuals(); // also ends the wait on a block that stopped changing
     updateMemoryStatus();
   }
@@ -477,8 +478,22 @@
     });
   }
 
+  // Hidden mode shortens the chat bubble to your question, and the site sizes the edit box from the bubble, so the
+  // edit box of an earlier message would open far too small for the full text it holds. Marked boxes size to their text
+  // (see content.css). Only in Hidden mode; the message box is never marked.
+  function markEditBoxes() {
+    const want = settings.enabled && settings.showInjected === false;
+    document.querySelectorAll('textarea[data-dck-edit]').forEach((t) => { if (!want) t.removeAttribute('data-dck-edit'); });
+    if (!want) return;
+    const edits = SITE.editBoxes();
+    document.querySelectorAll('textarea[data-dck-edit]').forEach((t) => { if (edits.indexOf(t) < 0) t.removeAttribute('data-dck-edit'); });
+    edits.forEach((t) => { if (!t.hasAttribute('data-dck-edit')) t.setAttribute('data-dck-edit', ''); });
+  }
+  const scheduleEditMark = SITE.oncePerFrame(markEditBoxes);
+
   function startObserver() {
     new MutationObserver((records) => {
+      scheduleEditMark();
       if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
       if (settings.collapseThinking) scheduleThinkScan();
       if (settings.collapseLong) scheduleCollapseScan();

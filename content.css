@@ -276,3 +276,8 @@ html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-c
 .dck-visfull .dck-vbtn { color: inherit; }
 .dck-visfull-body { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
 .dck-visfull-body .dck-chart { max-width: 1100px; margin: 0 auto; }
+
+/* the edit box of an earlier message in Hidden mode: size it to its text (the site sizes it from the shortened bubble) */
+@supports (field-sizing: content) {
+  textarea[data-dck-edit] { field-sizing: content !important; height: auto !important; min-height: 4.5em; max-height: 60vh !important; }
+}

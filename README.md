@@ -61,7 +61,7 @@ DeepSeek already has its own Run/preview, so Kit does not add one.
 ## Show / hide inserted context
 
 - **Visible (default)**: pressing Enter puts the context into your message box. Review or edit it, then press Enter again to send. Nothing is sent for you.
-- **Hidden**: pressing Enter attaches the context and sends the message in one step. The inserted block is hidden in the chat view, but it is part of the message that is sent. This mode presses Enter / clicks the send button for you, so it behaves more like an automation tool than the default mode does. It waits up to 1.5 seconds for the site to take the Enter; only if the box has not emptied does it press the send button, once, and if that cannot be confirmed either it tells you instead of trying again. Use it knowingly.
+- **Hidden**: pressing Enter attaches the context and sends the message in one step. The inserted block is hidden in the chat view, but it is part of the message that is sent. This mode presses Enter / clicks the send button for you, so it behaves more like an automation tool than the default mode does. It waits up to 1.5 seconds for the site to take the Enter; only if the box has not emptied does it press the send button, once, and if that cannot be confirmed either it tells you instead of trying again. The edit box of an earlier message shows the full text that was sent, context included, and in this mode it is sized to fit that text. Use it knowingly.
 
 ## Variables
 
