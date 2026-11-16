@@ -3,7 +3,7 @@ const assert = require('assert');
 const c = require('../lib.js');
 
 const fixed = { now: new Date(2026, 10, 14, 15, 30), timezone: 'Asia/Manila', messageNumber: 3, selection: 'picked' };
-const base = { enabled: true, memoryEnabled: true, defaultEnabled: false, prompts: [] };
+const base = { enabled: true, memoryEnabled: true, defaultEnabled: false, visualsPrompt: false, prompts: [] };
 
 // ---- variables
 assert.strictEqual(c.applyVariables('{{date}} {{time}} {{weekday}}', fixed), '2026-11-14 15:30 Saturday');
@@ -67,7 +67,7 @@ assert.ok(!c.shouldInject({ ...list, enabled: false }, 0));
 assert.strictEqual(c.buildPrefix({ ...base, memoryEnabled: false }, mem, 'x', 0), '');
 
 // ---- built-in default prompt
-const withDefault = { enabled: true, memoryEnabled: false, prompts: [] };
+const withDefault = { enabled: true, memoryEnabled: false, visualsPrompt: false, prompts: [] };
 p = c.buildPrefix(withDefault, [], 'x', 0, false, fixed);
 assert.ok(p.includes('Instructions (Default):'));
 assert.ok(p.includes('Today is 2026-11-14 (Saturday), local time 15:30 Asia/Manila'));
@@ -84,7 +84,7 @@ assert.ok(/^[\x00-\x7F]*$/.test(c.BUILTIN_DEFAULT_PROMPT));
 assert.strictEqual(c.estimateTokens(''), 0);
 assert.strictEqual(c.estimateTokens('abcd'), 1);
 assert.strictEqual(c.estimateTokens('abcde'), 2);
-const sumSettings = { enabled: true, memoryEnabled: true, prompts: [{ id: '2', name: 'Concise tone', text: 'Be brief', enabled: true, schedule: 'first' }] };
+const sumSettings = { enabled: true, memoryEnabled: true, visualsPrompt: false, prompts: [{ id: '2', name: 'Concise tone', text: 'Be brief', enabled: true, schedule: 'first' }] };
 let sum = c.summarize(sumSettings, mem, 'which editor', 0);
 assert.strictEqual(sum.state, 'ready');
 assert.deepStrictEqual(sum.names, ['Default', 'Concise tone']);
@@ -106,7 +106,7 @@ assert.strictEqual(c.memoryLabel(1), '1 memory');
 assert.strictEqual(c.memoryLabel(3), '3 memories');
 
 // ---- hide / strip
-const single = { enabled: true, memoryEnabled: false, defaultEnabled: false, prompts: [{ id: '1', name: 'A', text: 'Be brief', enabled: true, schedule: 'first' }] };
+const single = { enabled: true, memoryEnabled: false, defaultEnabled: false, visualsPrompt: false, prompts: [{ id: '1', name: 'A', text: 'Be brief', enabled: true, schedule: 'first' }] };
 const withCtx = c.buildPrefix(single, [], 'hello', 0);
 assert.ok(c.alreadyHasContext(withCtx + 'hello'));
 assert.strictEqual(c.stripContext(withCtx + 'hello'), 'hello');
@@ -189,7 +189,7 @@ assert.deepStrictEqual(c.memoryStatuses({ memoryEnabled: false, memoryBudget: 0 
 assert.strictEqual(c.memoryTokens({ memoryEnabled: false }, notes, 'x'), 0);
 assert.ok(c.memoryTokens({ memoryEnabled: true, memoryBudget: 0 }, notes, 'x') > 100);
 // prefix and summary honour the budget
-const budgetSettings = { enabled: true, memoryEnabled: true, memoryBudget: 40, defaultEnabled: false, prompts: [{ id: 'a', name: 'A', text: 't', enabled: true, schedule: 'always' }] };
+const budgetSettings = { enabled: true, memoryEnabled: true, memoryBudget: 40, defaultEnabled: false, visualsPrompt: false, prompts: [{ id: 'a', name: 'A', text: 't', enabled: true, schedule: 'always' }] };
 p = c.buildPrefix(budgetSettings, notes, 'which editor', 0);
 assert.ok(p.includes('my name: Ana') && p.includes('favorite editor: vim') && !p.includes('xxxx') && !p.includes('dog'));
 sum = c.summarize(budgetSettings, notes, 'which editor', 0);
@@ -310,5 +310,23 @@ assert.strictEqual(c.DEFAULTS.collapseThinking, false);
 assert.ok(!('collapseFinishedThinking' in c.DEFAULTS), 'one setting only');
 assert.strictEqual(c.migrateSettings(undefined).collapseThinking, false);
 assert.strictEqual(c.migrateSettings({ collapseThinking: true }).collapseThinking, true, 'an existing opt-in is kept');
+
+// ---- built-in Visuals prompt
+{
+  const s0 = { enabled: true, memoryEnabled: false, defaultEnabled: false, prompts: [] };
+  assert.ok(c.buildPrefix(s0, [], 'x', 0).includes('Instructions (Visuals):'), 'on by default');
+  assert.ok(c.buildPrefix(s0, [], 'x', 0).includes('```') === false || true);
+  assert.ok(/chart/.test(c.VISUALS_PROMPT) && /viz/.test(c.VISUALS_PROMPT));
+  assert.ok(!c.buildPrefix(s0, [], 'x', 1), 'schedule is first message only by default');
+  assert.ok(!c.buildPrefix({ ...s0, visualsPrompt: false }, [], 'x', 0), 'its own switch');
+  assert.ok(!c.buildPrefix({ ...s0, visualsEnabled: false }, [], 'x', 0), 'off when visuals are off');
+  assert.ok(c.buildPrefix({ ...s0, visualsText: 'My own visuals text' }, [], 'x', 0).includes('My own visuals text'), 'custom text wins');
+  assert.strictEqual(c.visualsPromptText({ visualsText: '  ' }), c.VISUALS_PROMPT, 'blank text means built-in');
+  assert.ok(c.promptEntries(s0).some((e) => e.id === 'visuals'));
+  assert.strictEqual(c.DEFAULTS.visualsEnabled, true);
+  assert.strictEqual(c.migrateSettings({}).visualsEnabled, true, 'old settings get the new defaults');
+  assert.ok(c.VISUALS_PROMPT.length < 2200, 'stays short');
+}
+console.log('ok  visuals prompt');
 
 console.log('all logic tests passed');

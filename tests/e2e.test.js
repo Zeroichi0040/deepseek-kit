@@ -202,6 +202,134 @@ async function toolbarChips() {
   await ctx.close();
 }
 
+// ---------- visuals: chart and viz blocks become cards
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function fence(lang, code, busy) {
+  const spans = code.split('\n').map((l) => `<span>${esc(l)}</span>`).join('\n');
+  const dis = busy ? ' aria-disabled="true" style="opacity:.4;cursor:not-allowed"' : '';
+  return `<div class="md-code-block"><div class="md-code-block-banner-wrap" style="display:flex;padding:8px 12px"><span>${lang}</span><div class="acts" style="margin-left:auto;display:flex;gap:16px"><div role="button"${dis}><svg width="12" height="12"></svg><span>Copy</span></div><div role="button"><svg width="12" height="12"></svg><span>Download</span></div></div></div><pre>${spans}</pre></div>`;
+}
+const CHART = JSON.stringify({ type: 'bar', title: 'Monthly API usage', subtitle: 'Calls in thousands', labels: ['Jan', 'Feb', 'Mar'], series: [{ name: 'Calls', values: [12, 19, 15] }] }, null, 1);
+const WIDGET = '<div class="v-card"><div class="v-title">Counter</div><button id="inc">Add</button> <span id="n" class="v-stat">0</span><div style="height:300px"></div></div>\n<script>var n=0;document.getElementById("inc").onclick=function(){n++;document.getElementById("n").textContent=n}</script>';
+const BROKEN = '<div>x</div><script>throw new Error("boom")</script>';
+const visPage = (inner, bg) => `<body style="background:${bg || '#151517'};color:#eee;margin:0"><div style="width:700px;padding:20px">${inner}</div><div style="border-radius:20px;background:#2b2b2e;padding:16px;width:700px;margin:20px"><textarea style="width:100%"></textarea></div></body>`;
+
+async function visuals() {
+  const ctx = await launch(1000, 900);
+  const p = await open(ctx, visPage(fence('chart', CHART) + '<p id="gap">between</p>' + fence('viz', WIDGET) + fence('viz', BROKEN)));
+  const hosts = new Set();
+  p.on('request', (r) => { try { hosts.add(new URL(r.url()).host); } catch (e) { /* ignore */ } });
+  await p.waitForSelector('.dck-vis[data-kind=chart] svg.dck-csvg', { timeout: 8000 });
+  assert.strictEqual(await p.locator('.dck-vis[data-kind=chart] rect.dck-bar').count(), 3);
+  assert.ok(await p.evaluate(() => getComputedStyle(document.querySelector('.md-code-block')).display === 'none'), 'source block hidden');
+  assert.strictEqual(await p.locator('.dck-vis[data-kind=chart] .dck-ctitle').innerText(), 'Monthly API usage');
+  assert.ok(await p.evaluate(() => document.querySelector('.md-code-block').nextElementSibling.classList.contains('dck-vis')), 'card sits right after its block');
+  ok('chart block becomes a card and the source is hidden');
+
+  await p.locator('.dck-vis[data-kind=chart]').hover();
+  await p.locator('.dck-vis[data-kind=chart] .dck-vbtn:has-text("Code")').click();
+  assert.ok(await p.evaluate(() => getComputedStyle(document.querySelector('.md-code-block')).display !== 'none'), 'Code shows the source');
+  await p.locator('.dck-vis[data-kind=chart] .dck-vbtn:has-text("Hide code")').click();
+  assert.ok(await p.evaluate(() => getComputedStyle(document.querySelector('.md-code-block')).display === 'none'));
+  const [d1] = await Promise.all([p.waitForEvent('download'), p.locator('.dck-vis[data-kind=chart] .dck-vbtn:has-text("SVG")').click()]);
+  const svgPath = path.join(os.tmpdir(), 'dck-' + Date.now() + '.svg');
+  await d1.saveAs(svgPath);
+  const svgText = fs.readFileSync(svgPath, 'utf8'); fs.unlinkSync(svgPath);
+  assert.ok(svgText.startsWith('<svg') && !/var\(/.test(svgText), 'svg export has real colours');
+  assert.ok(/monthly-api-usage\.svg/.test(d1.suggestedFilename()), d1.suggestedFilename());
+  const [d2] = await Promise.all([p.waitForEvent('download'), p.locator('.dck-vis[data-kind=chart] .dck-vbtn:has-text("PNG")').click()]);
+  const pngPath = path.join(os.tmpdir(), 'dck-' + Date.now() + '.png');
+  await d2.saveAs(pngPath);
+  const png = fs.readFileSync(pngPath); fs.unlinkSync(pngPath);
+  assert.strictEqual(png.slice(1, 4).toString(), 'PNG', 'png signature');
+  ok('Code toggle, SVG and PNG downloads');
+
+  // tooltip
+  const box = await p.locator('.dck-vis[data-kind=chart] rect.dck-hit').first().boundingBox();
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await p.waitForSelector('.dck-tip:visible');
+  assert.ok(/Jan/.test(await p.locator('.dck-tip').innerText()) && /12/.test(await p.locator('.dck-tip').innerText()));
+  ok('hover tooltip');
+
+  // widget
+  const frameEl = p.locator('.dck-vis[data-kind=viz] iframe').first();
+  await frameEl.waitFor();
+  assert.strictEqual(await frameEl.getAttribute('sandbox'), 'allow-scripts', 'sandbox is scripts only');
+  const fl = p.frameLocator('.dck-vis[data-kind=viz] iframe').first();
+  await fl.locator('#inc').click(); await fl.locator('#inc').click();
+  assert.strictEqual(await fl.locator('#n').innerText(), '2', 'widget script runs');
+  await p.waitForFunction(() => parseInt(document.querySelector('.dck-vis[data-kind=viz] iframe').style.height, 10) > 250);
+  ok('widget runs in the sandbox and sizes itself to its content');
+  const frame = p.frames().find((f) => f !== p.mainFrame() && /Counter/.test(f.url() + '') === false && f.parentFrame() === p.mainFrame());
+  const blocked = await p.frames().filter((f) => f !== p.mainFrame())[0].evaluate(() => fetch('https://example.com/x').then(() => 'reached', () => 'blocked'));
+  assert.strictEqual(blocked, 'blocked', 'widget fetch is blocked by its CSP');
+  const sameOrigin = await p.frames().filter((f) => f !== p.mainFrame())[0].evaluate(() => { try { return typeof parent.document.title; } catch (e) { return 'denied'; } });
+  assert.strictEqual(sameOrigin, 'denied', 'widget cannot reach the page');
+  assert.ok([...hosts].every((h) => h === 'chat.deepseek.com' || h === ''), 'no request left the page: ' + [...hosts].join(','));
+  ok('widget has no network and no access to the page');
+
+  // error path
+  const bad = p.locator('.dck-vis[data-kind=viz]').nth(1);
+  await bad.locator('.dck-viserr-text').waitFor({ timeout: 5000 });
+  assert.ok(/boom/.test(await bad.locator('.dck-viserr-text').innerText()));
+  await bad.locator('.dck-vbtn:has-text("Send error to DeepSeek")').click();
+  const sent = await p.locator('textarea').inputValue();
+  assert.ok(/boom/.test(sent) && /```viz/.test(sent), sent);
+  ok('a widget error can be sent to the message box (not auto-sent)');
+
+  const stray = p.errs.filter((m) => !/boom/.test(m)); // the broken widget throws on purpose
+  assert.strictEqual(stray.length, 0, stray.join(';'));
+  // diagnostics + prompt row
+  await settingsTab(p, 'Diagnostics');
+  const diag = await p.locator('#dck-drawer').innerText();
+  assert.ok(/Widget sandbox/.test(diag) && /isolated frames run scripts/.test(diag), diag);
+  assert.ok(/3 chart\/viz block\(s\)/.test(diag), diag);
+  await close(p);
+  await p.click('#dck-fab');
+  await p.click('[role=tab]:has-text("Prompts")');
+  assert.ok(/Visuals/.test(await p.locator('#dck-drawer').innerText()), 'Visuals prompt listed');
+  ok('Diagnostics and the Visuals prompt row');
+
+  // turning it off
+  await close(p);
+  await settingsTab(p, 'Visuals');
+  await toggle(p, 'Draw charts and widgets');
+  await p.waitForTimeout(300);
+  assert.strictEqual(await p.locator('.dck-vis').count(), 0, 'cards removed');
+  assert.ok(await p.evaluate(() => getComputedStyle(document.querySelector('.md-code-block')).display !== 'none'), 'plain block is back');
+  await toggle(p, 'Draw charts and widgets');
+  await p.waitForSelector('.dck-vis[data-kind=chart] svg', { timeout: 5000 });
+  ok('the switch removes and restores cards');
+  await ctx.close();
+
+  // streaming placeholder, then the finished card
+  const ctx2 = await launch(1000, 700);
+  const p2 = await open(ctx2, visPage(fence('chart', CHART, true)));
+  await p2.waitForSelector('.dck-visph');
+  assert.ok(/Building chart/.test(await p2.locator('.dck-vis').innerText()));
+  assert.strictEqual(await p2.locator('svg.dck-csvg').count(), 0, 'nothing drawn while streaming');
+  await p2.evaluate(() => { const b = document.querySelector('.acts > div[aria-disabled]:not([data-dck-act])'); b.removeAttribute('aria-disabled'); b.style.cssText = ''; });
+  await p2.waitForSelector('svg.dck-csvg', { timeout: 5000 });
+  ok('placeholder while the site is still writing, card when it finishes');
+  await ctx2.close();
+
+  // bad chart json
+  const ctx3 = await launch(1000, 700);
+  const p3 = await open(ctx3, visPage(fence('chart', '{ "type": "bar", ')));
+  await p3.waitForSelector('.dck-viserr-text', { timeout: 5000 });
+  assert.ok(/not valid JSON/.test(await p3.locator('.dck-viserr-text').innerText()));
+  await ctx3.close();
+  ok('a broken chart shows a readable error');
+
+  // light page
+  const ctx4 = await launch(1000, 700);
+  const p4 = await open(ctx4, visPage(fence('chart', CHART), '#ffffff').replace('color:#eee', 'color:#111'));
+  await p4.waitForSelector('.dck-vis svg.dck-csvg', { timeout: 5000 });
+  assert.strictEqual(await p4.locator('.dck-vis').getAttribute('data-theme'), 'light');
+  ok('light pages get the light card');
+  await ctx4.close();
+}
+
 // ---------- reasoning fold
 const chevOpen = openHTML.match(/<div class="ds-icon" style="font-size: 14px[^>]*>.*?<\/svg><\/div>/s)[0];
 const chevClosed = closedHTML.match(/<div class="ds-icon _3d79d66"[^>]*>.*?<\/svg><\/div>/s)[0];
@@ -285,6 +413,7 @@ async function fold() {
     await fab();
     await streamingCopy();
     await toolbarChips();
+    await visuals();
     await fold();
   } catch (e) {
     if (/Executable doesn't exist|browserType.launch/.test(e.message)) { console.log('skip  e2e (Chromium is not installed)'); process.exit(0); }

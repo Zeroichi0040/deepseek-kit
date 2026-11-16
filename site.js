@@ -107,6 +107,32 @@
     return Array.from(document.querySelectorAll('pre')).filter((p) => !p.closest('#dck-drawer'));
   }
 
+  // The element that holds the whole block (header and code); our cards go right after it.
+  function blockBox(pre) {
+    return pre.closest('.md-code-block') || pre.parentElement || pre;
+  }
+
+  // The language of a block, lower case: from the code element's class when the site sets one, otherwise the first word
+  // of the header label. '' when unknown.
+  function blockLang(pre) {
+    const code = pre.querySelector('code');
+    const m = (((code && code.className) || '') + ' ' + (pre.className || '')).match(/language-([\w+-]+)/);
+    if (m) return m[1].toLowerCase();
+    const box = pre.parentElement;
+    const head = box && box.firstElementChild !== pre ? box.firstElementChild : pre.previousElementSibling;
+    const first = head ? firstText(head) : null; // not textContent: our own header buttons would run into the label
+    const word = first ? first.nodeValue.trim().split(/\s+/)[0] : '';
+    return word.length && word.length <= 20 ? word.toLowerCase() : '';
+  }
+
+  // True while the site is still writing a block: its Copy button is dimmed or disabled until the reply finishes.
+  function blockBusy(pre) {
+    const copy = copyButton(pre);
+    if (!copy) return false;
+    if (copy.getAttribute('aria-disabled') === 'true' || copy.disabled) return true;
+    try { return getComputedStyle(copy).cursor === 'not-allowed'; } catch (e) { return false; }
+  }
+
   // ----- reasoning blocks
 
   function reasoningBlocks() {
@@ -152,7 +178,7 @@
 
   const api = {
     BLOCK_SEL, oncePerFrame, textNodes, findByText, firstText, composer, sendButton, composerBox, toolbarPills,
-    copyButton, codeBlocks, reasoningBlocks, blockOfHeader, blockKey, blockIsOpen, probe,
+    copyButton, codeBlocks, blockBox, blockLang, blockBusy, reasoningBlocks, blockOfHeader, blockKey, blockIsOpen, probe,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.DCK_SITE = api;

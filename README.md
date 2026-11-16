@@ -97,6 +97,15 @@ The extension counts the messages you send in each chat and saves the count, so 
 - In hidden mode the inserted block is stripped from user messages in the page. If DeepSeek renders messages in a way that splits the block across elements, it may remain visible. Chat titles generated from the first message may include part of it.
 - Using any extension on a consumer site is at your own risk, and nothing here can promise it won't affect your account.
 
+## Visuals
+
+The model can draw charts and small interactive widgets right in the chat. The built-in **Visuals** prompt (Prompts tab, on by default, first message of a chat) asks it to put them in a code block whose language is `chart` or `viz`. When the block is finished it is replaced by a card; nothing needs clicking. While the site is still writing, a small "Building..." placeholder shows.
+
+- **Charts** (`chart`): one JSON object (bar, line, area, scatter, pie, donut) drawn as SVG by the Kit itself, with hover tooltips, legend, PNG and SVG download and a full-size view. Titles and labels are always text, never markup.
+- **Widgets** (`viz`): one HTML snippet that runs in an isolated frame (`sandbox="allow-scripts"`, no same-origin access) with a strict Content-Security-Policy: no network, no external scripts, no access to the DeepSeek page. They get a small set of ready-made classes and size themselves to their content.
+- If something fails, the card says what and offers **Send error to DeepSeek**, which puts the error in your message box (it is never sent for you). **Code** shows the original block.
+- Settings > Visuals has two switches: draw the cards, and add the Visuals prompt. Settings > Diagnostics has a "Widget sandbox" row that tests whether isolated frames can run scripts on your DeepSeek page; if they cannot, charts still work and widgets will not.
+
 ## Development
 
 `lib.js` holds the pure logic (settings migration, schedules, variables, memory budget, summary, snippet search, code-block detection, ZIP writer). `site.js` holds everything that knows DeepSeek's markup (message box, send button, toolbar pills, code block Copy buttons, reasoning blocks) and the probe behind Diagnostics. `content.js` is the browser code that uses them.
