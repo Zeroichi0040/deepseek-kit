@@ -40,8 +40,8 @@
     memoryBudget: 0, // max tokens of memory per message, 0 = no limit
     codeTools: true, // header buttons (collapse, ZIP) on code blocks
     collapseThinking: false, // close DeepThink reasoning blocks, while thinking and once finished (also after a refresh)
-    lineNumbers: false, // number the lines of code blocks (CSS counters, never part of copied text)
-    collapseLong: false, // collapse long code blocks automatically
+    lineNumbers: true, // number the lines of code blocks (CSS counters, never part of copied text)
+    collapseLong: true, // collapse long code blocks automatically
     collapseLines: 20, // blocks longer than this many lines count as long
     visualsEnabled: true, // draw chart and viz code blocks as inline cards
     visualsPrompt: true, // built-in "Visuals" prompt that teaches the model the two formats
