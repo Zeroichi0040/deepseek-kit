@@ -61,7 +61,7 @@ DeepSeek already has its own Run/preview, so Kit does not add one.
 ## Show / hide inserted context
 
 - **Visible (default)**: pressing Enter puts the context into your message box. Review or edit it, then press Enter again to send. Nothing is sent for you.
-- **Hidden**: pressing Enter attaches the context and sends the message in one step. The inserted block is hidden in the chat view, but it is part of the message that is sent. This mode presses Enter / clicks the send button for you, so it behaves more like an automation tool than the default mode does. Use it knowingly.
+- **Hidden**: pressing Enter attaches the context and sends the message in one step. The inserted block is hidden in the chat view, but it is part of the message that is sent. This mode presses Enter / clicks the send button for you, so it behaves more like an automation tool than the default mode does. It waits up to 1.5 seconds for the site to take the Enter; only if the box has not emptied does it press the send button, once, and if that cannot be confirmed either it tells you instead of trying again. Use it knowingly.
 
 ## Variables
 
@@ -111,7 +111,7 @@ The model can draw charts and small interactive widgets right in the chat. The b
 `lib.js` holds the pure logic (settings migration, schedules, variables, memory budget, summary, snippet search, code-block detection, ZIP writer). `site.js` holds everything that knows DeepSeek's markup (message box, send button, toolbar pills, code block Copy buttons, reasoning blocks) and the probe behind Diagnostics. `content.js` is the browser code that uses them.
 
 ```
-npm install      # once: jsdom and Playwright (Chromium via: npx playwright install chromium)
+npm ci           # once: jsdom and Playwright, exact versions from package-lock.json (Chromium via: npx playwright install chromium)
 npm test         # logic, site finders, UI, and real-Chromium tests; the Chromium part is skipped if unavailable
 ```
 

@@ -330,3 +330,38 @@ assert.strictEqual(c.migrateSettings({ collapseThinking: true }).collapseThinkin
 console.log('ok  visuals prompt');
 
 console.log('all logic tests passed');
+
+// ---- short keys, CJK keys, cleaning of stored lists
+{
+  const mem = (key) => [{ key, value: 'v', importance: 'called', enabled: true }];
+  const sel = (key, text) => c.selectMemories(mem(key), text).length === 1;
+  assert.ok(sel('AI', 'tell me about AI safety'), 'two-letter key');
+  assert.ok(sel('Go', 'I write Go every day'));
+  assert.ok(sel('C#', 'how do I do this in C#?'));
+  assert.ok(sel('UI', 'the ui looks off'));
+  assert.ok(!sel('AI', 'he said it was fine'), 'not inside other words');
+  assert.ok(!sel('Go', 'that is good'), 'Go is not good');
+  assert.ok(sel('\u4f60\u597d', '\u6211\u60f3\u8bf4\u4f60\u597d\u4e16\u754c'), 'CJK key as written');
+  assert.ok(!sel('\u4f60\u597d', '\u6211\u60f3\u8bf4\u518d\u89c1'));
+  assert.ok(sel('dog food', 'my dog is hungry'), 'long keys still match by word');
+  assert.ok(!sel('my dog', 'my cat'), 'two-letter words inside long keys do not count');
+  assert.ok(!sel('', 'anything'));
+  console.log('ok  short and CJK memory keys');
+  const s = c.migrateSettings({ prompts: [null, 5, 'x', { name: 7, schedule: 'bogus', everyN: 'z' }, { id: 'k', text: 'T', enabled: false }], snippets: [null, [], { name: 'a' }] });
+  assert.strictEqual(s.prompts.length, 2);
+  assert.strictEqual(s.prompts[0].schedule, 'first'); assert.strictEqual(s.prompts[0].name, '7'); assert.strictEqual(s.prompts[0].everyN, 5);
+  assert.strictEqual(s.prompts[1].enabled, false); assert.strictEqual(s.prompts[1].id, 'k');
+  assert.ok(s.prompts[0].id, 'ids are filled in');
+  assert.strictEqual(s.snippets.length, 1); assert.strictEqual(s.snippets[0].text, '');
+  assert.strictEqual(c.migrateSettings('junk').prompts.length, 0, 'a non-object is ignored');
+  const m = c.cleanMemories([null, 'x', { key: 5, value: null, importance: 'weird', enabled: 0 }, { key: 'a', value: 'b', importance: 'always' }]);
+  assert.strictEqual(m.length, 2);
+  assert.strictEqual(m[0].key, '5'); assert.strictEqual(m[0].value, ''); assert.strictEqual(m[0].importance, 'called'); assert.strictEqual(m[0].enabled, true);
+  assert.strictEqual(m[1].importance, 'always');
+  assert.deepStrictEqual(c.cleanMemories('nope'), []);
+  assert.ok(!('polluted' in {}), 'no prototype pollution');
+  c.cleanMemories(JSON.parse('[{"__proto__":{"polluted":1},"key":"a"}]'));
+  assert.ok(!({}).polluted, 'prototype is not polluted by a hostile backup');
+  console.log('ok  stored lists are cleaned');
+}
+

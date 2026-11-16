@@ -332,7 +332,7 @@ async function boot(stored, memories) {
     a.doc.getElementById('attach').addEventListener('click', () => (clicks += 100));
     a.type(a.ta, 'hello');
     a.key(a.ta, 'Enter');
-    await sleep(700);
+    await sleep(1900);
     assert.strictEqual(clicks, 1, 'fallback clicks send, not attach');
     console.log('ok  hidden mode fallback');
   }

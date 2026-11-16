@@ -68,8 +68,40 @@
 
   // Normalizes stored settings. Older versions had a single "systemPrompt" plus a multi-prompt switch;
   // now there is just a list, so a leftover single prompt becomes the first list entry.
+  // Lists that came from storage or a hand-edited backup: keep only real objects and coerce the fields we read.
+  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  function cleanPrompts(list) {
+    return (Array.isArray(list) ? list : []).filter(isObj).map((p) => ({
+      ...p,
+      id: p.id ? String(p.id) : newId(),
+      name: String(p.name == null ? '' : p.name),
+      text: String(p.text == null ? '' : p.text),
+      enabled: p.enabled === undefined ? true : !!p.enabled,
+      schedule: ['first', 'always', 'every'].indexOf(p.schedule) >= 0 ? p.schedule : 'first',
+      everyN: Math.max(1, parseInt(p.everyN, 10) || 5),
+    }));
+  }
+  function cleanSnippets(list) {
+    return (Array.isArray(list) ? list : []).filter(isObj).map((x) => ({
+      ...x,
+      id: x.id ? String(x.id) : newId(),
+      name: String(x.name == null ? '' : x.name),
+      text: String(x.text == null ? '' : x.text),
+    }));
+  }
+  function cleanMemories(list) {
+    return (Array.isArray(list) ? list : []).filter(isObj).map((m) => ({
+      ...m,
+      key: String(m.key == null ? '' : m.key),
+      value: String(m.value == null ? '' : m.value),
+      importance: m.importance === 'always' ? 'always' : 'called',
+      category: String(m.category == null ? '' : m.category),
+      enabled: m.enabled !== false,
+    }));
+  }
+
   function migrateSettings(raw) {
-    const s = { ...DEFAULTS, ...(raw || {}) };
+    const s = { ...DEFAULTS, ...(isObj(raw) ? raw : {}) };
     s.prompts = Array.isArray(s.prompts) ? s.prompts.slice() : [];
     s.snippets = Array.isArray(s.snippets) ? s.snippets.slice() : [];
     const legacy = String(s.systemPrompt || '');
@@ -88,6 +120,8 @@
     delete s.everyN;
     delete s.multiPrompt;
     delete s.chipsInline; // placement is automatic now: the toolbar
+    s.prompts = cleanPrompts(s.prompts);
+    s.snippets = cleanSnippets(s.snippets);
     return s;
   }
 
@@ -102,6 +136,21 @@
         .split(/[^a-z0-9\u00c0-\uffff]+/)
         .filter((t) => t.length > 2)
     );
+  }
+
+  // A note key matches a message when one of its words (3+ letters) appears in it, when a very short key
+  // ("AI", "Go", "C#") appears as a whole word, or when a key with CJK characters appears as written.
+  const CJK = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/;
+  function keyMatches(key, text, msgTokens) {
+    const k = String(key || '').trim().toLowerCase();
+    if (!k) return false;
+    for (const t of tokens(k)) if (msgTokens.has(t)) return true;
+    if (CJK.test(k)) return text.indexOf(k) !== -1;
+    if (k.length >= 2 && k.length <= 3) {
+      const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp('(^|[^a-z0-9])' + esc + '($|[^a-z0-9])').test(text);
+    }
+    return false;
   }
 
   const MEMORY_GENERAL = 'General';
@@ -122,15 +171,14 @@
   // token budget is skipped and smaller ones after it may still fit.
   function memoryPlan(memories, userText, budget) {
     const list = memories || [];
-    const msg = tokens(userText);
+    const text = String(userText || '').toLowerCase();
+    const msg = tokens(text);
     const plan = list.map(() => 'idle');
     const cands = [];
     list.forEach((m, i) => {
       if (!m || !m.key || m.enabled === false) { plan[i] = 'off'; return; }
       let match = m.importance === 'always';
-      if (!match) {
-        for (const t of tokens(m.key)) if (msg.has(t)) { match = true; break; }
-      }
+      if (!match) match = keyMatches(m.key, text, msg);
       if (match) cands.push(i);
     });
     cands.sort((a, b) => (list[a].importance === 'always' ? 0 : 1) - (list[b].importance === 'always' ? 0 : 1) || a - b);
@@ -540,7 +588,7 @@
   }
 
   const core = {
-    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
+    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, cleanPrompts, cleanSnippets, cleanMemories, keyMatches, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
     scheduleDue, applyVariables, promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens, summarize,
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,

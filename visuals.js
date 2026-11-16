@@ -7,6 +7,7 @@
   const CHART_TYPES = ['bar', 'line', 'area', 'scatter', 'pie', 'donut'];
   const MAX_SERIES = 12;
   const MAX_POINTS = 500;
+  const MAX_CHART_CHARS = 256 * 1024; // checked before JSON.parse so a huge block cannot freeze the tab
   const SVG_NS = 'http://www.w3.org/2000/svg';
 
   // ---------- chart spec
@@ -21,6 +22,7 @@
   // the object. Returns { ok: true, spec } or { ok: false, error }.
   function parseChartSpec(text) {
     let raw = String(text == null ? '' : text).trim();
+    if (raw.length > MAX_CHART_CHARS) return { ok: false, error: 'The chart is too large (over ' + (MAX_CHART_CHARS / 1024) + ' KB)' };
     raw = raw.replace(/^```[a-z]*\s*/i, '').replace(/```\s*$/, '').trim();
     let obj = null;
     const attempts = [raw, raw.replace(/,\s*([}\]])/g, '$1')];

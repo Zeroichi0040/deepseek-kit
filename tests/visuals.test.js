@@ -33,6 +33,19 @@ const spec = (o) => { const r = V.parseChartSpec(typeof o === 'string' ? o : JSO
   assert.ok(!spec({ type: 'bar', series: [{ values: new Array(501).fill(1) }] }).ok);
   ok('bad specs give a readable error');
 }
+// size cap before parsing
+{
+  const big = '{"type":"bar","labels":["a"],"series":[{"values":[1]}],"pad":"' + 'x'.repeat(300 * 1024) + '"}';
+  const orig = dom.window.JSON.parse;
+  let parsed = 0;
+  dom.window.JSON.parse = function () { parsed++; return orig.apply(this, arguments); };
+  const r = V.parseChartSpec(big);
+  dom.window.JSON.parse = orig;
+  assert.ok(!r.ok && /too large/.test(r.error), r.error);
+  assert.strictEqual(parsed, 0, 'rejected before JSON.parse ran');
+  assert.ok(V.parseChartSpec('{"type":"bar","labels":["a"],"series":[{"values":[1]}]}').ok);
+  ok('a huge chart block is rejected before it is parsed');
+}
 // shape fixes
 {
   const r = spec({ type: 'line', labels: ['a'], series: [{ values: [1, 2, 3] }, { values: [1] }] });

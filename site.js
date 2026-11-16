@@ -51,9 +51,25 @@
 
   // ----- the message box
 
-  function composer(doc) { return (doc || document).querySelector('textarea'); }
+  // The message box: of the visible textareas outside our own UI and dialogs, the lowest on screen (editing an earlier
+  // message opens another textarea higher up). With no layout (or none visible) the first one is used.
+  function composer(doc) {
+    const d = doc || document;
+    const all = Array.from(d.querySelectorAll('textarea')).filter((t) => !t.closest(OURS) && !t.closest('dialog, [role="dialog"], [aria-modal="true"]'));
+    const shown = all.filter((t) => t.getClientRects().length > 0 && t.getBoundingClientRect().width > 0);
+    const pool = shown.length ? shown : all;
+    let best = null;
+    pool.forEach((t) => { if (!best || t.getBoundingClientRect().bottom > best.getBoundingClientRect().bottom) best = t; });
+    return best;
+  }
 
-  // The last icon button near the box that is not ours or disabled: the send button.
+  const NOT_SEND = /attach|upload|file|mic|voice|record|search|think|reason|model|stop|cancel|clear|emoji/i;
+  const IS_SEND = /send|submit|\u53d1\u9001/i;
+  const nameOf = (b) => [b.getAttribute('aria-label'), b.getAttribute('title'), b.getAttribute('data-testid'), b.getAttribute('name'), b.id].filter(Boolean).join(' ');
+
+  // The send button for the message box. Candidates are the enabled icon buttons around the box that are not ours.
+  // A button named like "send" or type=submit wins; buttons named like attach, voice, search and so on are never
+  // chosen; otherwise the right-most one is taken (the send button sits at the right end of the toolbar).
   function sendButton(el) {
     let node = el;
     for (let i = 0; i < 6 && node && node.parentElement; i++) {
@@ -61,7 +77,14 @@
       const btns = Array.from(node.querySelectorAll('[role="button"], button')).filter(
         (b) => !b.closest(OURS) && b.querySelector('svg') && b.getAttribute('aria-disabled') !== 'true' && !b.disabled
       );
-      if (btns.length) return btns[btns.length - 1];
+      if (!btns.length) continue;
+      const named = btns.filter((b) => IS_SEND.test(nameOf(b)) || b.getAttribute('type') === 'submit');
+      if (named.length) return named[named.length - 1];
+      const rest = btns.filter((b) => !NOT_SEND.test(nameOf(b)));
+      if (!rest.length) continue;
+      let best = rest[rest.length - 1];
+      rest.forEach((b) => { if (b.getBoundingClientRect().right > best.getBoundingClientRect().right + 1) best = b; });
+      return best;
     }
     return null;
   }

@@ -60,6 +60,40 @@ const ok = (m) => console.log('ok  ' + m);
     assert.strictEqual(SITE.probe().codeHeaders, 0);
     ok('no header means no button');
   }
+  // composer: decoys
+  {
+    const { w, doc, SITE } = page('<div id="edit"><textarea id="e"></textarea></div><textarea id="hid"></textarea><div role="dialog"><textarea id="dlg"></textarea></div><div id="dck-drawer"><textarea id="ours"></textarea></div><div id="main"><textarea id="comp"></textarea></div>');
+    const tops = { e: 100, hid: 0, dlg: 500, ours: 700, comp: 600 };
+    const rect = (id) => ({ top: tops[id], bottom: tops[id] + 40, left: 0, right: 300, width: id === 'hid' ? 0 : 300, height: 40 });
+    w.HTMLElement.prototype.getBoundingClientRect = function () { return this.id && tops[this.id] !== undefined ? rect(this.id) : { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; };
+    w.HTMLElement.prototype.getClientRects = function () { return this.id === 'hid' ? [] : [rect(this.id || 'x')]; };
+    assert.strictEqual(SITE.composer(doc).id, 'comp', 'lowest visible textarea outside dialogs and our UI');
+    doc.getElementById('e').closest('#edit').remove();
+    assert.strictEqual(SITE.composer(doc).id, 'comp');
+    ok('composer ignores hidden, dialog, our own and edit-message textareas');
+  }
+  {
+    const { doc, SITE } = page('<textarea id="a"></textarea><textarea id="b"></textarea>');
+    assert.strictEqual(SITE.composer(doc).id, 'a', 'without layout the first textarea is used');
+    assert.strictEqual(page('').SITE.composer(), null);
+    ok('composer fallback without layout');
+  }
+  // send button choice
+  {
+    const mk = (inner) => { const p = page('<div id="bx"><textarea></textarea><div id="bar">' + inner + '</div></div>'); return { SITE: p.SITE, ta: p.doc.querySelector('textarea') }; };
+    const ic = '<svg></svg>';
+    let r = mk('<div role="button" aria-label="Voice input">' + ic + '</div><div role="button" aria-label="Attach file">' + ic + '</div><div role="button" aria-label="Send message">' + ic + '</div><div role="button" aria-label="Voice mode">' + ic + '</div>');
+    assert.strictEqual(r.SITE.sendButton(r.ta).getAttribute('aria-label'), 'Send message', 'a button named send wins over a later mic');
+    r = mk('<div role="button" id="s1">' + ic + '</div><div role="button" aria-label="Attach file">' + ic + '</div>');
+    assert.strictEqual(r.SITE.sendButton(r.ta).id, 's1', 'named attach/mic buttons are never chosen');
+    r = mk('<div role="button" aria-label="Attach">' + ic + '</div><div role="button" title="Voice">' + ic + '</div>');
+    assert.strictEqual(r.SITE.sendButton(r.ta), null, 'only non-send buttons: no guess');
+    r = mk('<div role="button" id="x1">' + ic + '</div><div role="button" id="x2">' + ic + '</div>');
+    assert.strictEqual(r.SITE.sendButton(r.ta).id, 'x2', 'unnamed buttons: the last/right-most');
+    r = mk('<div role="button" aria-label="Send" aria-disabled="true">' + ic + '</div><div role="button" id="ok">' + ic + '</div>');
+    assert.strictEqual(r.SITE.sendButton(r.ta).id, 'ok', 'disabled buttons are skipped');
+    ok('send button: named send wins, attach/mic never chosen, no guess when only those exist');
+  }
   // block language and box, also after our own header buttons were added
   {
     const { doc, SITE } = page(fx('codeblock.html') + '<div class="md-code-block"><div><span>chart</span><div><div role="button"><span>+ ZIP</span></div><div role="button"><span>Copy</span></div></div></div><pre>{}</pre></div><pre class="x"><code class="language-viz">a</code></pre>');
