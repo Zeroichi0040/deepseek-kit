@@ -5,7 +5,7 @@
   'use strict';
 
   const {
-    BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, visualsPromptText, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
+    BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, cleanMemories, visualsPromptText, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
@@ -16,6 +16,24 @@
 
   // ---------- Extension runtime ----------
   const store = chrome.storage.local;
+  // Every write goes through here so a failure (full storage, extension reloaded under an open tab) is told to you.
+  const storage = { error: '', lastToast: 0 };
+  function storageFailed(msg) {
+    storage.error = String(msg || 'unknown error');
+    if (Date.now() - storage.lastToast > 10000) {
+      storage.lastToast = Date.now();
+      toast('Could not save your changes (' + storage.error + '). If you reloaded the extension, reload this page.');
+    }
+    logEvent('Storage error: ' + storage.error);
+  }
+  function storeSet(obj) {
+    try {
+      store.set(obj, () => {
+        const e = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+        if (e) storageFailed(e.message); else storage.error = '';
+      });
+    } catch (e) { storageFailed(e && e.message); }
+  }
   // Where the Kit button lives: docked on one side edge, at a fraction of the window height.
   const FAB_DEFAULT = { side: 'right', y: 0.62 };
   let fabPos = { side: FAB_DEFAULT.side, y: FAB_DEFAULT.y };
@@ -45,7 +63,7 @@
     delete counts[path]; // re-insert so the most recent chats stay at the end
     counts[path] = n;
     counts = pruneCounts(counts, 300);
-    store.set({ dck_counts: counts });
+    storeSet({ dck_counts: counts });
   }
 
   function kitVersion() {
@@ -54,18 +72,26 @@
 
   function load() {
     return new Promise((resolve) => {
-      store.get(['dck_settings', 'dck_memories', 'dck_counts', 'dck_fab'], (r) => {
+      const done = (r) => {
+        r = r && typeof r === 'object' ? r : {};
         fabPos = cleanFab(r.dck_fab);
         settings = migrateSettings(r.dck_settings);
-        memories = Array.isArray(r.dck_memories) ? r.dck_memories : [];
+        memories = cleanMemories(r.dck_memories);
         counts = r.dck_counts && typeof r.dck_counts === 'object' && !Array.isArray(r.dck_counts) ? r.dck_counts : {};
         if (hasLegacyKeys(r.dck_settings)) save(); // write the migrated shape back once
         resolve();
-      });
+      };
+      try {
+        store.get(['dck_settings', 'dck_memories', 'dck_counts', 'dck_fab'], (r) => {
+          const e = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+          if (e) storage.error = e.message;
+          done(r);
+        });
+      } catch (e) { storage.error = String((e && e.message) || e); done({}); }
     });
   }
   function save() {
-    store.set({ dck_settings: settings, dck_memories: memories });
+    storeSet({ dck_settings: settings, dck_memories: memories });
   }
   function commit() {
     save();
@@ -84,7 +110,7 @@
       }
       lastPath = p;
     }
-    refreshAll(false);
+    if (!document.hidden) refreshAll(false); // nothing to lay out in a background tab
   }, 500);
 
   const getComposer = () => SITE.composer();
@@ -143,7 +169,19 @@
     return true;
   }
 
-  // One Enter press from you -> context attached and the message sent. Falls back to the send button, then to asking you.
+  // One Enter press from you -> context attached and the message sent. The send is confirmed by the box emptying
+  // (we wait up to 1.5 s for the site to take the Enter); only if it did not, the send button is pressed once, and
+  // then we wait again. If neither worked we ask you to press Enter. A second send is never attempted.
+  const SEND_WAIT = 1500;
+  function waitForSent(el, ms, done) {
+    const t0 = Date.now();
+    const tick = () => {
+      if (!el.isConnected || !alreadyHasContext(el.value)) { done(true); return; }
+      if (Date.now() - t0 >= ms) { done(false); return; }
+      setTimeout(tick, 100);
+    };
+    setTimeout(tick, 100);
+  }
   function triggerSend(el) {
     bypass = true;
     try {
@@ -151,12 +189,15 @@
     } finally {
       bypass = false;
     }
-    setTimeout(() => {
-      if (!alreadyHasContext(el.value)) { delete el.dataset.dckCounted; logEvent('Hidden send: message went out on Enter'); return; }
-      if (clickSend(el)) logEvent('Hidden send: used the send button');
-      else { logEvent('Hidden send failed: no send button found'); toast('Could not send automatically - press Enter to send'); }
-      setTimeout(() => { if (!alreadyHasContext(el.value)) delete el.dataset.dckCounted; }, 600);
-    }, 450);
+    waitForSent(el, SEND_WAIT, (sent) => {
+      if (sent) { delete el.dataset.dckCounted; logEvent('Hidden send: message went out on Enter'); return; }
+      if (!clickSend(el)) { logEvent('Hidden send failed: no send button found'); toast('Could not send automatically - press Enter to send'); return; }
+      logEvent('Hidden send: used the send button');
+      waitForSent(el, SEND_WAIT, (sent2) => {
+        if (sent2) delete el.dataset.dckCounted;
+        else { logEvent('Hidden send not confirmed'); toast('Could not confirm the message was sent - check it, then press Enter if needed'); }
+      });
+    });
   }
 
   // ---------- Chips above the message box + the strip in the drawer ----------
@@ -408,7 +449,7 @@
   function stripNode(node) {
     if (node.nodeType === 3) {
       const par = node.parentElement;
-      if (!par || par.closest('textarea, #dck-drawer, #dck-picker, #dck-chips, #dck-toast')) return;
+      if (!par || par.closest('textarea, #dck-drawer, #dck-picker, #dck-chips, #dck-toast, .md-code-block')) return;
       if (node.nodeValue && node.nodeValue.indexOf(MARKER_START) !== -1) {
         const v = stripContext(node.nodeValue);
         if (v !== node.nodeValue) { node.nodeValue = v; diag.stripped += 1; }
@@ -802,6 +843,7 @@
     const vOn = visOn();
     add('Widget sandbox', !vOn ? null : (vis.sandbox === 'ok' ? true : vis.sandbox === 'blocked' ? false : null), !vOn ? 'visuals are off' : vis.sandbox === 'ok' ? 'isolated frames run scripts here' : vis.sandbox === 'blocked' ? 'blocked on this page - charts still work, widgets will not' : 'checking...');
     add('Visuals on page', null, vOn ? vis.list.length + ' chart/viz block(s), ' + vis.list.filter((x) => x.rendered).length + ' drawn, ' + vis.list.filter((x) => x.error).length + ' with an error' : 'off');
+    add('Storage', storage.error ? false : null, storage.error ? 'last write failed: ' + storage.error : 'writes OK');
     add('Hidden-mode cleanup', null, hidden ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
     const toolsState = settings.codeTools === false ? 'tools off' : 'tools on';
     add('Code block headers', settings.codeTools === false || !p.codeBlocks ? null : p.codeHeaders === p.codeBlocks, p.codeBlocks + ' code block(s), ' + p.codeHeaders + ' with a Copy button found, ' + toolsState);
@@ -912,9 +954,12 @@
     const importInput = h('input', { type: 'file', accept: 'application/json', style: 'display:none', 'aria-label': 'Import file' });
     importInput.addEventListener('change', async () => {
       try {
-        const data = JSON.parse(await importInput.files[0].text());
+        const file = importInput.files[0];
+        if (file.size > 5 * 1024 * 1024) throw new Error('too large');
+        const data = JSON.parse(await file.text());
+        if (!data || typeof data !== 'object') throw new Error('not a backup');
         if (data.settings) settings = migrateSettings(data.settings);
-        if (Array.isArray(data.memories)) memories = data.memories;
+        if (Array.isArray(data.memories)) memories = cleanMemories(data.memories);
         commit(); render(); toast('Imported');
       } catch (err) { toast('Invalid file'); }
     });
@@ -1025,7 +1070,7 @@
           type: 'button', class: 'dck-btn danger',
           onclick: () => {
             if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
-            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; store.set({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
+            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
           },
         }, 'Reset all'));
     } else {
@@ -1492,7 +1537,7 @@
     fab.style.left = ''; fab.style.right = '';
   }
 
-  function saveFab() { store.set({ dck_fab: fabPos }); }
+  function saveFab() { storeSet({ dck_fab: fabPos }); }
 
   function resetFab() {
     fabPos = { side: FAB_DEFAULT.side, y: FAB_DEFAULT.y };
