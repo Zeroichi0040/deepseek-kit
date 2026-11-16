@@ -54,7 +54,7 @@ Kit adds buttons (each with a small icon) to each code block's header, next to t
 
 - **Line numbers** (Settings > Code blocks, off by default): numbers each line, with wrapped lines hanging under their number. The numbers are drawn by CSS, so selecting, copying and the site's Copy / Download are unchanged. Blocks the site renders without per-line elements are left alone.
 - **Collapse / Expand**: folds a long block down to a few lines. *Collapse long blocks* starts blocks over 20 lines collapsed; a block you expand stays open.
-- **+ ZIP**: collects blocks. A pill at the bottom of the page then offers **Download ZIP (n)** (duplicate names get -2, -3). File names come from a comment such as `// file: app.js` in the first lines, otherwise `snippet-N.ext`.
+- **+ ZIP**: collects blocks. A pill just above the right end of the message box then offers **Download ZIP (n)** (duplicate names get -2, -3). File names come from a comment such as `// file: app.js` in the first lines, otherwise `snippet-N.ext`.
 
 DeepSeek already has its own Run/preview, so Kit does not add one.
 
@@ -96,6 +96,15 @@ The extension counts the messages you send in each chat and saves the count, so 
 - Not tested against the live site. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust the finders in `site.js`; Settings > Diagnostics shows which one stopped finding its target.
 - In hidden mode the inserted block is stripped from user messages in the page. If DeepSeek renders messages in a way that splits the block across elements, it may remain visible. Chat titles generated from the first message may include part of it.
 - Using any extension on a consumer site is at your own risk, and nothing here can promise it won't affect your account.
+
+## Visuals
+
+The model can draw charts and small interactive widgets right in the chat. The built-in **Visuals** prompt (Prompts tab, on by default, first message of a chat) asks it to put them in a code block whose language is `chart` or `viz`. When the block is finished it is replaced by a card; nothing needs clicking. While the site is still writing, a small "Building..." placeholder shows.
+
+- **Charts** (`chart`): one JSON object (bar, line, area, scatter, pie, donut) drawn as SVG by the Kit itself, with hover tooltips, legend, PNG and SVG download and a full-size view. Titles and labels are always text, never markup.
+- **Widgets** (`viz`): one HTML snippet that runs in an isolated frame (`sandbox="allow-scripts"`, no same-origin access) with a strict Content-Security-Policy: no network, no external scripts, no access to the DeepSeek page. They get a small set of ready-made classes and size themselves to their content.
+- If something fails, the card says what and offers **Send error to DeepSeek**, which puts the error in your message box (it is never sent for you). **Code** shows the original block.
+- Settings > Visuals has two switches: draw the cards, and add the Visuals prompt. Settings > Diagnostics has a "Widget sandbox" row that tests whether isolated frames can run scripts on your DeepSeek page; if they cannot, charts still work and widgets will not.
 
 ## Development
 

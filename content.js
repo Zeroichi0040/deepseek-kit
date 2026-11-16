@@ -5,13 +5,14 @@
   'use strict';
 
   const {
-    BUILTIN_DEFAULT_PROMPT, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
+    BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, visualsPromptText, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
     memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
+  const VIS = globalThis.DCK_VIS;
 
   // ---------- Extension runtime ----------
   const store = chrome.storage.local;
@@ -246,6 +247,17 @@
     chips.el.style.bottom = Math.max(8, window.innerHeight - r.top + CHIP_GAP) + 'px';
   }
 
+  // The ZIP pill sits just above the message box, at its right end, so it never covers the toolbar or the chips.
+  function placeZip() {
+    const z = tools.zip;
+    if (!z || z.style.display === 'none') return;
+    const el = getComposer();
+    const r = el ? composerRect(el) : null;
+    if (!r || r.width <= 0) { z.style.right = '24px'; z.style.bottom = '24px'; return; }
+    z.style.right = Math.max(8, window.innerWidth - r.right + 4) + 'px';
+    z.style.bottom = Math.max(8, window.innerHeight - r.top + CHIP_GAP) + 'px';
+  }
+
   function refreshAll(force) {
     applyFold(); // cheap and idempotent: puts the attribute back if the site ever removes it
     const sum = currentSummary();
@@ -256,6 +268,8 @@
       renderChips(sum);
     }
     positionChips();
+    placeZip();
+    if (visOn() || vis.list.length) syncVisuals(); // also ends the wait on a block that stopped changing
     updateMemoryStatus();
   }
 
@@ -427,6 +441,7 @@
       if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
       if (settings.collapseThinking) scheduleThinkScan();
       if (settings.collapseLong) scheduleCollapseScan();
+      if (visOn() || vis.list.length) scheduleVisScan();
       if (settings.showInjected !== false) return;
       const nodes = [];
       records.forEach((r) => {
@@ -545,25 +560,34 @@
   }
 
   // ---------- Prompts tab ----------
+  // The two prompts that ship with the Kit. Each keeps its switch, text override and schedule in its own settings keys.
+  const BUILTINS = {
+    default: { name: 'Default', on: 'defaultEnabled', text: 'defaultText', sched: 'defaultSchedule', every: 'defaultEveryN', base: () => BUILTIN_DEFAULT_PROMPT, current: () => defaultPromptText(settings) },
+    visuals: { name: 'Visuals', on: 'visualsPrompt', text: 'visualsText', sched: 'visualsSchedule', every: 'visualsEveryN', base: () => VISUALS_PROMPT, current: () => visualsPromptText(settings) },
+  };
+
   function promptRow(p, builtin) {
-    const customized = builtin && (settings.defaultText || '').trim();
+    const b = builtin ? BUILTINS[builtin] : null;
+    const name = b ? b.name : (p.name || 'Untitled');
+    const customized = b && (settings[b.text] || '').trim();
     return h('div', { class: 'dck-card dck-rowcard' },
-      sw(builtin ? settings.defaultEnabled !== false : p.enabled, (v) => {
-        if (builtin) settings.defaultEnabled = v; else p.enabled = v;
+      sw(b ? settings[b.on] !== false : p.enabled, (v) => {
+        if (b) settings[b.on] = v; else p.enabled = v;
         commit();
-      }, 'Enable ' + (builtin ? 'Default' : (p.name || 'Untitled')) + ' prompt'),
+      }, 'Enable ' + name + ' prompt'),
       h('div', { class: 'dck-grow' },
-        h('div', { class: 'dck-name' }, builtin ? 'Default' : (p.name || 'Untitled'),
-          builtin ? h('span', { class: 'dck-badge' }, customized ? 'Customized' : 'Built-in') : null),
-        h('div', { class: 'dck-sub' }, builtin ? describeSchedule(settings.defaultSchedule, settings.defaultEveryN) : describeSchedule(p.schedule, p.everyN))),
-      iconBtn('edit', 'Edit ' + (builtin ? 'Default' : (p.name || 'Untitled')) + ' prompt', () => { ui.editingId = builtin ? 'default' : p.id; render(); }));
+        h('div', { class: 'dck-name' }, name,
+          b ? h('span', { class: 'dck-badge' }, customized ? 'Customized' : 'Built-in') : null),
+        h('div', { class: 'dck-sub' }, b ? describeSchedule(settings[b.sched], settings[b.every]) : describeSchedule(p.schedule, p.everyN))),
+      iconBtn('edit', 'Edit ' + name + ' prompt', () => { ui.editingId = b ? builtin : p.id; render(); }));
   }
 
   function promptEditor(p, builtin) {
-    const name = h('input', { value: builtin ? '' : (p.name || ''), placeholder: 'Name', 'aria-label': 'Prompt name', style: builtin ? 'display:none' : '' });
-    const text = h('textarea', { value: builtin ? defaultPromptText(settings) : p.text, placeholder: 'Prompt text', 'aria-label': 'Prompt text' });
-    let sched = builtin ? (settings.defaultSchedule || 'first') : (p.schedule || 'first');
-    const everyN = h('input', { type: 'number', min: 1, value: builtin ? (settings.defaultEveryN || 5) : (p.everyN || 5), 'aria-label': 'Every N messages', style: sched === 'every' ? '' : 'display:none' });
+    const b = builtin ? BUILTINS[builtin] : null;
+    const name = h('input', { value: b ? '' : (p.name || ''), placeholder: 'Name', 'aria-label': 'Prompt name', style: b ? 'display:none' : '' });
+    const text = h('textarea', { value: b ? b.current() : p.text, placeholder: 'Prompt text', 'aria-label': 'Prompt text' });
+    let sched = b ? (settings[b.sched] || 'first') : (p.schedule || 'first');
+    const everyN = h('input', { type: 'number', min: 1, value: b ? (settings[b.every] || 5) : (p.everyN || 5), 'aria-label': 'Every N messages', style: sched === 'every' ? '' : 'display:none' });
     const sel = scheduleSelect(sched, (v) => { sched = v; everyN.style.display = v === 'every' ? '' : 'none'; });
     return h('div', { class: 'dck-card dck-editor' },
       name, text, varChips(text), sel, everyN,
@@ -572,10 +596,10 @@
           type: 'button', class: 'dck-btn primary',
           onclick: () => {
             const n = Math.max(1, parseInt(everyN.value, 10) || 5);
-            if (builtin) {
-              settings.defaultText = text.value.trim() === BUILTIN_DEFAULT_PROMPT.trim() ? '' : text.value;
-              settings.defaultSchedule = sched;
-              settings.defaultEveryN = n;
+            if (b) {
+              settings[b.text] = text.value.trim() === b.base().trim() ? '' : text.value;
+              settings[b.sched] = sched;
+              settings[b.every] = n;
             } else {
               p.name = name.value.trim() || 'Untitled';
               p.text = text.value;
@@ -586,14 +610,14 @@
           },
         }, 'Save'),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { ui.editingId = null; render(); } }, 'Cancel'),
-        builtin
-          ? h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings.defaultText = ''; ui.editingId = null; commit(); render(); } }, 'Reset to built-in')
+        b
+          ? h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings[b.text] = ''; ui.editingId = null; commit(); render(); } }, 'Reset to built-in')
           : h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings.prompts = settings.prompts.filter((x) => x.id !== p.id); ui.editingId = null; commit(); render(); } }, 'Delete')));
   }
 
   function renderPrompts(body) {
     body.append(group('Built-in'));
-    body.append(ui.editingId === 'default' ? promptEditor(null, true) : promptRow(null, true));
+    Object.keys(BUILTINS).forEach((id) => body.append(ui.editingId === id ? promptEditor(null, id) : promptRow(null, id)));
     body.append(group('Yours'));
     settings.prompts.forEach((p) => body.append(ui.editingId === p.id ? promptEditor(p, false) : promptRow(p, false)));
     body.append(h('button', {
@@ -775,6 +799,9 @@
     add('Send button', p.send ? true : (hidden ? false : null), p.send ? 'found' : (hidden ? 'not found - Hidden mode cannot press send' : 'not found (only needed in Hidden mode)'));
     add('Toolbar pills', settings.showChips === false ? null : (p.pills > 0 ? true : null), p.pills + ' found (DeepThink, Search)' + (p.pills || settings.showChips === false ? '' : ' - chips will sit above the box'));
     add('Chip row', settings.showChips === false ? null : !!document.getElementById('dck-chips'), settings.showChips === false ? 'turned off' : (chips.inline ? 'in the message box toolbar' : 'above the message box (toolbar not found or box too narrow)'));
+    const vOn = visOn();
+    add('Widget sandbox', !vOn ? null : (vis.sandbox === 'ok' ? true : vis.sandbox === 'blocked' ? false : null), !vOn ? 'visuals are off' : vis.sandbox === 'ok' ? 'isolated frames run scripts here' : vis.sandbox === 'blocked' ? 'blocked on this page - charts still work, widgets will not' : 'checking...');
+    add('Visuals on page', null, vOn ? vis.list.length + ' chart/viz block(s), ' + vis.list.filter((x) => x.rendered).length + ' drawn, ' + vis.list.filter((x) => x.error).length + ' with an error' : 'off');
     add('Hidden-mode cleanup', null, hidden ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
     const toolsState = settings.codeTools === false ? 'tools off' : 'tools on';
     add('Code block headers', settings.codeTools === false || !p.codeBlocks ? null : p.codeHeaders === p.codeBlocks, p.codeBlocks + ' code block(s), ' + p.codeHeaders + ' with a Copy button found, ' + toolsState);
@@ -808,7 +835,7 @@
     diag.events.slice(-8).reverse().forEach((e) => card.append(h('div', { class: 'dck-sub dck-diagevent' }, e.t.toTimeString().slice(0, 8) + '  ' + e.msg)));
     body.append(card);
     body.append(h('div', { class: 'dck-two' },
-      h('button', { type: 'button', class: 'dck-btn', onclick: () => render() }, 'Refresh'),
+      h('button', { type: 'button', class: 'dck-btn', onclick: () => { render(); if (visOn()) runSandboxProbe().then(() => render()); } }, 'Refresh'),
       h('button', {
         type: 'button', class: 'dck-btn',
         onclick: () => {
@@ -861,6 +888,15 @@
         settings.collapseLong = v;
         if (v) scheduleCollapseScan(); else { document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false)); syncAll(); }
         commit();
+      }));
+    }));
+
+    body.append(accordion('visuals', 'Visuals', settings.visualsEnabled === false ? 'Off' : 'Charts and widgets drawn in the chat', (box) => {
+      box.append(settingRow('Draw charts and widgets', 'Turns chart and viz code blocks into inline cards. Nothing leaves the page', settings.visualsEnabled !== false, (v) => {
+        settings.visualsEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
+      }));
+      box.append(settingRow('Ask the model for visuals', 'Adds the short built-in Visuals prompt (edit it in the Prompts tab)', settings.visualsPrompt !== false, (v) => {
+        settings.visualsPrompt = v; commit(); liveSig = ''; refreshAll(true);
       }));
     }));
 
@@ -1098,6 +1134,7 @@
     tools.zip.append(
       h('button', { type: 'button', class: 'dck-cbtn primary', onclick: basketZip }, 'Download ZIP (' + n + ')'),
       h('button', { type: 'button', class: 'dck-cbtn', 'aria-label': 'Clear collected blocks', onclick: () => { tools.basket = []; updateZipChip(); syncAll(); } }, 'Clear'));
+    placeZip();
   }
 
   function toggleBasket(pre) {
@@ -1226,6 +1263,221 @@
     if (changed) syncAll();
   });
 
+  // ---------- Visuals: charts and widgets drawn inline from ```chart and ```viz code blocks ----------
+  // The model is asked (see the built-in Visuals prompt) to put a chart spec or a small HTML widget in a code block
+  // with the language chart or viz. When the block is finished it is hidden and a card is drawn right after it.
+  // Charts are plain SVG built by visuals.js. Widgets run in a sandboxed iframe with no network (see visuals.js).
+  const vis = { list: [], sandbox: null, seq: 0, dark: null };
+  const VIS_LANGS = { chart: 'chart', viz: 'viz', widget: 'viz' };
+  const VIS_SETTLE = 700; // ms a block must stay unchanged before it counts as finished
+
+  function pageIsDark() {
+    for (const el of [document.body, document.documentElement]) {
+      if (!el) continue;
+      const m = getComputedStyle(el).backgroundColor.match(/rgba?\(([^)]+)\)/);
+      if (!m) continue;
+      const p = m[1].split(',').map((x) => parseFloat(x));
+      if (p.length > 3 && p[3] < 0.5) continue;
+      return (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) / 255 < 0.5;
+    }
+    return !!(window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+
+  function visTheme(dark) {
+    return dark
+      ? { dark: true, text: '#eceef0', muted: '#9aa1a8', border: '#2c3035', surface: '#202327', accent: '#4d6bfe' }
+      : { dark: false, text: '#15171a', muted: '#5b636b', border: '#e1e4e7', surface: '#f6f7f8', accent: '#3b57e6' };
+  }
+
+  function visOn() { return !!(settings.enabled && settings.visualsEnabled !== false); }
+
+  function visError(st, message) {
+    st.error = message;
+    renderVisStatus(st);
+  }
+
+  function sendVisError(st) {
+    const el = getComposer();
+    if (!el) { toast('Message box not found'); return; }
+    const kind = st.kind === 'chart' ? 'chart' : 'interactive visual';
+    const msg = 'The ' + kind + ' you made did not work: ' + (st.error || 'unknown error') + '\nPlease fix it and reply with the corrected ```' + st.kind + ' block.';
+    setNativeValue(el, el.value && el.value.trim() ? el.value.replace(/\s+$/, '') + '\n\n' + msg : msg);
+    el.focus();
+    toast('Error added to your message');
+    logEvent('Visual error sent to the message box');
+  }
+
+  function renderVisStatus(st) {
+    st.status.textContent = '';
+    if (!st.error) { st.status.style.display = 'none'; return; }
+    st.status.style.display = '';
+    st.status.append(
+      h('span', { class: 'dck-viserr-text' }, 'This visual hit a problem: ' + st.error),
+      h('button', { type: 'button', class: 'dck-vbtn', onclick: () => sendVisError(st) }, 'Send error to DeepSeek'),
+      h('button', { type: 'button', class: 'dck-vbtn', onclick: () => toggleVisCode(st, true) }, 'Show code'));
+  }
+
+  function toggleVisCode(st, on) {
+    st.showCode = on === undefined ? !st.showCode : on;
+    if (st.showCode) st.box.setAttribute('data-dck-vis-open', ''); else st.box.removeAttribute('data-dck-vis-open');
+    st.codeBtn.textContent = st.showCode ? 'Hide code' : 'Code';
+  }
+
+  function openVisFull(st) {
+    const overlay = h('div', { class: 'dck-visfull', 'data-theme': st.card.getAttribute('data-theme') },
+      h('div', { class: 'dck-visfull-bar' }, h('span', {}, st.kind === 'chart' ? 'Chart' : 'Interactive visual'), h('button', { type: 'button', class: 'dck-vbtn', 'aria-label': 'Close', onclick: () => overlay.remove() }, 'Close')));
+    const body = h('div', { class: 'dck-visfull-body' });
+    if (st.kind === 'chart' && st.spec) {
+      body.append(VIS.buildChart(document, st.spec).el);
+    } else if (st.kind === 'viz') {
+      body.append(h('iframe', { sandbox: 'allow-scripts', title: 'Interactive visual', srcdoc: VIS.buildWidgetDocument(st.text, visTheme(vis.dark), 'full'), style: 'width:100%;height:100%;border:0;display:block;color-scheme:' + (vis.dark ? 'dark' : 'light') }));
+    }
+    overlay.append(body);
+    overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') overlay.remove(); });
+    overlay.setAttribute('tabindex', '-1');
+    document.body.append(overlay);
+    overlay.focus();
+  }
+
+  function downloadChart(st, kind) {
+    const svg = st.card.querySelector('svg.dck-csvg');
+    if (!svg) return;
+    const str = VIS.svgToString(svg, st.card);
+    const base = (st.spec && st.spec.title ? st.spec.title : 'chart').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'chart';
+    if (kind === 'svg') { saveFile(base + '.svg', str, 'image/svg+xml'); return; }
+    const vb = svg.viewBox.baseVal;
+    const scale = 2;
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = vb.width * scale; c.height = vb.height * scale;
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob((b) => { if (b) saveFile(base + '.png', b, 'image/png'); else toast('Could not make the image'); }, 'image/png');
+    };
+    img.onerror = () => toast('Could not make the image');
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(str.replace('<svg ', '<svg width="' + vb.width + '" height="' + vb.height + '" '));
+  }
+
+  function makeVisCard(pre, box, kind) {
+    const st = { pre, box, kind, text: '', changed: Date.now(), rendered: '', showCode: false, error: '', spec: null, id: 'v' + (++vis.seq) + Math.random().toString(36).slice(2, 8), iframe: null };
+    st.body = h('div', { class: 'dck-visbody' });
+    st.status = h('div', { class: 'dck-viserr', style: 'display:none' });
+    st.codeBtn = h('button', { type: 'button', class: 'dck-vbtn', onclick: () => toggleVisCode(st) }, 'Code');
+    st.actions = h('div', { class: 'dck-visactions' });
+    st.card = h('div', { class: 'dck-vis', 'data-kind': kind, 'data-theme': vis.dark ? 'dark' : 'light' },
+      h('div', { class: 'dck-visbar' }, h('span', { class: 'dck-vislabel' }, kind === 'chart' ? 'Chart' : 'Interactive'), st.actions),
+      st.body, st.status);
+    return st;
+  }
+
+  function fillVisActions(st) {
+    st.actions.textContent = '';
+    if (st.kind === 'chart' && st.spec) {
+      st.actions.append(
+        h('button', { type: 'button', class: 'dck-vbtn', onclick: () => downloadChart(st, 'png') }, 'PNG'),
+        h('button', { type: 'button', class: 'dck-vbtn', onclick: () => downloadChart(st, 'svg') }, 'SVG'));
+    }
+    if (!st.error || st.rendered) st.actions.append(h('button', { type: 'button', class: 'dck-vbtn', onclick: () => openVisFull(st) }, 'Full size'));
+    st.actions.append(st.codeBtn);
+  }
+
+  function showVisPlaceholder(st) {
+    if (st.shown === 'ph') return;
+    st.shown = 'ph';
+    st.body.textContent = '';
+    st.error = ''; renderVisStatus(st);
+    st.body.append(h('div', { class: 'dck-visph' }, h('span', { class: 'dck-visph-dot' }), st.kind === 'chart' ? 'Building chart...' : 'Building interactive visual...'));
+    st.actions.textContent = '';
+    st.rendered = '';
+  }
+
+  function renderVisCard(st) {
+    const key = st.text + '|' + (vis.dark ? 'd' : 'l');
+    if (st.rendered === key) return;
+    st.rendered = key;
+    st.shown = 'done';
+    st.error = '';
+    st.body.textContent = '';
+    st.spec = null;
+    st.iframe = null;
+    if (st.kind === 'chart') {
+      const r = VIS.parseChartSpec(st.text);
+      if (!r.ok) { st.body.append(h('div', { class: 'dck-visph' }, 'This chart could not be drawn.')); visError(st, r.error); fillVisActions(st); return; }
+      st.spec = r.spec;
+      st.body.append(VIS.buildChart(document, r.spec).el);
+    } else {
+      const frame = h('iframe', { sandbox: 'allow-scripts', referrerpolicy: 'no-referrer', title: 'Interactive visual', class: 'dck-visframe', style: 'height:150px;color-scheme:' + (vis.dark ? 'dark' : 'light') });
+      frame.srcdoc = VIS.buildWidgetDocument(st.text, visTheme(vis.dark), st.id);
+      st.iframe = frame;
+      st.body.append(frame);
+    }
+    renderVisStatus(st);
+    fillVisActions(st);
+  }
+
+  function dropVisCard(st) {
+    st.card.remove();
+    st.box.removeAttribute('data-dck-vis-src');
+    st.box.removeAttribute('data-dck-vis-open');
+  }
+
+  function syncVisuals() {
+    const on = visOn();
+    const dark = pageIsDark();
+    const flipped = dark !== vis.dark;
+    vis.dark = dark;
+    if (!on) { vis.list.forEach(dropVisCard); vis.list = []; return; }
+    vis.list = vis.list.filter((st) => { if (st.pre.isConnected && st.box.isConnected) return true; st.card.remove(); return false; });
+    const now = Date.now();
+    SITE.codeBlocks().forEach((pre) => {
+      const kind = VIS_LANGS[SITE.blockLang(pre)];
+      let st = vis.list.find((x) => x.pre === pre);
+      if (!kind) { if (st) { dropVisCard(st); vis.list = vis.list.filter((x) => x !== st); } return; }
+      const box = SITE.blockBox(pre);
+      if (!st) { st = makeVisCard(pre, box, kind); vis.list.push(st); }
+      if (!st.card.isConnected || st.card.previousElementSibling !== box) box.after(st.card);
+      if (!box.hasAttribute('data-dck-vis-src')) box.setAttribute('data-dck-vis-src', '');
+      if (flipped) st.card.setAttribute('data-theme', dark ? 'dark' : 'light');
+      const text = (pre.textContent || '').replace(/\n$/, '');
+      if (text !== st.text) { st.text = text; st.changed = now; }
+      const busy = SITE.blockBusy(pre) || now - st.changed < VIS_SETTLE || !text.trim();
+      if (busy) showVisPlaceholder(st); else renderVisCard(st);
+    });
+  }
+  const scheduleVisScan = SITE.oncePerFrame(syncVisuals);
+
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (!d || typeof d !== 'object' || typeof d.type !== 'string' || !d.type.startsWith('DCK_VIS_')) return;
+    const st = vis.list.find((x) => x.iframe && x.iframe.contentWindow === e.source && x.id === d.id);
+    if (!st) return;
+    if (d.type === 'DCK_VIS_HEIGHT' && typeof d.height === 'number') {
+      st.iframe.style.height = Math.max(60, Math.min(900, Math.round(d.height))) + 'px';
+    } else if (d.type === 'DCK_VIS_ERROR') {
+      st.error = String(d.message || 'Script error').slice(0, 300);
+      renderVisStatus(st);
+      logEvent('Visual error: ' + st.error.slice(0, 80));
+    }
+  });
+
+  // Can a locked-down iframe run its scripts on this page at all? Its result shows in Diagnostics.
+  function runSandboxProbe() {
+    return new Promise((resolve) => {
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.style.cssText = 'position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none';
+      frame.setAttribute('aria-hidden', 'true');
+      let done = false;
+      const finish = (v) => { if (done) return; done = true; window.removeEventListener('message', onMsg); frame.remove(); vis.sandbox = v; resolve(v); };
+      const onMsg = (e) => { if (e.source === frame.contentWindow && e.data && e.data.type === 'DCK_VIS_PROBE') finish('ok'); };
+      window.addEventListener('message', onMsg);
+      frame.srcdoc = VIS.buildWidgetDocument('<script>parent.postMessage({type:"DCK_VIS_PROBE"},"*")<\/script>', visTheme(true), 'probe');
+      document.body.append(frame);
+      setTimeout(() => finish('blocked'), 1500);
+    });
+  }
+
+
   // ---------- Draggable Kit button ----------
   const fabDrag = { active: false, moved: false, startX: 0, startY: 0, dx: 0, dy: 0 };
 
@@ -1295,6 +1547,8 @@
     render();
     startObserver();
     syncAll();
+    syncVisuals();
+    setTimeout(() => { if (visOn()) runSandboxProbe(); }, 1500);
     initThinkTracker();
     applyFold();
     if (settings.collapseLong) scheduleCollapseScan();

@@ -17,6 +17,13 @@
     '- Reply in the language the user writes in.',
   ].join('\n');
 
+  const VISUALS_PROMPT = [
+    'When a chart or an interactive demo would explain something better than text, put it in a fenced code block whose language is chart or viz. The chat draws it automatically, so do not also describe the code.',
+    '- chart: one JSON object: {"type":"bar|line|area|scatter|pie|donut","title":"...","subtitle":"one-line takeaway","labels":["Jan","Feb"],"series":[{"name":"Calls","values":[12,19]}],"xTitle":"","yTitle":"","unit":"","stacked":false}. For scatter, give series[].points as [[x,y],...] and no labels. Use only numbers you were given or actually know; never invent data.',
+    '- viz: one self-contained HTML snippet (HTML, CSS and JS together) for simulations, calculators and interactive diagrams. It runs in an isolated frame with no network: no external scripts, fonts, images or libraries. Ready-made classes: v-card, v-title, v-btn, v-btn-outline, v-row, v-control-group, v-label, v-stat; buttons, sliders, inputs and selects are already styled. Keep the background transparent so it reads on dark and light pages, never size anything with vh, and keep it simple.',
+    '- Use ordinary markdown for anything else, and do not make a visual when plain text answers the question.',
+  ].join('\n');
+
   const DEFAULTS = {
     enabled: true,
     showInjected: true, // false = attach context automatically and hide it in the chat
@@ -36,6 +43,11 @@
     lineNumbers: false, // number the lines of code blocks (CSS counters, never part of copied text)
     collapseLong: false, // collapse long code blocks automatically
     collapseLines: 20, // blocks longer than this many lines count as long
+    visualsEnabled: true, // draw chart and viz code blocks as inline cards
+    visualsPrompt: true, // built-in "Visuals" prompt that teaches the model the two formats
+    visualsText: '', // '' = use the built-in text
+    visualsSchedule: 'first',
+    visualsEveryN: 5,
   };
 
   const VARIABLES = [
@@ -208,11 +220,18 @@
     return (settings.defaultText || '').trim() ? settings.defaultText : BUILTIN_DEFAULT_PROMPT;
   }
 
-  // Every prompt that may take part: the built-in default, then your own list.
+  function visualsPromptText(settings) {
+    return (settings.visualsText || '').trim() ? settings.visualsText : VISUALS_PROMPT;
+  }
+
+  // Every prompt that may take part: the built-in default and Visuals prompts, then your own list.
   function promptEntries(settings) {
     const list = [];
     if (settings.defaultEnabled !== false) {
       list.push({ id: 'default', name: 'Default', text: defaultPromptText(settings), enabled: true, schedule: settings.defaultSchedule || 'first', everyN: settings.defaultEveryN || 5 });
+    }
+    if (settings.visualsPrompt !== false && settings.visualsEnabled !== false) {
+      list.push({ id: 'visuals', name: 'Visuals', text: visualsPromptText(settings), enabled: true, schedule: settings.visualsSchedule || 'first', everyN: settings.visualsEveryN || 5 });
     }
     (settings.prompts || []).forEach((p) => { if (p) list.push(p); });
     return list;
@@ -521,7 +540,7 @@
   }
 
   const core = {
-    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
+    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
     scheduleDue, applyVariables, promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens, summarize,
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,

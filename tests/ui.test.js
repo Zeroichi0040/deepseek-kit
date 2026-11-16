@@ -6,6 +6,7 @@ const ROOT = require('path').join(__dirname, '..');
 const read = (f) => fs.readFileSync(require('path').join(ROOT, f), 'utf8');
 const src = read('content.js');
 const site = read('site.js');
+const visSrc = read('visuals.js');
 const lib = read('lib.js');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -27,6 +28,7 @@ async function boot(stored, memories) {
   w.confirm = () => true;
   w.eval(lib);
   w.eval(site);
+  w.eval(visSrc);
   w.eval(src);
   await sleep(60);
   const doc = w.document;

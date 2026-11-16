@@ -60,6 +60,19 @@ const ok = (m) => console.log('ok  ' + m);
     assert.strictEqual(SITE.probe().codeHeaders, 0);
     ok('no header means no button');
   }
+  // block language and box, also after our own header buttons were added
+  {
+    const { doc, SITE } = page(fx('codeblock.html') + '<div class="md-code-block"><div><span>chart</span><div><div role="button"><span>+ ZIP</span></div><div role="button"><span>Copy</span></div></div></div><pre>{}</pre></div><pre class="x"><code class="language-viz">a</code></pre>');
+    const pres = SITE.codeBlocks();
+    assert.strictEqual(SITE.blockLang(pres[0]), 'python');
+    assert.strictEqual(SITE.blockLang(pres[1]), 'chart', 'label is read from its own text node');
+    assert.strictEqual(SITE.blockLang(pres[2]), 'viz', 'code class wins');
+    assert.strictEqual(SITE.blockBox(pres[0]), pres[0].parentElement);
+    assert.strictEqual(SITE.blockBusy(pres[0]), false);
+    pres[0].parentElement.querySelector('[role=button]').setAttribute('aria-disabled', 'true');
+    assert.strictEqual(SITE.blockBusy(pres[0]), true, 'a disabled Copy button means the site is still writing');
+    ok('block language, box and busy state');
+  }
   // text helpers
   {
     const { doc, SITE } = page('<div id="r"><b role="button"><i> Hello </i><u>x</u></b></div>');

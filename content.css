@@ -194,7 +194,7 @@ pre[data-dck-collapsed] {
 .dck-accbody .dck-diag { padding-top: 8px; }
 
 /* zip basket chip */
-#dck-zipchip { position: fixed; z-index: 2147482600; left: 50%; bottom: 24px; transform: translateX(-50%); display: none; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--k-line); background: var(--k-pop); box-shadow: 0 6px 24px rgba(0,0,0,.35); font: 13px/1 system-ui, sans-serif; }
+#dck-zipchip { position: fixed; z-index: 2147482600; right: 24px; bottom: 24px; display: none; gap: 4px; padding: 4px; border-radius: 12px; border: 1px solid var(--k-line); background: var(--k-pop); box-shadow: 0 6px 24px rgba(0,0,0,.35); font: 13px/1 system-ui, sans-serif; }
 #dck-zipchip .dck-cbtn { height: 30px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; color: var(--k-text); font: inherit; cursor: pointer; }
 #dck-zipchip .dck-cbtn.primary { background: var(--k-accent); color: #fff; }
 
@@ -222,3 +222,57 @@ pre[data-dck-lines] > span::before {
    spacer divs stay (that is all a block the site has closed consists of) and every other child (thinking text, "Found N
    web pages", "Read N pages") is hidden. Clicking the header adds .dck-open, which shows the block again. */
 html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-content):not(.dck-open) > :not(:first-child):not(:empty) { display: none !important; }
+
+/* ---------- visuals: chart and widget cards ---------- */
+.dck-vis, .dck-visfull {
+  --v-bg: #151517; --v-text: #eceef0; --v-muted: #9aa1a8; --v-border: #2c3035; --v-grid: #262a2e; --v-axis: #3a3f45; --v-surface: #1b1d1f;
+  --v-c1: #4d6bfe; --v-c2: #f59e0b; --v-c3: #22b07d; --v-c4: #e5589a; --v-c5: #9b6bff; --v-c6: #2bb5c8;
+}
+.dck-vis {
+  position: relative; margin: 12px 0; border: 1px solid var(--v-border); border-radius: 14px; background: transparent; color: var(--v-text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden;
+}
+.dck-vis[data-theme="light"], .dck-visfull[data-theme="light"] {
+  --v-bg: #ffffff; --v-text: #15171a; --v-muted: #5b636b; --v-border: #e1e4e7; --v-grid: #eceef0; --v-axis: #c9ced3; --v-surface: #f6f7f8;
+  --v-c1: #3b57e6; --v-c2: #d97706; --v-c3: #168a5f; --v-c4: #c93b82; --v-c5: #7c4dff; --v-c6: #1a93a6;
+}
+.dck-visbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px 0 16px; min-height: 24px; }
+.dck-vislabel { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--v-muted); }
+.dck-visactions { display: flex; gap: 4px; opacity: .55; transition: opacity .15s; }
+.dck-vis:hover .dck-visactions, .dck-vis:focus-within .dck-visactions { opacity: 1; }
+.dck-vbtn { border: 0; background: transparent; color: var(--v-muted); font: inherit; font-size: 12px; padding: 3px 8px; border-radius: 6px; cursor: pointer; }
+.dck-vbtn:hover { background: rgba(128,128,128,.16); color: var(--v-text); }
+.dck-visbody { padding: 4px 16px 14px; }
+.dck-visframe { width: 100%; border: 0; display: block; background: transparent; }
+.dck-visph { display: flex; align-items: center; gap: 10px; min-height: 96px; color: var(--v-muted); font-size: 13px; }
+.dck-visph-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--v-c1); animation: dck-pulse 1.2s ease-in-out infinite; }
+@keyframes dck-pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dck-visph-dot { animation: none; } }
+.dck-viserr { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--v-border); background: var(--v-surface); font-size: 12.5px; }
+.dck-viserr-text { flex: 1 1 200px; color: var(--v-text); }
+.dck-chart { color: var(--v-text); }
+.dck-ctitle { font-size: 16px; font-weight: 600; margin: 2px 0 2px; }
+.dck-csub { font-size: 13px; color: var(--v-muted); margin-bottom: 8px; }
+.dck-cwrap { position: relative; }
+.dck-csvg { display: block; width: 100%; height: auto; }
+.dck-grid { stroke: var(--v-grid); stroke-width: 1; }
+.dck-axis { stroke: var(--v-axis); stroke-width: 1; }
+.dck-tick { fill: var(--v-muted); font-size: 11px; font-family: inherit; }
+.dck-atitle { fill: var(--v-muted); font-size: 11px; font-family: inherit; }
+.dck-hole { fill: var(--v-bg); }
+.dck-slice, .dck-dot { stroke: var(--v-bg); stroke-width: 1.5; }
+.dck-slice:hover, .dck-dot:hover { filter: brightness(1.15); }
+.dck-hit:hover { fill: rgba(128,128,128,.12); }
+.dck-tip { position: absolute; z-index: 2; pointer-events: none; padding: 6px 9px; border-radius: 8px; background: var(--v-surface); border: 1px solid var(--v-border); color: var(--v-text); font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.3); white-space: nowrap; }
+.dck-tiphead { font-weight: 600; margin-bottom: 2px; }
+.dck-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 6px; font-size: 12.5px; color: var(--v-muted); }
+.dck-legitem { display: inline-flex; align-items: center; gap: 6px; }
+.dck-swatch { width: 10px; height: 10px; border-radius: 3px; }
+/* the code block a card replaces stays in the page (the site owns it) but is not shown, unless you ask for it */
+[data-dck-vis-src]:not([data-dck-vis-open]) { display: none !important; }
+.dck-visfull { position: fixed; inset: 0; z-index: 2147482800; display: flex; flex-direction: column; background: #151517; color: #eceef0; outline: none; }
+.dck-visfull[data-theme="light"] { background: #ffffff; color: #15171a; }
+.dck-visfull-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid rgba(128,128,128,.3); font: 600 14px system-ui, sans-serif; }
+.dck-visfull .dck-vbtn { color: inherit; }
+.dck-visfull-body { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.dck-visfull-body .dck-chart { max-width: 1100px; margin: 0 auto; }
