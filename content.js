@@ -450,6 +450,8 @@
     if (node.nodeType === 3) {
       const par = node.parentElement;
       if (!par || par.closest('textarea, #dck-drawer, #dck-picker, #dck-chips, #dck-toast, .md-code-block, [class*="textarea__mirror"]')) return;
+      // the site's hidden measuring copy of a box sits right next to its textarea (its class name varies): leave it alone
+      if (par.parentElement && par.parentElement.querySelector(':scope > textarea')) return;
       if (node.nodeValue && node.nodeValue.indexOf(MARKER_START) !== -1) {
         const v = stripContext(node.nodeValue);
         if (v !== node.nodeValue) { node.nodeValue = v; diag.stripped += 1; }
