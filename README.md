@@ -28,11 +28,7 @@ The panel has four tabs, with the controls you use most pinned above and below t
 
 **Snippets**: reusable text. Search them here, or type `/` in the message box to open the picker (keep typing to filter, Up/Down to move, Enter or Tab to insert, Esc to close). Variable chips insert `{{date}}` and friends at the cursor. A new install starts with six: `/summarize`, `/explain`, `/fix`, `/steps`, `/translate` and `/handoff`. `/handoff` asks the model to write one markdown block that carries the conversation into a new chat: send it, press Copy on the block, and paste it into the new chat.
 
-**Settings**: grouped into sections that open one at a time: Messages, Code blocks, Variables, Diagnostics and Backup, with Reset all pinned at the bottom.
-
-**Diagnostics** shows a one-line verdict and lists only the checks that failed. *All checks* and *Recent events* open on request, and **Copy report** copies the full text report (it never includes message text), which is what to paste when reporting a problem.
-
-**Backup** has three parts: *Everything (.json)* exports or imports all your settings, notes and snippets; *Items (.md)* works with readable Markdown files (see below); *Starters* adds any starter snippets and the name note you do not have yet, without touching your own.
+**Settings**: grouped into sections that open one at a time: Messages, Code blocks, Variables, Diagnostics and Backup (export/import, and **Starter content**, which adds any starter snippets and the name note you do not have yet without touching your own), with Reset all pinned at the bottom.
 
 **Pinned footer** (Prompts and Memory): **Insert now** adds the context to your message immediately, ignoring schedules. **Preview** shows exactly what would be added.
 
@@ -82,26 +78,6 @@ Usable in prompts, memory values and snippets:
 | `{{selection}}` | text you have selected on the page |
 
 Unknown `{{names}}` are left as typed.
-
-## Items as .md files
-
-Each prompt you wrote, note and snippet can be saved as a small Markdown file and shared or imported again. Use the download icon on an item's row to export just that one, or **Settings > Backup > Items (.md) > Export all** for everything in one file. **Import .md** (at the bottom of the Prompts and Memory tabs, next to New snippet, and in Backup) takes one or several files.
-
-A file looks like this, and one file may hold several items one after another:
-
-```
----
-type: snippet
-name: summarize
----
-Summarize the following in 5 bullet points or fewer:
-
-{{selection}}
-```
-
-- `type` is `snippet`, `memory` (or `note`) or `prompt`. Notes also use `key`, `importance` (`always` or `called`), `category` and `enabled`; prompts use `name`, `schedule` (`first`, `always` or `every`), `every` (a number) and `enabled`. Anything else in the header is ignored.
-- Importing never changes anything until you press a button in the **preview**, which lists what is new, what you already have (same name, ignoring capitals), what is repeated and what cannot be used. **Add** adds only the new ones. **Replace** is a separate button, and it keeps the item's place and id.
-- Files are treated as untrusted text: limits are 20 files of up to 256 KB at once, 200 items, and 20,000 characters per item, and nothing in a file is ever run or shown as markup. The built-in Default and Visuals prompts are not exported this way.
 
 ## New installs and upgrades
 
