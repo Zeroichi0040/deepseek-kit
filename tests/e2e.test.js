@@ -355,6 +355,90 @@ async function mirror() {
   await ctx.close();
 }
 
+// ---------- Markdown preview
+async function mdPreview() {
+  const MDTEXT = '# Project Notes\n\nThis is **important**.\n\n- First item\n- Second item\n\n---\n\n1. First step\n2. Second step\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```js\nlet x = 1;\n```';
+  const HOSTILE = '<script>window.__pwn=1</script>\n\n<img src="https://evil.example/a.png" onerror="window.__pwn=2">\n\n[click](javascript:window.__pwn=3)\n\n![pixel](https://evil.example/p.png)\n\n[ok](https://example.com/page)';
+  const ctx = await launch(1000, 900);
+  const reqs = new Set();
+  const p = await open(ctx, visPage(fence('markdown', MDTEXT) + '<p id="gap">between</p>' + fence('js', 'a = 1') + fence('md', HOSTILE) + fence('markdown', '# Streaming', true)));
+  p.on('request', (r) => { try { reqs.add(new URL(r.url()).host); } catch (e) { /* ignore */ } });
+  await p.waitForSelector('[data-dck-act]');
+  const blocks = () => p.locator('.md-code-block');
+  const hasBtn = (i, label) => blocks().nth(i).locator('[data-dck-act="preview"]:has-text("' + label + '")').count();
+  assert.strictEqual(await hasBtn(0, 'Preview'), 1, 'a markdown block offers Preview');
+  assert.strictEqual(await blocks().nth(1).locator('[data-dck-act="preview"]').count(), 0, 'a js block does not');
+  assert.strictEqual(await hasBtn(2, 'Preview'), 1, 'md is the same as markdown');
+  assert.strictEqual(await blocks().nth(3).locator('[data-dck-act="preview"]').count(), 0, 'no Preview while the block is still being written');
+  ok('Preview is offered on finished markdown blocks only');
+
+  const sourceBefore = await p.evaluate(() => document.querySelectorAll('.md-code-block pre')[0].textContent);
+  await blocks().nth(0).locator('[data-dck-act="preview"]').click();
+  await p.waitForSelector('.md-code-block .dck-mdprev h1');
+  const v = await p.evaluate(() => {
+    const box = document.querySelector('.md-code-block');
+    const prev = box.querySelector(':scope > .dck-mdprev');
+    const src = box.querySelector(':scope > pre');
+    return {
+      h1: prev.querySelector('h1').textContent, strong: prev.querySelector('strong').textContent,
+      ul: prev.querySelectorAll('ul li').length, ol: prev.querySelectorAll('ol li').length, hr: prev.querySelectorAll('hr').length,
+      td: prev.querySelectorAll('td').length, code: prev.querySelector('pre code').textContent,
+      srcHidden: getComputedStyle(src).display === 'none', prevShown: getComputedStyle(prev).display !== 'none',
+      innerHeaderButtons: prev.querySelectorAll('[data-dck-act]').length, innerNumbered: prev.querySelectorAll('pre[data-dck-lines]').length,
+      headerStill: !!box.querySelector('.md-code-block-banner-wrap'),
+    };
+  });
+  assert.deepStrictEqual(v, { h1: 'Project Notes', strong: 'important', ul: 2, ol: 2, hr: 1, td: 2, code: 'let x = 1;', srcHidden: true, prevShown: true, innerHeaderButtons: 0, innerNumbered: 0, headerStill: true });
+  assert.strictEqual(await hasBtn(0, 'Source'), 1, 'the button now says Source');
+  assert.strictEqual(await blocks().nth(0).locator('[data-dck-act="collapse"]').count(), 0, 'no Collapse while previewing');
+  ok('Preview draws the rendered markdown and hides the source (header and its code blocks left alone)');
+
+  await blocks().nth(0).locator('[data-dck-act="preview"]').click();
+  await p.waitForTimeout(200);
+  const back = await p.evaluate(() => ({ prev: document.querySelectorAll('.dck-mdprev').length, shown: getComputedStyle(document.querySelector('.md-code-block pre')).display !== 'none', text: document.querySelectorAll('.md-code-block pre')[0].textContent, flag: document.querySelector('.md-code-block').hasAttribute('data-dck-prev') }));
+  assert.deepStrictEqual({ prev: back.prev, shown: back.shown, flag: back.flag }, { prev: 0, shown: true, flag: false });
+  assert.strictEqual(back.text, sourceBefore, 'the original source text is never changed');
+  assert.strictEqual(await hasBtn(0, 'Preview'), 1);
+  ok('Source switches back; the original text is untouched');
+
+  // hostile markdown
+  await blocks().nth(2).locator('[data-dck-act="preview"]').click();
+  await p.waitForSelector('.md-code-block:nth-of-type(3) .dck-mdprev, .dck-mdprev');
+  await p.waitForTimeout(300);
+  const h = await p.evaluate(() => {
+    const prev = Array.from(document.querySelectorAll('.dck-mdprev')).pop();
+    return { active: prev.querySelectorAll('script, img, iframe, svg, object, embed').length, handlers: Array.from(prev.querySelectorAll('*')).filter((e) => Array.from(e.attributes).some((a) => /^on/i.test(a.name))).length,
+      hrefs: Array.from(prev.querySelectorAll('a')).map((a) => a.getAttribute('href')), text: prev.textContent, pwn: window.__pwn || 0 };
+  });
+  assert.deepStrictEqual({ active: h.active, handlers: h.handlers, hrefs: h.hrefs, pwn: h.pwn }, { active: 0, handlers: 0, hrefs: ['https://example.com/page'], pwn: 0 });
+  assert.ok(h.text.indexOf('<script>') >= 0 && h.text.indexOf('[image: pixel]') >= 0, 'markup shown as text, image shown as a label');
+  assert.ok(!reqs.has('evil.example'), 'no request was made for the image or anything else in the source');
+  ok('hostile markdown: nothing runs, no image is fetched, only the safe link remains');
+
+  // streaming: no Preview while writing, appears when finished; an open preview follows the text
+  await p.evaluate(() => document.querySelectorAll('.md-code-block')[3].querySelectorAll('div[role=button]:not([data-dck-act])').forEach((n) => { n.removeAttribute('aria-disabled'); n.style.cssText = ''; }));
+  await p.waitForSelector('.md-code-block:nth-of-type(4) [data-dck-act="preview"], [data-dck-act="preview"]');
+  await p.waitForTimeout(400);
+  assert.strictEqual(await hasBtn(3, 'Preview'), 1, 'Preview appears once the site finishes the block');
+  await blocks().nth(3).locator('[data-dck-act="preview"]').click();
+  await p.evaluate(() => { const pre = document.querySelectorAll('.md-code-block')[3].querySelector('pre'); pre.insertAdjacentHTML('beforeend', '\n<span>more text</span>'); });
+  await p.waitForTimeout(500);
+  assert.ok(await p.evaluate(() => document.querySelectorAll('.dck-mdprev')[document.querySelectorAll('.dck-mdprev').length - 1].textContent.indexOf('more text') >= 0), 'an open preview redraws when the block text changes');
+  ok('streaming: Preview waits for the finished block; an open preview follows edits');
+
+  // the setting
+  await settingsTab(p, 'Code blocks');
+  await toggle(p, 'Markdown preview');
+  await p.waitForTimeout(400);
+  await close(p);
+  assert.strictEqual(await p.locator('[data-dck-act="preview"]').count(), 0, 'switching it off removes the buttons');
+  assert.strictEqual(await p.locator('.dck-mdprev').count(), 0, 'and closes open previews');
+  assert.ok(await p.evaluate(() => Array.from(document.querySelectorAll('.md-code-block pre')).every((x) => getComputedStyle(x).display !== 'none')), 'every source is visible again');
+  ok('the Markdown preview setting');
+  assert.deepStrictEqual(p.errs.filter((m) => !/boom/.test(m)), [], 'no page errors');
+  await ctx.close();
+}
+
 // ---------- reasoning fold
 const chevOpen = openHTML.match(/<div class="ds-icon" style="font-size: 14px[^>]*>.*?<\/svg><\/div>/s)[0];
 const chevClosed = closedHTML.match(/<div class="ds-icon _3d79d66"[^>]*>.*?<\/svg><\/div>/s)[0];
@@ -484,6 +568,7 @@ async function starters() {
     await toolbarChips();
     await visuals();
     await mirror();
+    await mdPreview();
     await fold();
     await twoTabs();
     await starters();
