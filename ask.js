@@ -85,26 +85,26 @@
   }
 
   // answers: [{ picked: [labels], other: '', text: '' }] in question order. Returns the text for the message box.
+  function answerValue(q, a) {
+    a = a || {};
+    const picked = (a.picked || []).slice();
+    const other = clip(a.other, 500);
+    const free = String(a.text == null ? '' : a.text).trim().slice(0, 2000);
+    if (q.type === 'text') return free;
+    if (q.type === 'single') return other && a.useOther ? other : (picked[0] || '');
+    const all = picked.slice();
+    if (other && a.useOther) all.push(other);
+    return all.join(', ');
+  }
+  // One question: the bare pair. Several: every question is written out beside its answer with Q1/A1 labels, so the
+  // model can tell what it asked from what was answered; a skipped question stays listed.
   function compileAnswers(spec, answers) {
-    const lines = [];
-    const parts = spec.questions.map((q, i) => {
-      const a = (answers && answers[i]) || {};
-      const picked = (a.picked || []).slice();
-      const other = clip(a.other, 500);
-      const free = String(a.text == null ? '' : a.text).trim().slice(0, 2000);
-      let value = '';
-      if (q.type === 'text') value = free;
-      else if (q.type === 'single') value = other && a.useOther ? other : (picked[0] || '');
-      else { const all = picked.slice(); if (other && a.useOther) all.push(other); value = all.join(', '); }
-      return { q, value };
-    });
-    const answered = parts.filter((p) => p.value);
-    if (!answered.length) return '';
+    const parts = spec.questions.map((q, i) => ({ q, value: answerValue(q, answers && answers[i]) }));
+    if (!parts.some((p) => p.value)) return '';
     if (parts.length === 1) return parts[0].q.text + '\n' + parts[0].value;
-    lines.push('My answers:', '');
+    const lines = ['Here are my answers to your questions.'];
     parts.forEach((p, i) => {
-      lines.push((i + 1) + '. ' + p.q.text);
-      lines.push('   ' + (p.value || '(skipped)'));
+      lines.push('', 'Q' + (i + 1) + ': ' + p.q.text, 'A' + (i + 1) + ': ' + (p.value || '(skipped)'));
     });
     return lines.join('\n');
   }
@@ -128,12 +128,38 @@
     const clear = el('button', 'dck-ask-clear', 'Clear');
     clear.type = 'button';
     const note = el('div', 'dck-ask-note');
+    // With several questions only one shows at a time: Back and Next step through them, the dots jump.
+    const total = spec.questions.length;
+    const paged = total > 1;
+    let cur = 0;
+    const back = el('button', 'dck-ask-nav', 'Back');
+    const next = el('button', 'dck-ask-nav', 'Next');
+    const progress = el('span', 'dck-ask-progress');
+    progress.setAttribute('aria-live', 'polite');
+    const dots = [];
+    back.type = next.type = 'button';
+
+    function showStep(n) {
+      cur = Math.max(0, Math.min(total - 1, n));
+      if (!paged) return;
+      rows.forEach((r, i) => { r.hidden = i !== cur; });
+      back.disabled = cur === 0;
+      next.hidden = cur === total - 1;
+      submit.hidden = cur !== total - 1;
+      progress.textContent = 'Question ' + (cur + 1) + ' of ' + total;
+      dots.forEach((d, i) => {
+        d.classList.toggle('cur', i === cur);
+        d.classList.toggle('done', !!answerValue(spec.questions[i], state[i]));
+        if (i === cur) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
+      });
+    }
 
     function refresh() {
       const text = compileAnswers(spec, state);
       submit.disabled = locked || !text;
       clear.disabled = locked;
       rows.forEach((r) => r.querySelectorAll('input, textarea').forEach((i) => { i.disabled = locked; }));
+      showStep(cur);
       if (changeFn) changeFn(text);
     }
 
@@ -209,6 +235,23 @@
       root.appendChild(box);
     });
 
+    if (paged) {
+      const nav = el('div', 'dck-ask-pager');
+      const dotbox = el('span', 'dck-ask-dots');
+      spec.questions.forEach((q, i) => {
+        const d = el('button', 'dck-ask-dot');
+        d.type = 'button';
+        d.setAttribute('aria-label', 'Go to question ' + (i + 1));
+        d.addEventListener('click', () => showStep(i));
+        dots.push(d);
+        dotbox.appendChild(d);
+      });
+      back.addEventListener('click', () => showStep(cur - 1));
+      next.addEventListener('click', () => showStep(cur + 1));
+      nav.append(back, el('span', 'dck-ask-mid'), next);
+      nav.querySelector('.dck-ask-mid').append(progress, dotbox);
+      root.appendChild(nav);
+    }
     const foot = el('div', 'dck-ask-foot');
     foot.append(submit, clear, note);
     root.appendChild(foot);
@@ -232,8 +275,10 @@
         root.querySelectorAll('input[type=radio], input[type=checkbox]').forEach((i) => { i.checked = false; });
         root.querySelectorAll('input[type=text], textarea').forEach((i) => { i.value = ''; });
         note.textContent = '';
+        cur = 0;
         refresh();
       },
+      step: () => cur,
       lock(v) { locked = !!v; root.classList.toggle('locked', locked); refresh(); },
       note(t) { note.textContent = t || ''; },
       setSubmitLabel(t) { submit.textContent = t; },

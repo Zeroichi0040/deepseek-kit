@@ -480,18 +480,26 @@ async function askForms() {
 
   // add to message
   const first = p.locator('.dck-vis[data-kind=ask]').first();
+  const step = (name) => first.locator('.dck-ask-nav', { hasText: name }).click();
+  assert.strictEqual(await first.locator('.dck-ask-progress').innerText(), 'Question 1 of 3');
+  assert.strictEqual(await first.locator('.dck-ask-submit').isVisible(), false, 'Add to message waits for the last question');
   await first.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
+  await step('Next');
   await first.locator('.dck-ask-opt', { hasText: 'Login' }).click();
+  await step('Next');
+  assert.strictEqual(await first.locator('.dck-ask-progress').innerText(), 'Question 3 of 3');
   await first.locator('.dck-ask-text').fill('keep it simple');
   await p.fill('#main', 'hello');
   await first.locator('.dck-ask-submit').click();
-  const want = 'My answers:\n\n1. What kind of application?\n   Web application\n2. Which features?\n   Login\n3. Anything else?\n   keep it simple';
+  const want = 'Here are my answers to your questions.\n\nQ1: What kind of application?\nA1: Web application\n\nQ2: Which features?\nA2: Login\n\nQ3: Anything else?\nA3: keep it simple';
   assert.strictEqual(await p.inputValue('#main'), 'hello\n\n' + want, 'answers go after what you had typed');
   assert.ok((await first.locator('.dck-ask-note').innerText()).indexOf('press Enter') >= 0);
+  await step('Back');
   await first.locator('.dck-ask-opt', { hasText: 'Dashboard' }).click();
+  await step('Next');
   await first.locator('.dck-ask-submit').click();
   const v2 = await p.inputValue('#main');
-  assert.ok(v2.startsWith('hello\n\n') && v2.indexOf('Login, Dashboard') > 0 && v2.split('My answers:').length === 2, 'answering again replaces the earlier answers: ' + JSON.stringify(v2));
+  assert.ok(v2.startsWith('hello\n\n') && v2.indexOf('Login, Dashboard') > 0 && v2.split('Here are my answers to your questions.').length === 2, 'answering again replaces the earlier answers: ' + JSON.stringify(v2));
   assert.strictEqual(await p.evaluate(() => window.__sent.length), 0, 'nothing is sent in this mode');
   ok('Add to message: appended after your text, and re-adding replaces instead of duplicating');
 
@@ -519,10 +527,12 @@ async function askForms() {
   await p.waitForSelector('.dck-ask .dck-ask-opt');
   const nf = p.locator('.dck-vis[data-kind=ask]').first();
   await nf.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
+  await nf.locator('.dck-ask-nav', { hasText: 'Next' }).click();
+  await nf.locator('.dck-ask-nav', { hasText: 'Next' }).click();
   await nf.locator('.dck-ask-submit').click();
   await p.waitForFunction(() => /Context added|Answers sent|Could not/.test(document.querySelector('.dck-ask-note').textContent), null, { timeout: 6000 });
   const rev = await p.evaluate(() => ({ note: document.querySelector('.dck-ask-note').textContent, box: document.getElementById('main').value, sent: window.__sent.length }));
-  assert.ok(/review it/.test(rev.note) && rev.box.indexOf('[Context from my notes]') >= 0 && rev.box.indexOf('My answers:') > 0 && rev.sent === 0, 'due context is added for review, not sent: ' + JSON.stringify(rev).slice(0, 300));
+  assert.ok(/review it/.test(rev.note) && rev.box.indexOf('[Context from my notes]') >= 0 && rev.box.indexOf('Here are my answers') > 0 && rev.sent === 0, 'due context is added for review, not sent: ' + JSON.stringify(rev).slice(0, 300));
   ok('Send straight away: when context is due the Kit adds it and waits for you');
 
   // ... and with nothing due it goes out on Enter
@@ -530,6 +540,8 @@ async function askForms() {
   await p.waitForSelector('.dck-ask .dck-ask-opt');
   const f2 = p.locator('.dck-vis[data-kind=ask]').first();
   await f2.locator('.dck-ask-opt', { hasText: 'Desktop application' }).click();
+  await f2.locator('.dck-ask-nav', { hasText: 'Next' }).click();
+  await f2.locator('.dck-ask-nav', { hasText: 'Next' }).click();
   await f2.locator('.dck-ask-submit').click();
   await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 6000 });
   assert.strictEqual(await p.inputValue('#main'), '', 'the box emptied');
@@ -545,6 +557,8 @@ async function askForms() {
   await p.waitForSelector('.dck-ask .dck-ask-opt');
   const f3 = p.locator('.dck-vis[data-kind=ask]').first();
   await f3.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
+  await f3.locator('.dck-ask-nav', { hasText: 'Next' }).click();
+  await f3.locator('.dck-ask-nav', { hasText: 'Next' }).click();
   await f3.locator('.dck-ask-submit').click();
   await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 8000 });
   assert.strictEqual(await p.evaluate(() => window.__sent.length), 1, 'sent exactly once');

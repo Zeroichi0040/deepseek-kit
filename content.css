@@ -336,4 +336,16 @@ html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-c
 .dck-ask-clear:hover:not(:disabled) { background: rgba(128,128,128,.16); color: var(--v-text); }
 .dck-ask-clear:disabled { opacity: .4; cursor: default; }
 .dck-ask-note { font-size: 12.5px; color: var(--v-muted); }
+.dck-ask-q[hidden], .dck-ask-submit[hidden], .dck-ask-nav[hidden] { display: none; }
+.dck-ask-pager { display: flex; align-items: center; gap: 10px; }
+.dck-ask-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.dck-ask-progress { font-size: 12.5px; color: var(--v-muted); }
+.dck-ask-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.dck-ask-dot { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 1px solid var(--v-muted); background: transparent; cursor: pointer; }
+.dck-ask-dot.done { background: var(--v-muted); }
+.dck-ask-dot.cur { border-color: var(--v-c1); background: var(--v-c1); }
+.dck-ask-nav { border: 1px solid var(--v-border); border-radius: 999px; padding: 6px 14px; font: inherit; color: var(--v-text); background: transparent; cursor: pointer; }
+.dck-ask-nav:hover:not(:disabled) { background: rgba(128,128,128,.14); }
+.dck-ask-nav:disabled { opacity: .4; cursor: default; }
+.dck-ask-pager:has(.dck-ask-nav[hidden]) .dck-ask-nav:last-child { visibility: hidden; display: inline-block; }
 .dck-ask.locked .dck-ask-opt { opacity: .65; cursor: default; }
