@@ -180,6 +180,20 @@ pre[data-dck-collapsed] {
 .dck-diagdot { width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; flex: none; background: var(--k-muted); }
 .dck-diagdot.ok { background: #2e9d57; } .dck-diagdot.bad { background: #e5484d; }
 .dck-diagevents-title { margin-top: 4px; font-weight: 600; }
+.dck-diagsum { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; }
+.dck-diagsum .dck-diagdot { margin-top: 0; }
+.dck-diagrow.compact { gap: 8px; }
+.dck-diagrow.compact .dck-grow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.dck-diagrow.compact .dck-name { font-size: 12px; font-weight: 600; }
+.dck-diagrow.compact .dck-sub { font-size: 11px; }
+.dck-diagtoggle { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 0; border: 0; background: transparent; color: var(--k-soft); font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; }
+.dck-diagtoggle:hover { color: var(--k-text); }
+.dck-diagtoggle svg { transition: transform .15s; transform: rotate(-90deg); flex: none; }
+.dck-diagtoggle.open svg { transform: rotate(0deg); }
+.dck-import { display: flex; flex-direction: column; gap: 6px; border-style: dashed; }
+.dck-import .dck-actions { flex-wrap: wrap; }
+.dck-import .dck-btn { white-space: nowrap; }
+.dck-importrow { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; }
 .dck-diagevent { font-family: ui-monospace, Menlo, monospace; font-size: 11px; word-break: break-word; }
 
 /* settings accordion */
