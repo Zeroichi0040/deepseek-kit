@@ -5,7 +5,7 @@ const path = require('path');
 const assert = require('assert');
 
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
-const scripts = ['lib.js', 'site.js', 'visuals.js', 'content.js'].map(read);
+const scripts = ['lib.js', 'site.js', 'visuals.js', 'markdown.js', 'content.js'].map(read);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ok = (m) => console.log('ok  ' + m);
 

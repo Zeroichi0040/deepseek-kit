@@ -13,6 +13,7 @@
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
+  const MD = globalThis.DCK_MD;
 
   // ---------- Extension runtime ----------
   const store = chrome.storage.local;
@@ -541,6 +542,8 @@
   const ICONS = {
     close: 'M18 6 6 18|M6 6l12 12',
     chev: 'M6 9l6 6 6-6',
+    eye: 'M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z|M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
+    code: 'M16 18l6-6-6-6|M8 6l-6 6 6 6',
     expand: 'M15 3h6v6|M9 21H3v-6|M21 3l-7 7|M3 21l7-7',
     check: 'M20 6 9 17l-5-5',
     archive: 'M21 8v13H3V8|M1 3h22v5H1z|M10 12h4',
@@ -962,12 +965,13 @@
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { resetFab(); toast('Button position reset'); } }, 'Reset')));
     }));
 
-    body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse, ZIP and line numbers', (box) => {
+    body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse, ZIP, preview and line numbers', (box) => {
       box.append(settingRow('Code block tools', 'Adds Collapse and + ZIP next to Copy and Download', settings.codeTools !== false, (v) => {
         settings.codeTools = v;
         commit(); syncAll();
       }));
       box.append(settingRow('Line numbers', 'Number the lines of code blocks. Copying and downloading are unaffected', !!settings.lineNumbers, (v) => { settings.lineNumbers = v; commit(); syncAll(); }));
+      box.append(settingRow('Markdown preview', 'Adds a Preview button to markdown code blocks, to see them rendered', settings.mdPreview !== false, (v) => { settings.mdPreview = v; commit(); syncAll(); }));
       box.append(settingRow('Collapse long blocks', 'Blocks over ' + (settings.collapseLines || 20) + ' lines start collapsed', !!settings.collapseLong, (v) => {
         settings.collapseLong = v;
         if (v) scheduleCollapseScan(); else { document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false)); syncAll(); }
@@ -1255,13 +1259,63 @@
     syncAll();
   }
 
+  // ----- Markdown preview: a "Preview" button on markdown code blocks swaps the source for a rendered view.
+  // The source block stays in the page (only hidden by CSS), so Copy, Download and ZIP still use the original text.
+  const previewText = new WeakMap(); // preview element -> the source it was drawn from
+  function mdSource(pre) { return (pre.querySelector('code') || pre).textContent.replace(/\n$/, ''); }
+  function previewEl(pre) {
+    const box = SITE.blockBox(pre);
+    return box ? box.querySelector(':scope > .dck-mdprev') : null;
+  }
+  function hasPreview(pre) { return !!previewEl(pre); }
+  function mdOffered(pre) {
+    if (!MD || settings.mdPreview === false) return false;
+    const lang = SITE.blockLang(pre);
+    if (lang !== 'markdown' && lang !== 'md') return false;
+    return hasPreview(pre) || !SITE.blockBusy(pre); // not while the site is still writing the block
+  }
+  function drawPreview(wrap, text) {
+    const node = MD.render(document, text);
+    if (!node) return false;
+    wrap.textContent = '';
+    wrap.appendChild(node);
+    previewText.set(wrap, text);
+    return true;
+  }
+  function closePreview(pre) {
+    const wrap = previewEl(pre);
+    if (wrap) wrap.remove();
+    const box = SITE.blockBox(pre);
+    if (box) box.removeAttribute('data-dck-prev');
+  }
+  function togglePreview(pre) {
+    if (hasPreview(pre)) { closePreview(pre); return; }
+    const wrap = h('div', { class: 'dck-mdprev' });
+    if (!drawPreview(wrap, mdSource(pre))) { toast('Too long to preview - use the source'); return; }
+    pre.insertAdjacentElement('afterend', wrap);
+    SITE.blockBox(pre).setAttribute('data-dck-prev', '');
+  }
+  // Keeps an open preview true to its block: redrawn if the text changed, closed if the feature was turned off.
+  function syncPreview(pre) {
+    const box = SITE.blockBox(pre);
+    if (!box) return;
+    const wrap = previewEl(pre);
+    if (!wrap) { if (box.hasAttribute('data-dck-prev')) box.removeAttribute('data-dck-prev'); return; }
+    if (!MD || settings.mdPreview === false || settings.codeTools === false) { closePreview(pre); return; }
+    if (!box.hasAttribute('data-dck-prev')) box.setAttribute('data-dck-prev', '');
+    const text = mdSource(pre);
+    if (previewText.get(wrap) !== text && !drawPreview(wrap, text)) closePreview(pre);
+  }
+
   // ----- the buttons themselves
   // What a block offers: [id, label, handler]
   function actionsFor(pre) {
     const folded = pre.hasAttribute('data-dck-collapsed');
     const inBasket = tools.basket.some((b) => b.el === pre);
     const list = [];
-    if (folded || lineCount(pre) > 3) list.push(['collapse', folded ? 'Expand (' + lineCount(pre) + ' lines)' : 'Collapse', folded ? 'expand' : 'shrink', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
+    const previewing = hasPreview(pre);
+    if (mdOffered(pre)) list.push(['preview', previewing ? 'Source' : 'Preview', previewing ? 'code' : 'eye', () => { togglePreview(pre); syncAll(); }]);
+    if (!previewing && (folded || lineCount(pre) > 3)) list.push(['collapse', folded ? 'Expand (' + lineCount(pre) + ' lines)' : 'Collapse', folded ? 'expand' : 'shrink', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
     list.push(['zip', inBasket ? 'Added' : '+ ZIP', inBasket ? 'check' : 'archive', () => toggleBasket(pre)]);
     return list;
   }
@@ -1344,6 +1398,7 @@
   function syncAll() {
     SITE.codeBlocks().forEach((pre) => {
       syncLines(pre);
+      syncPreview(pre);
       if (settings.codeTools === false) removeHeaderButtons(pre); else syncHeader(pre);
     });
   }

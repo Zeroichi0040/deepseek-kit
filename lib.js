@@ -41,6 +41,7 @@
     codeTools: true, // header buttons (collapse, ZIP) on code blocks
     collapseThinking: false, // close DeepThink reasoning blocks, while thinking and once finished (also after a refresh)
     lineNumbers: true, // number the lines of code blocks (CSS counters, never part of copied text)
+    mdPreview: true, // Preview button on markdown code blocks
     collapseLong: true, // collapse long code blocks automatically
     collapseLines: 20, // blocks longer than this many lines count as long
     visualsEnabled: true, // draw chart and viz code blocks as inline cards

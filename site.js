@@ -118,7 +118,7 @@
   function copyButton(pre) {
     let box = pre.parentElement;
     for (let i = 0; i < 4 && box && box !== document.body; i++, box = box.parentElement) {
-      if (box.querySelectorAll('pre').length > 1) return null;
+      if (Array.from(box.querySelectorAll('pre')).filter((x) => !x.closest('.dck-mdprev')).length > 1) return null; // a Markdown preview's own code blocks do not count
       const hit = findByText(box, ['Copy', 'Copy code'], (n) => pre.contains(n) || !!n.parentElement.closest('[data-dck-act]'))
         .find((btn) => btn.parentElement && !(pre.compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING));
       if (hit) return hit;
@@ -127,7 +127,7 @@
   }
 
   function codeBlocks() {
-    return Array.from(document.querySelectorAll('pre')).filter((p) => !p.closest('#dck-drawer'));
+    return Array.from(document.querySelectorAll('pre')).filter((p) => !p.closest('#dck-drawer, .dck-mdprev'));
   }
 
   // The element that holds the whole block (header and code); our cards go right after it.
