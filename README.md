@@ -28,7 +28,7 @@ The panel has four tabs, with the controls you use most pinned above and below t
 
 **Snippets**: reusable text. Search them here, or type `/` in the message box to open the picker (keep typing to filter, Up/Down to move, Enter or Tab to insert, Esc to close). Variable chips insert `{{date}}` and friends at the cursor. A new install starts with six: `/summarize`, `/explain`, `/fix`, `/steps`, `/translate` and `/handoff`. `/handoff` asks the model to write one markdown block that carries the conversation into a new chat: send it, press Copy on the block, and paste it into the new chat.
 
-**Settings**: grouped into sections that open one at a time: Messages, Code blocks, Variables, Diagnostics and Backup (export/import, and **Starter content**, which adds any starter snippets and the name note you do not have yet without touching your own), with Reset all pinned at the bottom.
+**Settings**: grouped into sections that open one at a time: Messages, Code blocks, Variables, Diagnostics (failed checks first, the rest folded) and Backup (export/import, and **Starter content**, which adds any starter snippets and the name note you do not have yet without touching your own), with Reset all pinned at the bottom.
 
 **Pinned footer** (Prompts and Memory): **Insert now** adds the context to your message immediately, ignoring schedules. **Preview** shows exactly what would be added.
 

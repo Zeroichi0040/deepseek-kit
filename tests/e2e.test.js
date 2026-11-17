@@ -35,6 +35,7 @@ const settingsTab = async (p, section) => {
   await p.click('[role=tab]:has-text("Settings")');
   await p.locator('.dck-acchead:has-text("' + section + '")').click();
 };
+const allChecks = (p) => p.locator('.dck-diagtoggle').first().click(); // Diagnostics folds the OK rows
 const toggle = (p, row) => p.locator('.dck-setrow:has-text("' + row + '") .dck-switch').click();
 const close = (p) => p.click('#dck-drawer [aria-label="Close panel"]');
 const ok = (m) => console.log('ok  ' + m);
@@ -97,8 +98,11 @@ async function codeBlocks() {
   // diagnostics reflect the probe
   await settingsTab(p, 'Diagnostics');
   const diag = await p.locator('#dck-drawer').innerText();
-  assert.ok(/Code block headers/.test(diag) && /4 code block\(s\), 3 with a Copy button found/.test(diag), diag);
-  ok('Diagnostics reports 3 of 4 blocks with a header');
+  assert.ok(/1 problem found/.test(diag) && /Code block headers/.test(diag) && /4 code block\(s\), 3 with a Copy button found/.test(diag), diag);
+  assert.ok(!/Reasoning blocks/.test(diag), 'problems show first; the OK rows are folded until asked for');
+  await allChecks(p);
+  assert.ok(/Other checks/.test(await p.locator('#dck-drawer').innerText()) && /Reasoning blocks/.test(await p.locator('#dck-drawer').innerText()));
+  ok('Diagnostics: problem shown first with the OK rows folded, then expandable'); ok('Diagnostics reports 3 of 4 blocks with a header');
   assert.strictEqual(p.errs.length, 0, p.errs.join(';'));
   await ctx.close();
 }
@@ -203,6 +207,7 @@ async function toolbarChips() {
   await p.waitForTimeout(900);
   assert.ok(await p.evaluate(() => document.getElementById('dck-chips').parentElement === document.body));
   await settingsTab(p, 'Diagnostics');
+  await allChecks(p);
   const txt = await p.locator('#dck-drawer').innerText();
   assert.ok(/Toolbar pills/.test(txt) && /0 found/.test(txt) && /above the message box/.test(txt), txt);
   ok('chips: toolbar when wide, above when narrow or no toolbar; Diagnostics says which');
@@ -288,6 +293,9 @@ async function visuals() {
   assert.strictEqual(stray.length, 0, stray.join(';'));
   // diagnostics + prompt row
   await settingsTab(p, 'Diagnostics');
+  const brief = await p.locator('#dck-drawer').innerText();
+  assert.ok(/Everything found/.test(brief) && !/Widget sandbox/.test(brief), 'with no problems the OK rows stay folded');
+  await allChecks(p);
   const diag = await p.locator('#dck-drawer').innerText();
   assert.ok(/Widget sandbox/.test(diag) && /isolated frames run scripts/.test(diag), diag);
   assert.ok(/3 chart\/viz block\(s\)/.test(diag), diag);
