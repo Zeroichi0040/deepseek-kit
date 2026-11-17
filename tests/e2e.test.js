@@ -400,6 +400,11 @@ async function mdPreview() {
   assert.strictEqual(await hasBtn(0, 'Source'), 1, 'the button now says Source');
   assert.strictEqual(await blocks().nth(0).locator('[data-dck-act="collapse"]').count(), 0, 'no Collapse while previewing');
   ok('Preview draws the rendered markdown and hides the source (header and its code blocks left alone)');
+  // the site can restyle table cells inside its code block; the text must still clear the borders
+  await p.addStyleTag({ content: '.md-code-block th, .md-code-block td, .md-code-block table td { padding: 0 !important; }' });
+  const pad = await p.evaluate(() => { const c = getComputedStyle(document.querySelector('.md-code-block .dck-mdprev td')); return [c.paddingLeft, c.paddingTop]; });
+  assert.ok(parseFloat(pad[0]) >= 12 && parseFloat(pad[1]) >= 6, 'table cell padding survives a site rule: ' + pad);
+  ok('Preview table cells keep their padding even if the site resets it');
 
   await blocks().nth(0).locator('[data-dck-act="preview"]').click();
   await p.waitForTimeout(200);
