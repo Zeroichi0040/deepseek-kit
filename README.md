@@ -101,7 +101,7 @@ The extension counts the messages you send in each chat and saves the count, so 
 
 ## Caveats
 
-- Not tested against the live site. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust the finders in `site.js`; Settings > Diagnostics shows which one stopped finding its target.
+- Not yet thoroughly tested against the live site. I am one person developing this extension. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust the finders in `site.js`; Settings > Diagnostics shows which one stopped finding its target.
 - In hidden mode the inserted block is stripped from user messages in the page. If DeepSeek renders messages in a way that splits the block across elements, it may remain visible. Chat titles generated from the first message may include part of it.
 - Using any extension on a consumer site is at your own risk, and nothing here can promise it won't affect your account.
 
