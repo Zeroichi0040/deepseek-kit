@@ -63,7 +63,7 @@ const Q = (extra) => ({ question: 'What kind of application?', options: ['Web ap
     { picked: ['Login', 'Dashboard'], other: 'Reports', useOther: true },
     { text: '  keep it simple  ' },
   ]);
-  assert.strictEqual(text, 'My answers:\n\n1. What kind of application?\n   Web application\n2. Which features?\n   Login, Dashboard, Reports\n3. Anything else?\n   keep it simple');
+  assert.strictEqual(text, 'Here are my answers to your questions.\n\nQ1: What kind of application?\nA1: Web application\n\nQ2: Which features?\nA2: Login, Dashboard, Reports\n\nQ3: Anything else?\nA3: keep it simple');
   assert.ok(/\(skipped\)/.test(A.compileAnswers(three, [{ picked: ['Web application'] }, { picked: [] }, { text: '' }])), 'an unanswered question shows as skipped');
   ok('answer text: one question, several, custom answers, skipped');
 }
@@ -99,10 +99,10 @@ const Q = (extra) => ({ question: 'What kind of application?', options: ['Web ap
   // free text
   const ta = f.el.querySelector('textarea');
   ta.value = 'keep it simple'; fire(ta, 'input');
-  assert.strictEqual(f.text().split('\n').slice(-1)[0], '   keep it simple');
+  assert.strictEqual(f.text().split('\n').slice(-1)[0], 'A3: keep it simple');
   // submit
   f.el.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
-  assert.strictEqual(sent, 'My answers:\n\n1. What kind of application?\n   A CLI tool\n2. Which features?\n   Dashboard\n3. Notes?\n   keep it simple');
+  assert.strictEqual(sent, 'Here are my answers to your questions.\n\nQ1: What kind of application?\nA1: A CLI tool\n\nQ2: Which features?\nA2: Dashboard\n\nQ3: Notes?\nA3: keep it simple');
   // lock
   f.lock(true);
   assert.strictEqual(submit.disabled, true);
@@ -120,6 +120,51 @@ const Q = (extra) => ({ question: 'What kind of application?', options: ['Web ap
   f.setSubmitLabel('Send answers');
   assert.strictEqual(submit.textContent, 'Send answers');
   ok('form: choose, toggle, custom answer, free text, submit, lock, clear, relabel');
+}
+// ---- the pager: one question at a time
+{
+  const spec = parse({ questions: [Q(), Q({ question: 'Which features?', type: 'multi', options: ['Login', 'Dashboard'] }), { question: 'Notes?', type: 'text' }] }).spec;
+  const f = A.buildAsk(doc, spec, {});
+  doc.body.appendChild(f.el);
+  const q = () => Array.from(f.el.querySelectorAll('fieldset')).map((x) => !x.hidden);
+  const nav = (t) => Array.from(f.el.querySelectorAll('.dck-ask-nav')).find((b) => b.textContent === t);
+  const submit = f.el.querySelector('.dck-ask-submit');
+  const dots = () => Array.from(f.el.querySelectorAll('.dck-ask-dot'));
+  assert.strictEqual(q().join(), 'true,false,false', 'starts on the first question only');
+  assert.strictEqual(nav('Back').disabled, true, 'no Back on the first step');
+  assert.strictEqual(nav('Next').hidden, false);
+  assert.strictEqual(submit.hidden, true, 'Submit appears only on the last step');
+  assert.strictEqual(f.el.querySelector('.dck-ask-progress').textContent, 'Question 1 of 3');
+  assert.strictEqual(dots().length, 3);
+  f.el.querySelector('input[type=radio]').click();
+  assert.strictEqual(q().join(), 'true,false,false', 'answering does not move on by itself');
+  assert.ok(dots()[0].classList.contains('done') && dots()[0].classList.contains('cur') && !dots()[1].classList.contains('done'), 'dots show current and answered');
+  nav('Next').click();
+  assert.strictEqual(q().join(), 'false,true,false');
+  assert.strictEqual(nav('Back').disabled, false);
+  assert.strictEqual(f.el.querySelector('.dck-ask-progress').textContent, 'Question 2 of 3');
+  nav('Next').click();
+  assert.strictEqual(q().join(), 'false,false,true');
+  assert.strictEqual(nav('Next').hidden, true, 'Next is replaced by Submit on the last step');
+  assert.strictEqual(submit.hidden, false);
+  assert.strictEqual(submit.disabled, false, 'one answer anywhere is enough');
+  nav('Back').click(); nav('Back').click();
+  assert.strictEqual(q().join(), 'true,false,false');
+  assert.strictEqual(f.answers()[0].picked.length, 1, 'going back keeps the answer');
+  dots()[2].click();
+  assert.strictEqual(q().join(), 'false,false,true', 'a dot jumps to that question');
+  assert.ok(f.text().indexOf('A2: (skipped)') > 0, 'a skipped question is listed as skipped');
+  f.lock(true);
+  assert.ok(!nav('Back').disabled && !dots()[0].disabled, 'a sent form can still be paged through to review');
+  f.lock(false);
+  f.reset();
+  assert.strictEqual(q().join(), 'true,false,false', 'Clear goes back to the first question');
+  // a single question has no pager at all
+  const one = A.buildAsk(doc, parse({ questions: [Q()] }).spec, {});
+  assert.strictEqual(one.el.querySelectorAll('.dck-ask-pager, .dck-ask-dot').length, 0);
+  assert.strictEqual(one.el.querySelector('.dck-ask-submit').hidden, false);
+  assert.strictEqual(one.el.querySelector('fieldset').hidden, false);
+  ok('pager: one question at a time, Back/Next, dots, answers kept, Submit on the last step, none for one question');
 }
 // ---- nothing in a question is ever markup
 {
