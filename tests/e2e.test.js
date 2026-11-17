@@ -35,6 +35,7 @@ const settingsTab = async (p, section) => {
   await p.click('[role=tab]:has-text("Settings")');
   await p.locator('.dck-acchead:has-text("' + section + '")').click();
 };
+const allChecks = (p) => p.locator('.dck-diagtoggle').first().click(); // Diagnostics folds the OK rows
 const toggle = (p, row) => p.locator('.dck-setrow:has-text("' + row + '") .dck-switch').click();
 const close = (p) => p.click('#dck-drawer [aria-label="Close panel"]');
 const ok = (m) => console.log('ok  ' + m);
@@ -97,8 +98,11 @@ async function codeBlocks() {
   // diagnostics reflect the probe
   await settingsTab(p, 'Diagnostics');
   const diag = await p.locator('#dck-drawer').innerText();
-  assert.ok(/Code block headers/.test(diag) && /4 code block\(s\), 3 with a Copy button found/.test(diag), diag);
-  ok('Diagnostics reports 3 of 4 blocks with a header');
+  assert.ok(/1 problem found/.test(diag) && /Code block headers/.test(diag) && /4 code block\(s\), 3 with a Copy button found/.test(diag), diag);
+  assert.ok(!/Reasoning blocks/.test(diag), 'problems show first; the OK rows are folded until asked for');
+  await allChecks(p);
+  assert.ok(/Other checks/.test(await p.locator('#dck-drawer').innerText()) && /Reasoning blocks/.test(await p.locator('#dck-drawer').innerText()));
+  ok('Diagnostics: problem shown first with the OK rows folded, then expandable'); ok('Diagnostics reports 3 of 4 blocks with a header');
   assert.strictEqual(p.errs.length, 0, p.errs.join(';'));
   await ctx.close();
 }
@@ -203,6 +207,7 @@ async function toolbarChips() {
   await p.waitForTimeout(900);
   assert.ok(await p.evaluate(() => document.getElementById('dck-chips').parentElement === document.body));
   await settingsTab(p, 'Diagnostics');
+  await allChecks(p);
   const txt = await p.locator('#dck-drawer').innerText();
   assert.ok(/Toolbar pills/.test(txt) && /0 found/.test(txt) && /above the message box/.test(txt), txt);
   ok('chips: toolbar when wide, above when narrow or no toolbar; Diagnostics says which');
@@ -288,6 +293,9 @@ async function visuals() {
   assert.strictEqual(stray.length, 0, stray.join(';'));
   // diagnostics + prompt row
   await settingsTab(p, 'Diagnostics');
+  const brief = await p.locator('#dck-drawer').innerText();
+  assert.ok(/Everything found/.test(brief) && !/Widget sandbox/.test(brief), 'with no problems the OK rows stay folded');
+  await allChecks(p);
   const diag = await p.locator('#dck-drawer').innerText();
   assert.ok(/Widget sandbox/.test(diag) && /isolated frames run scripts/.test(diag), diag);
   assert.ok(/3 chart\/viz block\(s\)/.test(diag), diag);
@@ -456,6 +464,72 @@ async function twoTabs() {
   await ctx.close();
 }
 
+// ---------- per-item .md export and import with a preview, in a real browser
+async function markdownItems() {
+  const ctx = await launch(1000, 900);
+  const p = await open(ctx, '<body><textarea></textarea></body>');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dck-md-'));
+  const drawer = () => p.locator('#dck-drawer').innerText();
+  await p.click('#dck-fab');
+  // export one snippet from its row
+  await p.click('[role=tab]:has-text("Snippets")');
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('[aria-label="Export /summarize as .md"]')]);
+  assert.strictEqual(dl.suggestedFilename(), 'snippet-summarize.md');
+  const exported = fs.readFileSync(await dl.path(), 'utf8');
+  assert.ok(exported.startsWith('---\ntype: snippet\nname: summarize\n---\nSummarize the following'), exported.slice(0, 80));
+  ok('one snippet exports as its own .md file');
+  // import: one new snippet, one that clashes with a starter, one note, one unusable item, one file that is not an item file
+  fs.writeFileSync(path.join(dir, 'a.md'), '---\ntype: snippet\nname: greet\n---\nSay hello to {{selection}}\n\n---\ntype: snippet\nname: summarize\n---\nMY OWN SUMMARY\n\n---\ntype: memory\nkey: favorite editor\nimportance: always\ncategory: Tools\n---\nvim\n\n---\ntype: snippet\nname:\n---\nno name\n');
+  fs.writeFileSync(path.join(dir, 'b.md'), 'just some notes, no items');
+  const pick = async (files) => { const [fc] = await Promise.all([p.waitForEvent('filechooser'), p.click('.dck-foot >> text=Import .md')]); await fc.setFiles(files.map((f) => path.join(dir, f))); await p.waitForSelector('.dck-import'); };
+  await pick(['a.md', 'b.md']);
+  const prev = await drawer();
+  assert.ok(/Import preview/.test(prev) && /\+ snippet \/greet/.test(prev) && /\+ memory favorite editor/.test(prev), prev);
+  assert.ok(/= snippet \/summarize \(you already have it\)/.test(prev) && /! snippet: snippet without a usable name/.test(prev) && /! b\.md: No items found/.test(prev), prev);
+  assert.ok(await p.locator('.dck-import >> text=Replace 1').count() === 1);
+  ok('the preview lists what is new, what clashes and what is unusable');
+  await p.click('.dck-import >> text=Add 2');
+  assert.strictEqual(await p.locator('.dck-import').count(), 0);
+  assert.ok(/Imported: 1 snippet, 1 note/.test(await p.locator('#dck-toast').innerText()));
+  assert.ok((await p.locator('[role=tab]:has-text("Snippets")').innerText()).includes('7'));
+  assert.ok(!/MY OWN SUMMARY/.test(await drawer()), 'adding never replaced the snippet you already had');
+  await p.click('[role=tab]:has-text("Memory")');
+  assert.ok(/favorite editor/i.test(await drawer()) && /tools/i.test(await drawer()), await drawer()); // group labels are drawn in capitals
+  ok('Add imports the new items only; your own are untouched');
+  // importing again: now everything clashes; Replace updates it, and the id (so the slash picker) stays
+  await p.click('[role=tab]:has-text("Snippets")');
+  await pick(['a.md']);
+  assert.ok(await p.locator('.dck-import >> text=Add').count() >= 1);
+  assert.ok(await p.locator('.dck-import button:has-text("Add")').isDisabled(), 'Add is disabled when nothing is new');
+  await p.click('.dck-import >> text=Replace 3');
+  assert.ok(/Imported: replaced 3/.test(await p.locator('#dck-toast').innerText()));
+  await p.locator('.dck-rowcard:has-text("/summarize") [aria-label="Edit /summarize"]').click();
+  assert.strictEqual(await p.locator('textarea[aria-label="Snippet text"]').inputValue(), 'MY OWN SUMMARY');
+  ok('Replace overwrites by name, only when you choose it');
+  // export everything, then import it back: nothing is new
+  await p.click('.dck-actions >> text=Cancel');
+  await p.click('[role=tab]:has-text("Settings")');
+  await p.locator('.dck-acchead:has-text("Backup")').click();
+  const [all] = await Promise.all([p.waitForEvent('download'), p.click('text=Export all')]);
+  assert.strictEqual(all.suggestedFilename(), 'deepseek-kit-items.md');
+  fs.copyFileSync(await all.path(), path.join(dir, 'all.md'));
+  const [fc2] = await Promise.all([p.waitForEvent('filechooser'), p.click('.dck-accbody >> text=Import .md')]);
+  await fc2.setFiles(path.join(dir, 'all.md'));
+  await p.waitForSelector('.dck-import');
+  assert.ok(/0 new|Nothing to import|with a name you already have/.test(await drawer()) && !/\+ /.test(await p.locator('.dck-import').innerText()), await p.locator('.dck-import').innerText());
+  await p.click('.dck-actions >> text=Cancel');
+  ok('export all then import: round trip finds nothing new');
+  // a file over the size limit is refused with a reason, not read
+  fs.writeFileSync(path.join(dir, 'big.md'), '---\ntype: snippet\nname: x\n---\n' + 'a'.repeat(300 * 1024));
+  const [fc3] = await Promise.all([p.waitForEvent('filechooser'), p.click('.dck-accbody >> text=Import .md')]);
+  await fc3.setFiles(path.join(dir, 'big.md'));
+  await p.waitForSelector('.dck-import');
+  assert.ok(/big\.md: too large/.test(await p.locator('.dck-import').innerText()));
+  ok('an oversized file is refused with a reason');
+  assert.strictEqual(p.errs.length, 0, p.errs.join(';'));
+  await ctx.close();
+}
+
 // ---------- starter snippets in a real new profile: the slash picker lists them and /handoff inserts its text
 async function starters() {
   const ctx = await launch(1000, 900);
@@ -487,6 +561,7 @@ async function starters() {
     await fold();
     await twoTabs();
     await starters();
+    await markdownItems();
   } catch (e) {
     if (/Executable doesn't exist|browserType.launch/.test(e.message)) { console.log('skip  e2e (Chromium is not installed)'); process.exit(0); }
     console.error('FAIL:', e.stack || e.message);

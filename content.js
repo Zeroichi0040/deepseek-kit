@@ -10,6 +10,7 @@
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
     memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START, addStarters,
+    MD_LIMITS, itemsToMarkdown, parseItemsMarkdown, planImport, applyImport, snippetToMd, memoryToMd, promptToMd, mdFileName,
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
@@ -49,7 +50,7 @@
   }
   let settings = migrateSettings({});
   let memories = [];
-  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: null, search: '', showAllVars: false, preview: null };
+  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: null, search: '', showAllVars: false, preview: null, diagAll: false, diagEvents: false, importItems: null };
   let bypass = false; // true while we dispatch our own Enter
   let counts = {}; // messages sent per chat path, saved so a page refresh does not forget them
   let newChatCount = 0; // messages sent from the new-chat screen ("/") before the page moves to the chat's own URL
@@ -662,6 +663,7 @@
         h('div', { class: 'dck-name' }, name,
           b ? h('span', { class: 'dck-badge' }, customized ? 'Customized' : 'Built-in') : null),
         h('div', { class: 'dck-sub' }, b ? describeSchedule(settings[b.sched], settings[b.every]) : describeSchedule(p.schedule, p.everyN))),
+      b ? null : iconBtn('down', 'Export ' + name + ' as .md', () => exportItems([promptToMd(p)], mdFileName('prompt', name))),
       iconBtn('edit', 'Edit ' + name + ' prompt', () => { ui.editingId = b ? builtin : p.id; render(); }));
   }
 
@@ -703,13 +705,15 @@
     Object.keys(BUILTINS).forEach((id) => body.append(ui.editingId === id ? promptEditor(null, id) : promptRow(null, id)));
     body.append(group('Yours'));
     settings.prompts.forEach((p) => body.append(ui.editingId === p.id ? promptEditor(p, false) : promptRow(p, false)));
-    body.append(h('button', {
-      type: 'button', class: 'dck-btn dashed',
-      onclick: () => {
-        const p = { id: newId(), name: 'New prompt', text: '', enabled: true, schedule: 'first', everyN: 5 };
-        settings.prompts.push(p); ui.editingId = p.id; commit(); render();
-      },
-    }, icon('plus'), 'New prompt'));
+    body.append(h('div', { class: 'dck-two' },
+      h('button', {
+        type: 'button', class: 'dck-btn dashed',
+        onclick: () => {
+          const p = { id: newId(), name: 'New prompt', text: '', enabled: true, schedule: 'first', everyN: 5 };
+          settings.prompts.push(p); ui.editingId = p.id; commit(); render();
+        },
+      }, icon('plus'), 'New prompt'),
+      importMdButton()));
   }
 
   // ---------- Memory tab ----------
@@ -751,6 +755,7 @@
         h('div', { class: 'dck-name' }, m.key, h('span', { class: 'dck-status ' + info.cls, 'data-mi': String(index) }, info.label)),
         h('div', { class: 'dck-sub clip' }, m.value),
         h('div', { class: 'dck-sub' }, m.importance === 'always' ? 'Always included' : 'Included when mentioned')),
+      iconBtn('down', 'Export ' + m.key + ' as .md', () => exportItems([memoryToMd(m)], mdFileName('memory', m.key))),
       iconBtn('edit', 'Edit ' + m.key, () => { ui.editingMemory = index; render(); }));
   }
 
@@ -822,6 +827,7 @@
           commit(); render();
         },
       }, icon('plus', 14), 'Add'))));
+    body.append(importMdButton());
     updateMemoryStatus();
   }
 
@@ -864,6 +870,7 @@
         h('div', { class: 'dck-grow' },
           h('div', { class: 'dck-name' }, '/' + s.name),
           h('div', { class: 'dck-sub clip' }, s.text.replace(/\s+/g, ' ').slice(0, 90))),
+        iconBtn('down', 'Export /' + s.name + ' as .md', () => exportItems([snippetToMd(s)], mdFileName('snippet', s.name))),
         iconBtn('edit', 'Edit /' + s.name, () => { ui.editingSnippetId = s.id; render(); })));
     });
     if (!list.length && !editing) {
@@ -910,13 +917,22 @@
   }
 
   function renderDiagnostics(body) {
+    const rows = diagnostics();
+    const bad = rows.filter((r) => r.ok === false);
+    const rest = rows.filter((r) => r.ok !== false);
+    const dot = (r) => h('span', { class: 'dck-diagdot ' + (r.ok === true ? 'ok' : r.ok === false ? 'bad' : 'info') });
+    const line = (r, compact) => h('div', { class: 'dck-diagrow' + (compact ? ' compact' : '') }, dot(r), h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, r.label), h('div', { class: 'dck-sub' }, r.detail)));
+    const toggle = (label, open, flip) => h('button', { type: 'button', class: 'dck-diagtoggle' + (open ? ' open' : ''), 'aria-expanded': open ? 'true' : 'false', onclick: () => { flip(); render(); } }, icon('chev', 14), label);
     const card = h('div', { class: 'dck-diag' });
-    diagnostics().forEach((r) => card.append(h('div', { class: 'dck-diagrow' },
-      h('span', { class: 'dck-diagdot ' + (r.ok === true ? 'ok' : r.ok === false ? 'bad' : 'info') }),
-      h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, r.label), h('div', { class: 'dck-sub' }, r.detail)))));
-    card.append(h('div', { class: 'dck-sub dck-diagevents-title' }, 'Recent events'));
-    if (!diag.events.length) card.append(h('div', { class: 'dck-sub' }, 'Nothing yet this session.'));
-    diag.events.slice(-8).reverse().forEach((e) => card.append(h('div', { class: 'dck-sub dck-diagevent' }, e.t.toTimeString().slice(0, 8) + '  ' + e.msg)));
+    if (!bad.length) card.append(h('div', { class: 'dck-diagsum ok' }, dot({ ok: true }), 'Everything found')); // with problems, the section header already says how many
+    bad.forEach((r) => card.append(line(r, false)));
+    card.append(toggle((bad.length ? 'Other checks (' : 'All checks (') + rest.length + ')', ui.diagAll, () => { ui.diagAll = !ui.diagAll; }));
+    if (ui.diagAll) rest.forEach((r) => card.append(line(r, true)));
+    card.append(toggle('Recent events (' + diag.events.length + ')', ui.diagEvents, () => { ui.diagEvents = !ui.diagEvents; }));
+    if (ui.diagEvents) {
+      if (!diag.events.length) card.append(h('div', { class: 'dck-sub' }, 'Nothing yet this session.'));
+      diag.events.slice(-8).reverse().forEach((e) => card.append(h('div', { class: 'dck-sub dck-diagevent' }, e.t.toTimeString().slice(0, 8) + '  ' + e.msg)));
+    }
     body.append(card);
     body.append(h('div', { class: 'dck-two' },
       h('button', { type: 'button', class: 'dck-btn', onclick: () => { render(); if (visOn()) runSandboxProbe().then(() => render()); } }, 'Refresh'),
@@ -929,6 +945,96 @@
           else toast('Could not copy');
         },
       }, 'Copy report')));
+  }
+
+  // ---------- Items as .md files: export one or all, import with a preview ----------
+  function downloadText(name, text, type) {
+    const a = h('a', { href: URL.createObjectURL(new Blob([text], { type: type })), download: name });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000); // not at once: some browsers cancel the download
+  }
+  function exportItems(items, name) {
+    downloadText(name, itemsToMarkdown(items), 'text/markdown');
+    toast('Saved ' + name);
+  }
+  function allItems() {
+    return settings.prompts.map(promptToMd).concat(memories.map(memoryToMd), settings.snippets.map(snippetToMd));
+  }
+
+  let mdInput = null;
+  function pickMarkdown() {
+    if (!mdInput) {
+      mdInput = h('input', { type: 'file', accept: '.md,.markdown,text/markdown,text/plain', multiple: true, style: 'display:none', id: 'dck-mdinput', 'aria-label': 'Import .md files' });
+      mdInput.addEventListener('change', onMarkdownChosen);
+      document.body.appendChild(mdInput);
+    }
+    mdInput.click();
+  }
+  function importMdButton() {
+    return h('button', { type: 'button', class: 'dck-btn dashed', onclick: pickMarkdown }, icon('up'), 'Import .md');
+  }
+
+  // Reads the chosen files and shows what would happen. Nothing is added until you press the button in the preview.
+  async function onMarkdownChosen() {
+    const files = Array.from(mdInput.files || []);
+    mdInput.value = ''; // so the same file can be chosen again
+    if (!files.length) return;
+    const items = [];
+    const notes = [];
+    if (files.length > MD_LIMITS.files) notes.push('Only the first ' + MD_LIMITS.files + ' files are read');
+    for (const f of files.slice(0, MD_LIMITS.files)) {
+      const nm = String(f.name).slice(0, 60);
+      if (f.size > MD_LIMITS.fileBytes) { notes.push(nm + ': too large (over ' + (MD_LIMITS.fileBytes / 1024) + ' KB)'); continue; }
+      try {
+        const r = parseItemsMarkdown(await f.text());
+        r.items.forEach((it) => items.push(it));
+        r.problems.forEach((m) => notes.push(nm + ': ' + m));
+      } catch (e) { notes.push(nm + ': could not be read'); }
+    }
+    if (items.length > MD_LIMITS.items) { items.length = MD_LIMITS.items; notes.push('Only the first ' + MD_LIMITS.items + ' items are used'); }
+    ui.importItems = { items: items, notes: notes };
+    if (!ui.drawer.classList.contains('open')) ui.drawer.classList.add('open');
+    render();
+  }
+
+  function importCard() {
+    const imp = ui.importItems;
+    const plan = planImport(imp.items, settings, memories);
+    const card = h('div', { class: 'dck-card dck-import', role: 'group', 'aria-label': 'Import preview' });
+    const parts = [];
+    if (plan.add.length) parts.push(plan.add.length + ' new');
+    if (plan.replace.length) parts.push(plan.replace.length + ' with a name you already have');
+    const unusable = plan.bad.length + plan.skip.length;
+    if (unusable) parts.push(unusable + ' skipped');
+    card.append(h('div', { class: 'dck-name' }, 'Import preview'), h('div', { class: 'dck-sub' }, parts.length ? parts.join(', ') : 'Nothing to import'));
+    const rows = [];
+    plan.add.forEach((e) => rows.push('+ ' + e.kind + ' ' + e.label));
+    plan.replace.forEach((e) => rows.push('= ' + e.kind + ' ' + e.label + ' (you already have it)'));
+    plan.skip.forEach((e) => rows.push('- ' + e.kind + ' ' + e.label + ' (' + e.why + ')'));
+    plan.bad.forEach((e) => rows.push('! ' + e.kind + ': ' + e.why));
+    imp.notes.forEach((m) => rows.push('! ' + m));
+    const SHOWN = 12;
+    rows.slice(0, SHOWN).forEach((r) => card.append(h('div', { class: 'dck-sub dck-importrow clip' }, r)));
+    if (rows.length > SHOWN) card.append(h('div', { class: 'dck-sub' }, 'and ' + (rows.length - SHOWN) + ' more'));
+    const apply = (replace) => {
+      const r = applyImport(settings, memories, plan, replace);
+      settings = r.settings;
+      memories = r.memories;
+      ui.importItems = null;
+      commit(); render();
+      const d = r.done;
+      const said = [];
+      if (d.snippet) said.push(d.snippet + (d.snippet === 1 ? ' snippet' : ' snippets'));
+      if (d.memory) said.push(d.memory + (d.memory === 1 ? ' note' : ' notes'));
+      if (d.prompt) said.push(d.prompt + (d.prompt === 1 ? ' prompt' : ' prompts'));
+      if (d.replaced) said.push('replaced ' + d.replaced);
+      toast(said.length ? 'Imported: ' + said.join(', ') : 'Nothing imported');
+    };
+    card.append(h('div', { class: 'dck-actions' },
+      h('button', { type: 'button', class: 'dck-btn primary', disabled: !plan.add.length, onclick: () => apply(false) }, plan.add.length ? 'Add ' + plan.add.length : 'Add'),
+      plan.replace.length ? h('button', { type: 'button', class: 'dck-btn', onclick: () => apply(true) }, 'Replace ' + plan.replace.length + (plan.add.length ? ' and add ' + plan.add.length : '')) : null,
+      h('button', { type: 'button', class: 'dck-btn', onclick: () => { ui.importItems = null; render(); } }, 'Cancel')));
+    return card;
   }
 
   function settingRow(title, sub, checked, onchange) {
@@ -1007,18 +1113,22 @@
       importInput.value = ''; // so choosing the same file again still counts as a change
     });
     body.append(accordion('data', 'Backup', 'Export or import your prompts, notes and snippets', (box) => {
+      box.append(group('Everything (.json)'));
       box.append(h('div', { class: 'dck-two' },
         h('button', {
           type: 'button', class: 'dck-btn',
           onclick: () => {
-            const blob = new Blob([JSON.stringify({ settings, memories }, null, 2)], { type: 'application/json' });
-            const a = h('a', { href: URL.createObjectURL(blob), download: 'deepseek-kit.json' });
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 1000); // not at once: some browsers cancel the download
+            downloadText('deepseek-kit.json', JSON.stringify({ settings, memories }, null, 2), 'application/json');
           },
         }, icon('down'), 'Export'),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => importInput.click() }, icon('up'), 'Import')),
         importInput);
+      box.append(group('Items (.md)'));
+      box.append(h('div', { class: 'dck-sub' }, 'Readable Markdown files. Export one item from its row in a tab, or everything at once here. Importing shows a preview first and never replaces anything unless you choose to.'));
+      box.append(h('div', { class: 'dck-two' },
+        h('button', { type: 'button', class: 'dck-btn', onclick: () => { const all = allItems(); if (!all.length) { toast('Nothing to export yet'); return; } exportItems(all, 'deepseek-kit-items.md'); } }, icon('down'), 'Export all'),
+        h('button', { type: 'button', class: 'dck-btn', onclick: pickMarkdown }, icon('up'), 'Import .md')));
+      box.append(group('Starters'));
       box.append(h('div', { class: 'dck-setrow' },
         h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Starter content'), h('div', { class: 'dck-sub' }, 'Adds the starter snippets and the name note you do not have yet. Nothing you have is changed')),
         h('button', {
@@ -1105,6 +1215,7 @@
     else if (ui.tab === 'memory') renderMemory(body);
     else if (ui.tab === 'snippets') renderSnippets(body);
     else renderSettings(body);
+    if (ui.importItems) body.prepend(importCard());
     drawer.append(body);
     body.scrollTop = scroll;
 
@@ -1116,7 +1227,7 @@
           const s = { id: newId(), name: 'snippet' + (settings.snippets.length + 1), text: '' };
           settings.snippets.unshift(s); ui.search = ''; ui.editingSnippetId = s.id; commit(); render();
         },
-      }, icon('plus'), 'New snippet'));
+      }, icon('plus'), 'New snippet'), importMdButton());
     } else if (ui.tab === 'settings') {
       foot = h('div', { class: 'dck-foot between' },
         h('span', { class: 'dck-faint' }, 'v' + kitVersion() + ' - your data stays on this device'),

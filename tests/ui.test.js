@@ -177,6 +177,68 @@ async function boot(stored, memories) {
     console.log('ok  starter content: new install only, once, on request');
   }
 
+  // ---------- 3c. Diagnostics: problems first, the rest folded ----------
+  {
+    const a = await boot({});
+    a.tab('Settings').click();
+    Array.from(a.drawer.querySelectorAll('.dck-acchead')).find((x) => x.querySelector('.dck-name').textContent === 'Diagnostics').click();
+    assert.ok(a.drawer.querySelector('.dck-diagsum') || a.drawer.querySelector('.dck-diagdot.bad'), 'a green verdict, or the failed checks themselves');
+    assert.strictEqual(a.drawer.querySelectorAll('.dck-diagtoggle').length, 2);
+    assert.strictEqual(a.drawer.querySelectorAll('.dck-diagrow.compact').length, 0, 'OK rows start folded');
+    assert.ok(!a.text().includes('Reasoning blocks'), 'the OK rows are not listed until asked for');
+    a.drawer.querySelectorAll('.dck-diagtoggle')[0].click();
+    assert.ok(a.drawer.querySelectorAll('.dck-diagrow.compact').length >= 8, 'all checks open on request');
+    assert.ok(a.text().includes('Reasoning blocks') && a.text().includes('Stored data'));
+    a.drawer.querySelectorAll('.dck-diagtoggle')[1].click();
+    assert.ok(a.text().includes('Nothing yet this session') || a.drawer.querySelectorAll('.dck-diagevent').length > 0, 'events open on request');
+    assert.ok(a.btn('Copy report') && a.btn('Refresh'));
+    console.log('ok  compact Diagnostics');
+  }
+
+  // ---------- 3d. Import .md: preview first, add only what is new, replace only on request ----------
+  {
+    const a = await boot(undefined);
+    const file = (name, text, size) => ({ name, size: size == null ? text.length : size, text: async () => text });
+    const choose = async (files) => {
+      a.btn('Import .md').click();
+      const input = a.doc.getElementById('dck-mdinput');
+      Object.defineProperty(input, 'files', { value: files, configurable: true });
+      input.dispatchEvent(new a.w.Event('change'));
+      await sleep(40);
+    };
+    a.tab('Snippets').click();
+    await choose([file('a.md', '---\ntype: snippet\nname: greet\n---\nhi {{selection}}\n\n---\ntype: snippet\nname: summarize\n---\nMINE'), file('big.md', 'x', 400 * 1024), file('c.md', 'plain text')]);
+    const card = a.drawer.querySelector('.dck-import');
+    assert.ok(card, 'a preview appears');
+    const t = card.textContent;
+    assert.ok(t.includes('+ snippet /greet') && t.includes('= snippet /summarize (you already have it)') && t.includes('big.md: too large') && t.includes('c.md: No items found'), t);
+    assert.strictEqual(a.saved.dck_settings.snippets.length, 6, 'nothing is added before you press the button');
+    a.btn('Cancel').click();
+    assert.ok(!a.drawer.querySelector('.dck-import') && a.saved.dck_settings.snippets.length === 6, 'cancel adds nothing');
+    await choose([file('a.md', '---\ntype: snippet\nname: greet\n---\nhi {{selection}}\n\n---\ntype: snippet\nname: summarize\n---\nMINE')]);
+    a.btn('Add 1').click();
+    assert.strictEqual(a.saved.dck_settings.snippets.length, 7);
+    assert.strictEqual(a.saved.dck_settings.snippets.find((x) => x.name === 'greet').text, 'hi {{selection}}');
+    assert.ok(a.saved.dck_settings.snippets.find((x) => x.name === 'summarize').text.startsWith('Summarize'), 'your own snippet was not replaced');
+    assert.ok(/Imported: 1 snippet/.test(a.doc.getElementById('dck-toast').textContent));
+    assert.ok(!a.drawer.querySelector('.dck-import'), 'the preview closes');
+    await choose([file('a.md', '---\ntype: snippet\nname: summarize\n---\nMINE')]);
+    assert.ok(a.btn('Add').disabled, 'Add is disabled when nothing is new');
+    a.btn('Replace 1').click();
+    assert.strictEqual(a.saved.dck_settings.snippets.find((x) => x.name === 'summarize').text, 'MINE');
+    assert.strictEqual(a.saved.dck_settings.snippets.find((x) => x.name === 'summarize').id, 'starter-summarize', 'the id stays');
+    // prompts and notes route to their own tabs by type
+    await choose([file('m.md', '---\ntype: memory\nkey: hobby\nimportance: always\n---\nchess\n\n---\ntype: prompt\nname: Tone\nschedule: always\n---\nBe brief')]);
+    a.btn('Add 2').click();
+    assert.ok(a.saved.dck_memories.some((m) => m.key === 'hobby' && m.value === 'chess' && m.importance === 'always'));
+    assert.ok(a.saved.dck_settings.prompts.some((p) => p.name === 'Tone' && p.schedule === 'always' && p.text === 'Be brief'));
+    // hostile text is only ever shown as text
+    await choose([file('x.md', '---\ntype: snippet\nname: <img src=x onerror=alert(1)>\n---\n<script>1</script>')]);
+    assert.ok(!a.drawer.querySelector('.dck-import img, .dck-import script'), 'no markup is created from a file');
+    a.btn('Cancel').click();
+    console.log('ok  Import .md: preview, add, replace, cancel, limits');
+  }
+
   // ---------- 4. Prompts tab: edit, new, delete, default ----------
   {
     const a = await boot({ prompts: [{ id: 'p1', name: 'Concise tone', text: 'Be brief', enabled: true, schedule: 'every', everyN: 5 }] });
