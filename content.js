@@ -1623,6 +1623,30 @@
     setTimeout(tick, 100);
   }
 
+  // Question cards whose answers were sent, remembered by their question text for as long as the page is open, so a
+  // card the site redraws comes back read-only with the answers still shown. Nothing is stored.
+  const askSent = new Map();
+  const askPending = new Set(); // cards whose answers sit in the message box, waiting to be sent
+  let askPoll = null;
+  function askMarkSent(text, answers) {
+    askSent.set(text, answers);
+    vis.list.forEach((s2) => { if (s2.kind === 'ask' && s2.ask && s2.text === text && !s2.ask.isSent()) { s2.ask.setAnswers(answers); s2.ask.markSent(true); } });
+  }
+  function askWatch(st) {
+    askPending.add(st);
+    if (askPoll) return;
+    askPoll = setInterval(() => {
+      const el = getComposer();
+      const emptied = !!el && !String(el.value || '').trim();
+      askPending.forEach((p) => {
+        if (!p.ask || !p.body.isConnected) { if (emptied && p.ask) askMarkSent(p.text, p.ask.answers()); else if (emptied && p.sentText) askMarkSent(p.text, p.sentAnswers); askPending.delete(p); return; }
+        p.sentText = p.text; p.sentAnswers = p.ask.answers();
+        if (emptied) { askMarkSent(p.text, p.sentAnswers); askPending.delete(p); }
+      });
+      if (!askPending.size) { clearInterval(askPoll); askPoll = null; }
+    }, 600);
+  }
+
   function submitAsk(st, text) {
     const el = getComposer();
     if (!el) { toast('Message box not found'); st.ask.note('Message box not found'); return; }
@@ -1638,13 +1662,14 @@
       st.ask.note('Added to your message - press Enter to send');
       toast('Answers added - press Enter to send');
       logEvent('Answers added to the message box');
+      askWatch(st); // once the box is emptied (you pressed Enter) the card turns read-only
       return;
     }
     st.ask.lock(true);
     st.ask.note('Sending...');
     sendNow(el, (result) => {
-      if (result === 'sent') { st.ask.note('Answers sent'); logEvent('Answers sent'); }
-      else if (result === 'review') { st.ask.note('Context added - review it, then press Enter to send'); }
+      if (result === 'sent') { askMarkSent(st.text, st.ask.answers()); logEvent('Answers sent'); }
+      else if (result === 'review') { st.ask.lock(false); st.ask.note('Context added - review it, then press Enter to send'); askWatch(st); }
       else { st.ask.lock(false); st.ask.note('Could not send - your answers are in the message box'); toast('Could not send automatically - press Enter to send'); logEvent('Answers not sent'); }
     });
   }
@@ -1659,8 +1684,9 @@
     st.ask = null;
     const r = ASK ? ASK.parseAskSpec(st.text) : { ok: false, error: 'Question forms are not available.' };
     if (!r.ok) { st.body.append(h('div', { class: 'dck-visph' }, 'These questions could not be shown.')); visError(st, r.error); fillVisActions(st); return; }
-    st.ask = ASK.buildAsk(document, r.spec, { submitLabel: askLabel(), onSubmit: (text) => submitAsk(st, text) });
+    st.ask = ASK.buildAsk(document, r.spec, { submitLabel: askLabel(), onSubmit: (text) => submitAsk(st, text), onAgain: () => { askSent.delete(st.text); askPending.delete(st); st.added = ''; } });
     st.body.append(st.ask.el);
+    if (askSent.has(st.text)) { st.ask.setAnswers(askSent.get(st.text)); st.ask.markSent(true); }
     renderVisStatus(st);
     fillVisActions(st);
   }

@@ -121,51 +121,6 @@ const Q = (extra) => ({ question: 'What kind of application?', options: ['Web ap
   assert.strictEqual(submit.textContent, 'Send answers');
   ok('form: choose, toggle, custom answer, free text, submit, lock, clear, relabel');
 }
-// ---- the pager: one question at a time
-{
-  const spec = parse({ questions: [Q(), Q({ question: 'Which features?', type: 'multi', options: ['Login', 'Dashboard'] }), { question: 'Notes?', type: 'text' }] }).spec;
-  const f = A.buildAsk(doc, spec, {});
-  doc.body.appendChild(f.el);
-  const q = () => Array.from(f.el.querySelectorAll('fieldset')).map((x) => !x.hidden);
-  const nav = (t) => Array.from(f.el.querySelectorAll('.dck-ask-nav')).find((b) => b.textContent === t);
-  const submit = f.el.querySelector('.dck-ask-submit');
-  const dots = () => Array.from(f.el.querySelectorAll('.dck-ask-dot'));
-  assert.strictEqual(q().join(), 'true,false,false', 'starts on the first question only');
-  assert.strictEqual(nav('Back').disabled, true, 'no Back on the first step');
-  assert.strictEqual(nav('Next').hidden, false);
-  assert.strictEqual(submit.hidden, true, 'Submit appears only on the last step');
-  assert.strictEqual(f.el.querySelector('.dck-ask-progress').textContent, 'Question 1 of 3');
-  assert.strictEqual(dots().length, 3);
-  f.el.querySelector('input[type=radio]').click();
-  assert.strictEqual(q().join(), 'true,false,false', 'answering does not move on by itself');
-  assert.ok(dots()[0].classList.contains('done') && dots()[0].classList.contains('cur') && !dots()[1].classList.contains('done'), 'dots show current and answered');
-  nav('Next').click();
-  assert.strictEqual(q().join(), 'false,true,false');
-  assert.strictEqual(nav('Back').disabled, false);
-  assert.strictEqual(f.el.querySelector('.dck-ask-progress').textContent, 'Question 2 of 3');
-  nav('Next').click();
-  assert.strictEqual(q().join(), 'false,false,true');
-  assert.strictEqual(nav('Next').hidden, true, 'Next is replaced by Submit on the last step');
-  assert.strictEqual(submit.hidden, false);
-  assert.strictEqual(submit.disabled, false, 'one answer anywhere is enough');
-  nav('Back').click(); nav('Back').click();
-  assert.strictEqual(q().join(), 'true,false,false');
-  assert.strictEqual(f.answers()[0].picked.length, 1, 'going back keeps the answer');
-  dots()[2].click();
-  assert.strictEqual(q().join(), 'false,false,true', 'a dot jumps to that question');
-  assert.ok(f.text().indexOf('A2: (skipped)') > 0, 'a skipped question is listed as skipped');
-  f.lock(true);
-  assert.ok(!nav('Back').disabled && !dots()[0].disabled, 'a sent form can still be paged through to review');
-  f.lock(false);
-  f.reset();
-  assert.strictEqual(q().join(), 'true,false,false', 'Clear goes back to the first question');
-  // a single question has no pager at all
-  const one = A.buildAsk(doc, parse({ questions: [Q()] }).spec, {});
-  assert.strictEqual(one.el.querySelectorAll('.dck-ask-pager, .dck-ask-dot').length, 0);
-  assert.strictEqual(one.el.querySelector('.dck-ask-submit').hidden, false);
-  assert.strictEqual(one.el.querySelector('fieldset').hidden, false);
-  ok('pager: one question at a time, Back/Next, dots, answers kept, Submit on the last step, none for one question');
-}
 // ---- nothing in a question is ever markup
 {
   const evil = '<img src=x onerror=window.__pwn=1>';
@@ -192,4 +147,99 @@ const Q = (extra) => ({ question: 'What kind of application?', options: ['Web ap
   }
   ok('500 random inputs: always a clean result, never an exception');
 }
-console.log('all ask tests passed');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {
+  // ---- the pager: arrows at the top right, one question at a time
+  {
+    const spec = parse({ questions: [Q(), Q({ question: 'Which features?', type: 'multi', options: ['Login', 'Dashboard'] }), { question: 'Notes?', type: 'text' }] }).spec;
+    const f = A.buildAsk(doc, spec, {});
+    doc.body.appendChild(f.el);
+    const q = () => Array.from(f.el.querySelectorAll('fieldset')).map((x) => !x.hidden).join();
+    const back = f.el.querySelector('[aria-label="Previous question"]');
+    const next = f.el.querySelector('[aria-label="Next question"]');
+    const submit = f.el.querySelector('.dck-ask-submit');
+    const prog = () => f.el.querySelector('.dck-ask-progress').textContent;
+    assert.ok(f.el.querySelector('.dck-ask-head .dck-ask-pager'), 'the arrows are in the header row');
+    assert.strictEqual(f.el.querySelectorAll('.dck-ask-dot').length, 0, 'no dots any more');
+    assert.strictEqual(q(), 'true,false,false');
+    assert.strictEqual(back.disabled, true);
+    assert.strictEqual(submit.hidden, true, 'Submit appears only on the last step');
+    assert.strictEqual(prog(), '1 of 3');
+    next.click();
+    assert.strictEqual(q(), 'false,true,false'); assert.strictEqual(prog(), '2 of 3'); assert.strictEqual(back.disabled, false);
+    next.click();
+    assert.strictEqual(q(), 'false,false,true'); assert.strictEqual(next.disabled, true, 'no Next on the last step'); assert.strictEqual(submit.hidden, false);
+    back.click(); back.click();
+    assert.strictEqual(q(), 'true,false,false');
+    ok('pager: arrows step through one question at a time; Submit only on the last');
+
+    // auto-next: a single-choice pick moves on, nothing else does
+    f.el.querySelectorAll('input[type=radio]')[0].click();
+    assert.strictEqual(q(), 'true,false,false', 'not at once: the pick shows first');
+    await sleep(380);
+    assert.strictEqual(q(), 'false,true,false', 'a single-choice pick moves to the next question');
+    f.el.querySelectorAll('input[type=checkbox]')[0].click();
+    await sleep(380);
+    assert.strictEqual(q(), 'false,true,false', 'a multi-choice pick stays put');
+    back.click();
+    const other = f.el.querySelectorAll('.dck-ask-othertext')[0];
+    other.value = 'A CLI tool'; other.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    await sleep(380);
+    assert.strictEqual(q(), 'true,false,false', 'typing in Other stays put');
+    f.el.querySelectorAll('input[type=radio]')[1].click();
+    back.click(); next.click(); back.click(); // leaving before the timer fires cancels it
+    await sleep(380);
+    assert.strictEqual(q(), 'true,false,false', 'using an arrow cancels a pending auto-advance');
+    next.click(); next.click();
+    f.el.querySelector('textarea').value = 'x';
+    // last question: no radio there, so check a form whose last question is single choice
+    const spec2 = parse({ questions: [Q(), Q({ question: 'Second?' })] }).spec;
+    const g = A.buildAsk(doc, spec2, {});
+    doc.body.appendChild(g.el);
+    const gq = () => Array.from(g.el.querySelectorAll('fieldset')).map((x) => !x.hidden).join();
+    g.el.querySelectorAll('fieldset')[0].querySelector('input[type=radio]').click();
+    await sleep(380);
+    assert.strictEqual(gq(), 'false,true');
+    g.el.querySelectorAll('fieldset')[1].querySelector('input[type=radio]').click();
+    await sleep(380);
+    assert.strictEqual(gq(), 'false,true', 'the last question never moves on by itself');
+    ok('auto-next: single choice only, cancellable, never from the last question');
+
+    // sent: read-only, still pageable, "Answer again" undoes it
+    let again = 0;
+    const h = A.buildAsk(doc, spec2, { onAgain: () => { again++; } });
+    doc.body.appendChild(h.el);
+    h.el.querySelectorAll('input[type=radio]')[0].click();
+    h.markSent(true);
+    assert.ok(Array.from(h.el.querySelectorAll('input, textarea')).every((i) => i.disabled), 'sent: options locked');
+    assert.strictEqual(h.el.querySelector('.dck-ask-again').hidden, false);
+    assert.strictEqual(h.el.querySelector('[aria-label="Next question"]').disabled, false, 'sent: still pageable');
+    h.el.querySelector('.dck-ask-again').click();
+    assert.strictEqual(again, 1);
+    assert.ok(Array.from(h.el.querySelectorAll('input')).every((i) => !i.disabled) && h.el.querySelector('.dck-ask-again').hidden, 'Answer again unlocks it');
+    // a rebuilt card gets the sent answers back
+    const r2 = A.buildAsk(doc, spec2, {});
+    r2.setAnswers(h.answers());
+    r2.markSent(true);
+    assert.strictEqual(JSON.stringify(r2.answers()), JSON.stringify(h.answers()));
+    assert.ok(r2.el.querySelectorAll('input[type=radio]')[0].checked && r2.el.querySelector('.dck-ask-note').textContent === 'Answers sent');
+    ok('sent: read-only, pageable, Answer again, answers restored on a rebuilt card');
+  }
+  // ---- recommended
+  {
+    const a = parse({ questions: [{ question: 'Which?', options: ['A', { label: 'B', recommended: true }, { label: 'C', recommended: true }] }] }).spec.questions[0];
+    assert.strictEqual(a.options.filter((o) => o.recommended).map((o) => o.label).join(), 'B', 'single choice keeps the first recommended');
+    const b = parse({ questions: [{ question: 'Which?', type: 'multi', options: ['A', 'B', 'C'], recommended: ['a', 'C', 'nope'] }] }).spec.questions[0];
+    assert.strictEqual(b.options.filter((o) => o.recommended).map((o) => o.label).join(), 'A,C', 'named by label, any case, several for multi, unknown names ignored');
+    const c = parse({ questions: [{ question: 'Which?', options: ['A', 'B'], recommended: 'B' }, { question: 'Hmm', type: 'text', recommended: 'x' }, { question: 'Which 2?', options: [{ label: 'A', recommended: 'yes' }] }] });
+    assert.strictEqual(c.spec.questions[0].options[1].recommended, true);
+    assert.ok(!c.spec.questions[2].options[0].recommended, 'only true counts');
+    const f = A.buildAsk(doc, parse({ questions: [{ question: 'Which?', options: ['A', { label: 'B', recommended: true }] }] }).spec, {});
+    const badges = f.el.querySelectorAll('.dck-ask-rec');
+    assert.strictEqual(badges.length, 1); assert.strictEqual(badges[0].textContent, 'Recommended');
+    assert.strictEqual(f.el.querySelectorAll('input:checked').length, 0, 'never preselected');
+    assert.strictEqual(f.el.querySelectorAll('.dck-ask-optlabel')[1].textContent, 'B', 'the label itself is unchanged');
+    ok('recommended: flag or label, one for single choice, badge shown, never preselected');
+  }
+  console.log('all ask tests passed');
+})().catch((e) => { console.error(e); process.exit(1); });

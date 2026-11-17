@@ -480,14 +480,14 @@ async function askForms() {
 
   // add to message
   const first = p.locator('.dck-vis[data-kind=ask]').first();
-  const step = (name) => first.locator('.dck-ask-nav', { hasText: name }).click();
-  assert.strictEqual(await first.locator('.dck-ask-progress').innerText(), 'Question 1 of 3');
+  const step = (name) => first.locator(name === 'Next' ? '[aria-label="Next question"]' : '[aria-label="Previous question"]').click();
+  assert.strictEqual(await first.locator('.dck-ask-progress').innerText(), '1 of 3');
   assert.strictEqual(await first.locator('.dck-ask-submit').isVisible(), false, 'Add to message waits for the last question');
   await first.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
   await step('Next');
   await first.locator('.dck-ask-opt', { hasText: 'Login' }).click();
   await step('Next');
-  assert.strictEqual(await first.locator('.dck-ask-progress').innerText(), 'Question 3 of 3');
+  assert.strictEqual(await first.locator('.dck-ask-progress').innerText(), '3 of 3');
   await first.locator('.dck-ask-text').fill('keep it simple');
   await p.fill('#main', 'hello');
   await first.locator('.dck-ask-submit').click();
@@ -511,6 +511,20 @@ async function askForms() {
   assert.strictEqual(await p.evaluate(() => window.__enter), enters, 'and the site never sees it as a send');
   ok('typing inside the form never inserts context or sends');
 
+  // sent: once the message box is emptied (Enter pressed) the card turns read-only, and survives the site redrawing it
+  await p.fill('#main', '');
+  await p.waitForFunction(() => /Answers sent/.test(document.querySelector('.dck-ask-note').textContent), null, { timeout: 4000 });
+  assert.ok(await first.locator('input[type=radio]').first().isDisabled(), 'sent: the options are locked');
+  assert.ok(await first.locator('.dck-ask-again').isVisible());
+  await p.evaluate((html) => { const b = document.querySelector('.md-code-block'); b.insertAdjacentHTML('afterend', html); b.remove(); }, fence('ask', SPEC));
+  await p.waitForFunction(() => { const c = document.querySelector('.dck-vis[data-kind=ask]'); return c && /Answers sent/.test(c.querySelector('.dck-ask-note').textContent); }, null, { timeout: 4000 });
+  const re = p.locator('.dck-vis[data-kind=ask]').first();
+  assert.ok(await re.locator('input[type=radio]').first().isDisabled(), 'a redrawn card comes back locked');
+  assert.ok(await re.locator('.dck-ask-opt', { hasText: 'Web application' }).locator('input').isChecked(), 'and still shows what was sent');
+  await re.locator('.dck-ask-again').click();
+  assert.ok(await re.locator('input[type=radio]').first().isEnabled(), 'Answer again unlocks it');
+  ok('after the answers are sent the card is read-only (even redrawn); Answer again unlocks it');
+
   // the broken block
   const bad = p.locator('.dck-vis[data-kind=ask]').nth(1);
   assert.ok((await bad.innerText()).indexOf('could not be shown') >= 0, 'invalid JSON says so');
@@ -527,8 +541,8 @@ async function askForms() {
   await p.waitForSelector('.dck-ask .dck-ask-opt');
   const nf = p.locator('.dck-vis[data-kind=ask]').first();
   await nf.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
-  await nf.locator('.dck-ask-nav', { hasText: 'Next' }).click();
-  await nf.locator('.dck-ask-nav', { hasText: 'Next' }).click();
+  await nf.locator('[aria-label=\"Next question\"]').click();
+  await nf.locator('[aria-label=\"Next question\"]').click();
   await nf.locator('.dck-ask-submit').click();
   await p.waitForFunction(() => /Context added|Answers sent|Could not/.test(document.querySelector('.dck-ask-note').textContent), null, { timeout: 6000 });
   const rev = await p.evaluate(() => ({ note: document.querySelector('.dck-ask-note').textContent, box: document.getElementById('main').value, sent: window.__sent.length }));
@@ -540,8 +554,8 @@ async function askForms() {
   await p.waitForSelector('.dck-ask .dck-ask-opt');
   const f2 = p.locator('.dck-vis[data-kind=ask]').first();
   await f2.locator('.dck-ask-opt', { hasText: 'Desktop application' }).click();
-  await f2.locator('.dck-ask-nav', { hasText: 'Next' }).click();
-  await f2.locator('.dck-ask-nav', { hasText: 'Next' }).click();
+  await f2.locator('[aria-label=\"Next question\"]').click();
+  await f2.locator('[aria-label=\"Next question\"]').click();
   await f2.locator('.dck-ask-submit').click();
   await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 6000 });
   assert.strictEqual(await p.inputValue('#main'), '', 'the box emptied');
@@ -557,8 +571,8 @@ async function askForms() {
   await p.waitForSelector('.dck-ask .dck-ask-opt');
   const f3 = p.locator('.dck-vis[data-kind=ask]').first();
   await f3.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
-  await f3.locator('.dck-ask-nav', { hasText: 'Next' }).click();
-  await f3.locator('.dck-ask-nav', { hasText: 'Next' }).click();
+  await f3.locator('[aria-label=\"Next question\"]').click();
+  await f3.locator('[aria-label=\"Next question\"]').click();
   await f3.locator('.dck-ask-submit').click();
   await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 8000 });
   assert.strictEqual(await p.evaluate(() => window.__sent.length), 1, 'sent exactly once');
