@@ -24,6 +24,11 @@
     '- Use ordinary markdown for anything else, and do not make a visual when plain text answers the question.',
   ].join('\n');
 
+  const ASK_PROMPT = [
+    'When you need the user to choose between options or answer a few short questions before you can go on, put them in a fenced code block whose language is ask. The chat turns it into a form the user can click, so do not also write the questions out.',
+    'Use one JSON object: {"questions":[{"question":"What kind of app?","type":"single","options":["Web","Desktop","Mobile"]},{"question":"Which features?","type":"multi","options":[{"label":"Login","description":"email and password"},"Dashboard"]},{"question":"Anything else?","type":"text"}]}. type is single (pick one), multi (pick several) or text (a free answer). Choice questions get an Other field automatically; add "other":false to remove it. Ask only what you need (usually 1 to 4 questions), keep options short, and use plain text for ordinary questions that need no choices.',
+  ].join('\n');
+
   const DEFAULTS = {
     enabled: true,
     showInjected: true, // false = attach context automatically and hide it in the chat
@@ -49,6 +54,12 @@
     visualsText: '', // '' = use the built-in text
     visualsSchedule: 'first',
     visualsEveryN: 5,
+    askEnabled: true, // draw ask code blocks as clickable question forms
+    askPrompt: true, // built-in "Questions" prompt that teaches the model the format
+    askText: '', // '' = use the built-in text
+    askSchedule: 'first',
+    askEveryN: 5,
+    askAutoSend: false, // false = answers go into the message box for you to send; true = sent straight away
     starterSeeded: false, // the starter snippets and note were offered once (a new install gets them, an older one never does)
   };
 
@@ -328,6 +339,10 @@
     return (settings.visualsText || '').trim() ? settings.visualsText : VISUALS_PROMPT;
   }
 
+  function askPromptText(settings) {
+    return (settings.askText || '').trim() ? settings.askText : ASK_PROMPT;
+  }
+
   // Every prompt that may take part: the built-in default and Visuals prompts, then your own list.
   function promptEntries(settings) {
     const list = [];
@@ -336,6 +351,9 @@
     }
     if (settings.visualsPrompt !== false && settings.visualsEnabled !== false) {
       list.push({ id: 'visuals', name: 'Visuals', text: visualsPromptText(settings), enabled: true, schedule: settings.visualsSchedule || 'first', everyN: settings.visualsEveryN || 5 });
+    }
+    if (settings.askPrompt !== false && settings.askEnabled !== false) {
+      list.push({ id: 'ask', name: 'Questions', text: askPromptText(settings), enabled: true, schedule: settings.askSchedule || 'first', everyN: settings.askEveryN || 5 });
     }
     (settings.prompts || []).forEach((p) => { if (p) list.push(p); });
     return list;
@@ -644,7 +662,7 @@
   }
 
   const core = {
-    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, STARTER_SNIPPETS, STARTER_MEMORIES, addStarters, cleanPrompts, cleanSnippets, cleanMemories, keyMatches, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
+    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, ASK_PROMPT, askPromptText, STARTER_SNIPPETS, STARTER_MEMORIES, addStarters, cleanPrompts, cleanSnippets, cleanMemories, keyMatches, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
     scheduleDue, applyVariables, promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens, summarize,
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,

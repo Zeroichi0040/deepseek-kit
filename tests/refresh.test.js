@@ -5,7 +5,7 @@ const ROOT = require('path').join(__dirname, '..');
 const read = (f) => fs.readFileSync(require('path').join(ROOT, f), 'utf8');
 const src = read('content.js');
 const site = read('site.js');
-const visSrc = read('visuals.js') + '\n' + read('markdown.js');
+const visSrc = read('visuals.js') + '\n' + read('markdown.js') + '\n' + read('ask.js');
 const lib = read('lib.js');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

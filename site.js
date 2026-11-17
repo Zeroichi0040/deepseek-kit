@@ -4,7 +4,7 @@
 (function () {
   'use strict';
 
-  const OURS = '#dck-drawer, #dck-picker, #dck-chips, #dck-zipchip, #dck-toast, #dck-fab';
+  const OURS = '#dck-drawer, #dck-picker, #dck-chips, #dck-zipchip, #dck-toast, #dck-fab, .dck-vis';
   // A reasoning ("Thought for N seconds") block is the element carrying this inline custom property.
   const BLOCK_SEL = '[style*="--collapsible-area-title-height"]';
 

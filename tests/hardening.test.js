@@ -5,7 +5,7 @@ const path = require('path');
 const assert = require('assert');
 
 const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
-const scripts = ['lib.js', 'site.js', 'visuals.js', 'markdown.js', 'content.js'].map(read);
+const scripts = ['lib.js', 'site.js', 'visuals.js', 'markdown.js', 'ask.js', 'content.js'].map(read);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ok = (m) => console.log('ok  ' + m);
 
@@ -29,7 +29,7 @@ async function boot(stored, memories, opts) {
     toastText: () => (doc.getElementById('dck-toast') || {}).textContent || '',
   };
 }
-const hidden = { showInjected: false, defaultEnabled: false, visualsPrompt: false, prompts: [{ id: 'p', name: 'C', text: 'Be brief', enabled: true, schedule: 'first' }] };
+const hidden = { showInjected: false, defaultEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [{ id: 'p', name: 'C', text: 'Be brief', enabled: true, schedule: 'first' }] };
 
 (async () => {
   // a send the site accepts, but whose box empties slowly: the send button must NOT be pressed too

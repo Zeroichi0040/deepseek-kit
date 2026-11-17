@@ -5,7 +5,7 @@
   'use strict';
 
   const {
-    BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, cleanMemories, visualsPromptText, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
+    BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, ASK_PROMPT, askPromptText, cleanMemories, visualsPromptText, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
@@ -14,6 +14,7 @@
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
   const MD = globalThis.DCK_MD;
+  const ASK = globalThis.DCK_ASK;
 
   // ---------- Extension runtime ----------
   const store = chrome.storage.local;
@@ -433,7 +434,7 @@
     true
   );
   document.addEventListener('input', (e) => {
-    if (e.target instanceof HTMLTextAreaElement && !e.target.closest('#dck-drawer')) { updatePicker(); refreshAll(false); }
+    if (e.target instanceof HTMLTextAreaElement && !e.target.closest('#dck-drawer, .dck-vis')) { updatePicker(); refreshAll(false); }
   }, true);
 
   // ---------- Enter handling ----------
@@ -443,7 +444,7 @@
       if (bypass) return; // our own synthetic Enter
       const el = e.target;
       if (!(el instanceof HTMLTextAreaElement)) return;
-      if (el.closest('#dck-drawer')) return; // typing in the drawer never triggers sends
+      if (el.closest('#dck-drawer, .dck-vis')) return; // typing in the drawer or in a question form never triggers sends
       if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
       if (!settings.enabled || !settings.autoInsertOnEnter) return;
       if (!el.value.trim()) return;
@@ -649,6 +650,7 @@
   // The two prompts that ship with the Kit. Each keeps its switch, text override and schedule in its own settings keys.
   const BUILTINS = {
     default: { name: 'Default', on: 'defaultEnabled', text: 'defaultText', sched: 'defaultSchedule', every: 'defaultEveryN', base: () => BUILTIN_DEFAULT_PROMPT, current: () => defaultPromptText(settings) },
+    ask: { name: 'Questions', on: 'askPrompt', text: 'askText', sched: 'askSchedule', every: 'askEveryN', base: () => ASK_PROMPT, current: () => askPromptText(settings) },
     visuals: { name: 'Visuals', on: 'visualsPrompt', text: 'visualsText', sched: 'visualsSchedule', every: 'visualsEveryN', base: () => VISUALS_PROMPT, current: () => visualsPromptText(settings) },
   };
 
@@ -885,9 +887,10 @@
     add('Send button', p.send ? true : (hidden ? false : null), p.send ? 'found' : (hidden ? 'not found - Hidden mode cannot press send' : 'not found (only needed in Hidden mode)'));
     add('Toolbar pills', settings.showChips === false ? null : (p.pills > 0 ? true : null), p.pills + ' found (DeepThink, Search)' + (p.pills || settings.showChips === false ? '' : ' - chips will sit above the box'));
     add('Chip row', settings.showChips === false ? null : !!document.getElementById('dck-chips'), settings.showChips === false ? 'turned off' : (chips.inline ? 'in the message box toolbar' : 'above the message box (toolbar not found or box too narrow)'));
-    const vOn = visOn();
+    const vOn = chartsOn();
     add('Widget sandbox', !vOn ? null : (vis.sandbox === 'ok' ? true : vis.sandbox === 'blocked' ? false : null), !vOn ? 'visuals are off' : vis.sandbox === 'ok' ? 'isolated frames run scripts here' : vis.sandbox === 'blocked' ? 'blocked on this page - charts still work, widgets will not' : 'checking...');
-    add('Visuals on page', null, vOn ? vis.list.length + ' chart/viz block(s), ' + vis.list.filter((x) => x.rendered).length + ' drawn, ' + vis.list.filter((x) => x.error).length + ' with an error' : 'off');
+    add('Visuals on page', null, vOn ? vis.list.filter((x) => x.kind !== 'ask').length + ' chart/viz block(s), ' + vis.list.filter((x) => x.kind !== 'ask' && x.rendered).length + ' drawn, ' + vis.list.filter((x) => x.kind !== 'ask' && x.error).length + ' with an error' : 'off');
+    add('Question forms', null, settings.askEnabled === false ? 'off' : vis.list.filter((x) => x.kind === 'ask').length + ' on this page, ' + vis.list.filter((x) => x.kind === 'ask' && x.error).length + ' with an error');
     add('Storage', storage.error ? false : null, storage.error ? 'last write failed: ' + storage.error : 'writes OK');
     add('Hidden-mode cleanup', null, hidden ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
     const toolsState = settings.codeTools === false ? 'tools off' : 'tools on';
@@ -922,7 +925,7 @@
     diag.events.slice(-8).reverse().forEach((e) => card.append(h('div', { class: 'dck-sub dck-diagevent' }, e.t.toTimeString().slice(0, 8) + '  ' + e.msg)));
     body.append(card);
     body.append(h('div', { class: 'dck-two' },
-      h('button', { type: 'button', class: 'dck-btn', onclick: () => { render(); if (visOn()) runSandboxProbe().then(() => render()); } }, 'Refresh'),
+      h('button', { type: 'button', class: 'dck-btn', onclick: () => { render(); if (chartsOn()) runSandboxProbe().then(() => render()); } }, 'Refresh'),
       h('button', {
         type: 'button', class: 'dck-btn',
         onclick: () => {
@@ -976,6 +979,19 @@
         settings.collapseLong = v;
         if (v) scheduleCollapseScan(); else { document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false)); syncAll(); }
         commit();
+      }));
+    }));
+
+    body.append(accordion('ask', 'Questions', settings.askEnabled === false ? 'Off' : (settings.askAutoSend ? 'Clickable questions, sent straight away' : 'Clickable questions, added to your message'), (box) => {
+      box.append(settingRow('Draw question forms', 'Turns ask code blocks into forms you can click. Nothing leaves the page', settings.askEnabled !== false, (v) => {
+        settings.askEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
+      }));
+      box.append(settingRow('Ask the model for them', 'Adds the short built-in Questions prompt (edit it in the Prompts tab)', settings.askPrompt !== false, (v) => {
+        settings.askPrompt = v; commit(); liveSig = ''; refreshAll(true);
+      }));
+      box.append(settingRow('Send answers straight away', 'Off: your answers go into the message box and you press Enter. On: they are sent right when you submit', !!settings.askAutoSend, (v) => {
+        settings.askAutoSend = v; commit();
+        vis.list.forEach((st) => { if (st.ask) st.ask.setSubmitLabel(askLabel()); });
       }));
     }));
 
@@ -1421,7 +1437,7 @@
   // with the language chart or viz. When the block is finished it is hidden and a card is drawn right after it.
   // Charts are plain SVG built by visuals.js. Widgets run in a sandboxed iframe with no network (see visuals.js).
   const vis = { list: [], sandbox: null, seq: 0, dark: null };
-  const VIS_LANGS = { chart: 'chart', viz: 'viz', widget: 'viz' };
+  const VIS_LANGS = { chart: 'chart', viz: 'viz', widget: 'viz', ask: 'ask', question: 'ask', questions: 'ask' };
   const VIS_SETTLE = 700; // ms a block must stay unchanged before it counts as finished
 
   function pageIsDark() {
@@ -1442,7 +1458,10 @@
       : { dark: false, text: '#15171a', muted: '#5b636b', border: '#e1e4e7', surface: '#f6f7f8', accent: '#3b57e6' };
   }
 
-  function visOn() { return !!(settings.enabled && settings.visualsEnabled !== false); }
+  // visOn: any of the card kinds is on. chartsOn: charts and widgets. kindOn: one kind.
+  function visOn() { return !!(settings.enabled && (settings.visualsEnabled !== false || settings.askEnabled !== false)); }
+  function chartsOn() { return !!(settings.enabled && settings.visualsEnabled !== false); }
+  function kindOn(kind) { return kind === 'ask' ? settings.askEnabled !== false : settings.visualsEnabled !== false; }
 
   function visError(st, message) {
     st.error = message;
@@ -1452,7 +1471,7 @@
   function sendVisError(st) {
     const el = getComposer();
     if (!el) { toast('Message box not found'); return; }
-    const kind = st.kind === 'chart' ? 'chart' : 'interactive visual';
+    const kind = st.kind === 'chart' ? 'chart' : st.kind === 'ask' ? 'question form' : 'interactive visual';
     const msg = 'The ' + kind + ' you made did not work: ' + (st.error || 'unknown error') + '\nPlease fix it and reply with the corrected ```' + st.kind + ' block.';
     setNativeValue(el, el.value && el.value.trim() ? el.value.replace(/\s+$/, '') + '\n\n' + msg : msg);
     el.focus();
@@ -1465,7 +1484,7 @@
     if (!st.error) { st.status.style.display = 'none'; return; }
     st.status.style.display = '';
     st.status.append(
-      h('span', { class: 'dck-viserr-text' }, 'This visual hit a problem: ' + st.error),
+      h('span', { class: 'dck-viserr-text' }, (st.kind === 'ask' ? 'This question form hit a problem: ' : 'This visual hit a problem: ') + st.error),
       h('button', { type: 'button', class: 'dck-vbtn', onclick: () => sendVisError(st) }, 'Send error to DeepSeek'),
       h('button', { type: 'button', class: 'dck-vbtn', onclick: () => toggleVisCode(st, true) }, 'Show code'));
   }
@@ -1518,7 +1537,7 @@
     st.codeBtn = h('button', { type: 'button', class: 'dck-vbtn', onclick: () => toggleVisCode(st) }, 'Code');
     st.actions = h('div', { class: 'dck-visactions' });
     st.card = h('div', { class: 'dck-vis', 'data-kind': kind, 'data-theme': vis.dark ? 'dark' : 'light' },
-      h('div', { class: 'dck-visbar' }, h('span', { class: 'dck-vislabel' }, kind === 'chart' ? 'Chart' : 'Interactive'), st.actions),
+      h('div', { class: 'dck-visbar' }, h('span', { class: 'dck-vislabel' }, kind === 'chart' ? 'Chart' : kind === 'ask' ? 'Questions' : 'Interactive'), st.actions),
       st.body, st.status);
     return st;
   }
@@ -1530,7 +1549,7 @@
         h('button', { type: 'button', class: 'dck-vbtn', onclick: () => downloadChart(st, 'png') }, 'PNG'),
         h('button', { type: 'button', class: 'dck-vbtn', onclick: () => downloadChart(st, 'svg') }, 'SVG'));
     }
-    if (!st.error || st.rendered) st.actions.append(h('button', { type: 'button', class: 'dck-vbtn', onclick: () => openVisFull(st) }, 'Full size'));
+    if (st.kind !== 'ask' && (!st.error || st.rendered)) st.actions.append(h('button', { type: 'button', class: 'dck-vbtn', onclick: () => openVisFull(st) }, 'Full size'));
     st.actions.append(st.codeBtn);
   }
 
@@ -1539,12 +1558,76 @@
     st.shown = 'ph';
     st.body.textContent = '';
     st.error = ''; renderVisStatus(st);
-    st.body.append(h('div', { class: 'dck-visph' }, h('span', { class: 'dck-visph-dot' }), st.kind === 'chart' ? 'Building chart...' : 'Building interactive visual...'));
+    st.body.append(h('div', { class: 'dck-visph' }, h('span', { class: 'dck-visph-dot' }), st.kind === 'chart' ? 'Building chart...' : st.kind === 'ask' ? 'Preparing questions...' : 'Building interactive visual...'));
     st.actions.textContent = '';
     st.rendered = '';
   }
 
+  // ----- question forms (```ask blocks): answers go into the message box, or are sent straight away if you chose that
+  function askLabel() { return settings.askAutoSend ? 'Send answers' : 'Add to message'; }
+
+  // Presses Enter in the message box like you would, so the Kit's own Enter handling (count, due context) applies.
+  // If the site did not take it, the send button is pressed once. done('sent' | 'review' | 'failed').
+  function sendNow(el, done) {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    const t0 = Date.now();
+    let clicked = false;
+    const tick = () => {
+      if (!el.isConnected || !el.value.trim()) { done('sent'); return; }
+      if (alreadyHasContext(el.value)) { done('review'); return; } // the Kit added due context first: you review it, then send
+      if (Date.now() - t0 >= SEND_WAIT * (clicked ? 2 : 1)) {
+        if (clicked || !clickSend(el)) { done('failed'); return; }
+        clicked = true;
+      }
+      setTimeout(tick, 100);
+    };
+    setTimeout(tick, 100);
+  }
+
+  function submitAsk(st, text) {
+    const el = getComposer();
+    if (!el) { toast('Message box not found'); st.ask.note('Message box not found'); return; }
+    const cur = el.value || '';
+    let next;
+    if (st.added && cur.indexOf(st.added) >= 0) next = cur.replace(st.added, text); // answered again: replace our earlier answers
+    else next = cur.trim() ? cur.replace(/\s+$/, '') + '\n\n' + text : text;
+    setNativeValue(el, next);
+    st.added = text;
+    el.focus();
+    try { el.setSelectionRange(next.length, next.length); } catch (e) { /* ignore */ }
+    if (!settings.askAutoSend) {
+      st.ask.note('Added to your message - press Enter to send');
+      toast('Answers added - press Enter to send');
+      logEvent('Answers added to the message box');
+      return;
+    }
+    st.ask.lock(true);
+    st.ask.note('Sending...');
+    sendNow(el, (result) => {
+      if (result === 'sent') { st.ask.note('Answers sent'); logEvent('Answers sent'); }
+      else if (result === 'review') { st.ask.note('Context added - review it, then press Enter to send'); }
+      else { st.ask.lock(false); st.ask.note('Could not send - your answers are in the message box'); toast('Could not send automatically - press Enter to send'); logEvent('Answers not sent'); }
+    });
+  }
+
+  function renderAskCard(st) {
+    if (st.rendered === st.text) return; // the form keeps what you picked, so only a changed block redraws it
+    st.rendered = st.text;
+    st.shown = 'done';
+    st.error = '';
+    st.added = '';
+    st.body.textContent = '';
+    st.ask = null;
+    const r = ASK ? ASK.parseAskSpec(st.text) : { ok: false, error: 'Question forms are not available.' };
+    if (!r.ok) { st.body.append(h('div', { class: 'dck-visph' }, 'These questions could not be shown.')); visError(st, r.error); fillVisActions(st); return; }
+    st.ask = ASK.buildAsk(document, r.spec, { submitLabel: askLabel(), onSubmit: (text) => submitAsk(st, text) });
+    st.body.append(st.ask.el);
+    renderVisStatus(st);
+    fillVisActions(st);
+  }
+
   function renderVisCard(st) {
+    if (st.kind === 'ask') { renderAskCard(st); return; }
     const key = st.text + '|' + (vis.dark ? 'd' : 'l');
     if (st.rendered === key) return;
     st.rendered = key;
@@ -1583,7 +1666,8 @@
     vis.list = vis.list.filter((st) => { if (st.pre.isConnected && st.box.isConnected) return true; st.card.remove(); return false; });
     const now = Date.now();
     SITE.codeBlocks().forEach((pre) => {
-      const kind = VIS_LANGS[SITE.blockLang(pre)];
+      let kind = VIS_LANGS[SITE.blockLang(pre)];
+      if (kind && !kindOn(kind)) kind = null;
       let st = vis.list.find((x) => x.pre === pre);
       if (!kind) { if (st) { dropVisCard(st); vis.list = vis.list.filter((x) => x !== st); } return; }
       const box = SITE.blockBox(pre);
@@ -1701,7 +1785,7 @@
     startObserver();
     syncAll();
     syncVisuals();
-    setTimeout(() => { if (visOn()) runSandboxProbe(); }, 1500);
+    setTimeout(() => { if (chartsOn()) runSandboxProbe(); }, 1500);
     initThinkTracker();
     listenForOtherTabs();
     applyFold();

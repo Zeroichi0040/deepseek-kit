@@ -301,3 +301,28 @@ html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-c
 .dck-md th, .dck-md td { border: 1px solid rgba(128,128,128,.35); padding: 6px 12px; }
 .dck-md th { background: rgba(128,128,128,.15); font-weight: 600; }
 .dck-md .dck-md-img { opacity: .7; font-style: italic; }
+
+/* ---------- question forms (```ask blocks), drawn inside a .dck-vis card ---------- */
+.dck-ask { display: flex; flex-direction: column; gap: 14px; margin: 0; padding: 2px 0 0; }
+.dck-ask-title { font-size: 15px; font-weight: 600; }
+.dck-ask-q { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.dck-ask-qtext { padding: 0; margin: 0 0 2px; font-size: 14.5px; font-weight: 600; color: var(--v-text); }
+.dck-ask-opt { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--v-border); border-radius: 10px; cursor: pointer; transition: border-color .12s, background .12s; }
+.dck-ask-opt:hover { background: rgba(128,128,128,.10); }
+.dck-ask-opt:has(input:checked) { border-color: var(--v-c1); background: rgba(77,107,254,.10); }
+.dck-ask-opt input[type=radio], .dck-ask-opt input[type=checkbox] { margin: 3px 0 0; flex: none; accent-color: var(--v-c1); width: 16px; height: 16px; cursor: pointer; }
+.dck-ask-optbody { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.dck-ask-optlabel { color: var(--v-text); }
+.dck-ask-optdesc { font-size: 12.5px; color: var(--v-muted); }
+.dck-ask-othertext, .dck-ask-text { width: 100%; box-sizing: border-box; font: inherit; color: var(--v-text); background: transparent; border: 0; border-bottom: 1px solid var(--v-border); padding: 2px 0; outline: none; }
+.dck-ask-text { border: 1px solid var(--v-border); border-radius: 10px; padding: 8px 10px; resize: vertical; min-height: 56px; }
+.dck-ask-othertext:focus, .dck-ask-text:focus { border-color: var(--v-c1); }
+.dck-ask-othertext::placeholder, .dck-ask-text::placeholder { color: var(--v-muted); }
+.dck-ask-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.dck-ask-submit { border: 0; border-radius: 999px; padding: 7px 16px; font: inherit; font-weight: 600; color: #fff; background: var(--v-c1); cursor: pointer; }
+.dck-ask-submit:disabled { opacity: .4; cursor: default; }
+.dck-ask-clear { border: 0; background: transparent; color: var(--v-muted); font: inherit; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+.dck-ask-clear:hover:not(:disabled) { background: rgba(128,128,128,.16); color: var(--v-text); }
+.dck-ask-clear:disabled { opacity: .4; cursor: default; }
+.dck-ask-note { font-size: 12.5px; color: var(--v-muted); }
+.dck-ask.locked .dck-ask-opt { opacity: .65; cursor: default; }

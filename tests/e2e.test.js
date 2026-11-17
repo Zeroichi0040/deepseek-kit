@@ -439,6 +439,118 @@ async function mdPreview() {
   await ctx.close();
 }
 
+// ---------- Question forms (```ask blocks)
+async function askForms() {
+  const SPEC = JSON.stringify({ questions: [
+    { question: 'What kind of application?', options: ['Web application', 'Desktop application'] },
+    { question: 'Which features?', type: 'multi', options: [{ label: 'Login', description: 'email and password' }, 'Dashboard'] },
+    { question: 'Anything else?', type: 'text' },
+  ] });
+  const page = (mode) => `<body style="background:#151517;color:#eee;margin:0"><div style="width:700px;padding:20px">${fence('ask', SPEC)}<p id="gap">between</p>${fence('ask', '{ this is not json')}</div><div id="box" style="border-radius:20px;background:#2b2b2e;padding:16px;width:700px;margin:20px"><textarea id="main" style="width:100%"></textarea><div role="button" aria-label="Send" id="sendbtn" style="width:30px;height:30px"><svg width="12" height="12"><rect width="12" height="12"/></svg></div></div><script>window.__sent=[];window.__enter=0;var m=document.getElementById("main");m.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){window.__enter++;if("${mode}"==="enter"){window.__sent.push(m.value);m.value="";}}});document.getElementById("sendbtn").addEventListener("click",function(){window.__sent.push(m.value);m.value="";});</script></body>`;
+  const ctx = await launch(1000, 1100);
+  const p = await open(ctx, page('enter'));
+  const hosts = new Set();
+  p.on('request', (r) => { try { hosts.add(new URL(r.url()).host); } catch (e) { /* ignore */ } });
+  const card = p.locator('.dck-vis[data-kind=ask]').first();
+  await card.waitFor({ timeout: 8000 });
+  await p.waitForSelector('.dck-ask .dck-ask-opt');
+  const info = await p.evaluate(() => ({
+    fs: document.querySelectorAll('.dck-vis[data-kind=ask]')[0].querySelectorAll('fieldset').length,
+    radios: document.querySelectorAll('.dck-vis[data-kind=ask]')[0].querySelectorAll('input[type=radio]').length,
+    boxes: document.querySelectorAll('.dck-vis[data-kind=ask]')[0].querySelectorAll('input[type=checkbox]').length,
+    hidden: getComputedStyle(document.querySelector('.md-code-block')).display === 'none',
+    label: document.querySelector('.dck-vislabel').textContent, desc: document.querySelector('.dck-ask-optdesc').textContent,
+    disabled: document.querySelector('.dck-ask-submit').disabled, submit: document.querySelector('.dck-ask-submit').textContent,
+  }));
+  assert.deepStrictEqual(info, { fs: 3, radios: 3, boxes: 3, hidden: true, label: 'Questions', desc: 'email and password', disabled: true, submit: 'Add to message' });
+  ok('an ask block becomes a form card (source hidden, Add disabled until you answer)');
+
+  // add to message
+  const first = p.locator('.dck-vis[data-kind=ask]').first();
+  await first.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
+  await first.locator('.dck-ask-opt', { hasText: 'Login' }).click();
+  await first.locator('.dck-ask-text').fill('keep it simple');
+  await p.fill('#main', 'hello');
+  await first.locator('.dck-ask-submit').click();
+  const want = 'My answers:\n\n1. What kind of application?\n   Web application\n2. Which features?\n   Login\n3. Anything else?\n   keep it simple';
+  assert.strictEqual(await p.inputValue('#main'), 'hello\n\n' + want, 'answers go after what you had typed');
+  assert.ok((await first.locator('.dck-ask-note').innerText()).indexOf('press Enter') >= 0);
+  await first.locator('.dck-ask-opt', { hasText: 'Dashboard' }).click();
+  await first.locator('.dck-ask-submit').click();
+  const v2 = await p.inputValue('#main');
+  assert.ok(v2.startsWith('hello\n\n') && v2.indexOf('Login, Dashboard') > 0 && v2.split('My answers:').length === 2, 'answering again replaces the earlier answers: ' + JSON.stringify(v2));
+  assert.strictEqual(await p.evaluate(() => window.__sent.length), 0, 'nothing is sent in this mode');
+  ok('Add to message: appended after your text, and re-adding replaces instead of duplicating');
+
+  // typing in the form never triggers the Kit or the site
+  const enters = await p.evaluate(() => window.__enter);
+  await first.locator('.dck-ask-text').press('Enter');
+  await first.locator('.dck-ask-text').press('Enter');
+  assert.strictEqual(await p.inputValue('#main'), v2, 'Enter inside the form does not touch the message box');
+  assert.strictEqual(await p.evaluate(() => window.__enter), enters, 'and the site never sees it as a send');
+  ok('typing inside the form never inserts context or sends');
+
+  // the broken block
+  const bad = p.locator('.dck-vis[data-kind=ask]').nth(1);
+  assert.ok((await bad.innerText()).indexOf('could not be shown') >= 0, 'invalid JSON says so');
+  assert.ok((await bad.innerText()).indexOf('question form hit a problem') >= 0, 'in the right words');
+  assert.strictEqual(await bad.locator('.dck-visactions .dck-vbtn:has-text("Code")').count(), 1, 'and offers the source');
+  ok('an invalid block shows a clear message with the source one click away');
+
+  // send straight away - context due (first message, Insert on Enter is on): the Kit adds it first, you review
+  await settingsTab(p, 'Questions');
+  await toggle(p, 'Send answers straight away');
+  await close(p);
+  assert.strictEqual(await first.locator('.dck-ask-submit').innerText(), 'Send answers', 'the button says what it will do');
+  await p.goto('https://chat.deepseek.com/'); // a new chat: the first message is due the built-in prompts
+  await p.waitForSelector('.dck-ask .dck-ask-opt');
+  const nf = p.locator('.dck-vis[data-kind=ask]').first();
+  await nf.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
+  await nf.locator('.dck-ask-submit').click();
+  await p.waitForFunction(() => /Context added|Answers sent|Could not/.test(document.querySelector('.dck-ask-note').textContent), null, { timeout: 6000 });
+  const rev = await p.evaluate(() => ({ note: document.querySelector('.dck-ask-note').textContent, box: document.getElementById('main').value, sent: window.__sent.length }));
+  assert.ok(/review it/.test(rev.note) && rev.box.indexOf('[Context from my notes]') >= 0 && rev.box.indexOf('My answers:') > 0 && rev.sent === 0, 'due context is added for review, not sent: ' + JSON.stringify(rev).slice(0, 300));
+  ok('Send straight away: when context is due the Kit adds it and waits for you');
+
+  // ... and with nothing due it goes out on Enter
+  await p.goto('https://chat.deepseek.com/a/chat/s/1'); // an existing chat: nothing is due, so Enter just sends
+  await p.waitForSelector('.dck-ask .dck-ask-opt');
+  const f2 = p.locator('.dck-vis[data-kind=ask]').first();
+  await f2.locator('.dck-ask-opt', { hasText: 'Desktop application' }).click();
+  await f2.locator('.dck-ask-submit').click();
+  await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 6000 });
+  assert.strictEqual(await p.inputValue('#main'), '', 'the box emptied');
+  assert.ok((await p.evaluate(() => window.__sent[0])).indexOf('Desktop application') > 0);
+  await p.waitForFunction(() => document.querySelector('.dck-ask-note').textContent === 'Answers sent');
+  assert.ok(await f2.locator('input[type=radio]').first().isDisabled(), 'the answered form is locked');
+  ok('Send straight away: sent with Enter, the form shows Answers sent and locks');
+
+  // ... and when the site ignores the Enter, the send button is used once
+  await ctx.unroute('https://chat.deepseek.com/**');
+  await ctx.route('https://chat.deepseek.com/**', (r) => r.fulfill({ contentType: 'text/html', body: page('ignore') }));
+  await p.reload();
+  await p.waitForSelector('.dck-ask .dck-ask-opt');
+  const f3 = p.locator('.dck-vis[data-kind=ask]').first();
+  await f3.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
+  await f3.locator('.dck-ask-submit').click();
+  await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 8000 });
+  assert.strictEqual(await p.evaluate(() => window.__sent.length), 1, 'sent exactly once');
+  await p.waitForTimeout(2500);
+  assert.strictEqual(await p.evaluate(() => window.__sent.length), 1, 'and never a second time');
+  ok('Send straight away: falls back to the send button once when Enter is ignored');
+
+  // the setting
+  await settingsTab(p, 'Questions');
+  await toggle(p, 'Draw question forms');
+  await close(p);
+  await p.waitForTimeout(400);
+  assert.strictEqual(await p.locator('.dck-vis[data-kind=ask]').count(), 0, 'switching it off removes the forms');
+  assert.ok(await p.evaluate(() => Array.from(document.querySelectorAll('.md-code-block')).every((b) => getComputedStyle(b).display !== 'none')), 'and shows the source blocks again');
+  ok('the Questions setting');
+  assert.deepStrictEqual(Array.from(hosts).filter((h) => h !== 'chat.deepseek.com'), [], 'no outside requests');
+  await ctx.close();
+}
+
 // ---------- reasoning fold
 const chevOpen = openHTML.match(/<div class="ds-icon" style="font-size: 14px[^>]*>.*?<\/svg><\/div>/s)[0];
 const chevClosed = closedHTML.match(/<div class="ds-icon _3d79d66"[^>]*>.*?<\/svg><\/div>/s)[0];
@@ -569,6 +681,7 @@ async function starters() {
     await visuals();
     await mirror();
     await mdPreview();
+    await askForms();
     await fold();
     await twoTabs();
     await starters();

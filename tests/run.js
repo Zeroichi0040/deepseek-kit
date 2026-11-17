@@ -1,7 +1,7 @@
 // One command for everything: node tests/run.js  (or: npm test)
 const { spawnSync } = require('child_process');
 const path = require('path');
-const files = ['logic.test.js', 'site.test.js', 'visuals.test.js', 'markdown.test.js', 'ui.test.js', 'hardening.test.js', 'refresh.test.js', 'e2e.test.js'];
+const files = ['logic.test.js', 'site.test.js', 'visuals.test.js', 'markdown.test.js', 'ask.test.js', 'ui.test.js', 'hardening.test.js', 'refresh.test.js', 'e2e.test.js'];
 let failed = [];
 for (const f of files) {
   console.log('\n=== ' + f);
