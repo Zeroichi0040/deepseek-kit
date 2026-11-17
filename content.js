@@ -51,7 +51,7 @@
   }
   let settings = migrateSettings({});
   let memories = [];
-  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: null, search: '', showAllVars: false, preview: null };
+  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: null, search: '', showAllVars: false, preview: null, diagAll: false, diagEvents: false };
   let bypass = false; // true while we dispatch our own Enter
   let counts = {}; // messages sent per chat path, saved so a page refresh does not forget them
   let newChatCount = 0; // messages sent from the new-chat screen ("/") before the page moves to the chat's own URL
@@ -945,13 +945,22 @@
   }
 
   function renderDiagnostics(body) {
+    const rows = diagnostics();
+    const bad = rows.filter((r) => r.ok === false);
+    const rest = rows.filter((r) => r.ok !== false);
+    const dot = (r) => h('span', { class: 'dck-diagdot ' + (r.ok === true ? 'ok' : r.ok === false ? 'bad' : 'info') });
+    const line = (r, compact) => h('div', { class: 'dck-diagrow' + (compact ? ' compact' : '') }, dot(r), h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, r.label), h('div', { class: 'dck-sub' }, r.detail)));
+    const toggle = (label, open, flip) => h('button', { type: 'button', class: 'dck-diagtoggle' + (open ? ' open' : ''), 'aria-expanded': open ? 'true' : 'false', onclick: () => { flip(); render(); } }, icon('chev', 14), label);
     const card = h('div', { class: 'dck-diag' });
-    diagnostics().forEach((r) => card.append(h('div', { class: 'dck-diagrow' },
-      h('span', { class: 'dck-diagdot ' + (r.ok === true ? 'ok' : r.ok === false ? 'bad' : 'info') }),
-      h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, r.label), h('div', { class: 'dck-sub' }, r.detail)))));
-    card.append(h('div', { class: 'dck-sub dck-diagevents-title' }, 'Recent events'));
-    if (!diag.events.length) card.append(h('div', { class: 'dck-sub' }, 'Nothing yet this session.'));
-    diag.events.slice(-8).reverse().forEach((e) => card.append(h('div', { class: 'dck-sub dck-diagevent' }, e.t.toTimeString().slice(0, 8) + '  ' + e.msg)));
+    if (!bad.length) card.append(h('div', { class: 'dck-diagsum ok' }, dot({ ok: true }), 'Everything found')); // with problems, the section header already says how many
+    bad.forEach((r) => card.append(line(r, false)));
+    card.append(toggle((bad.length ? 'Other checks (' : 'All checks (') + rest.length + ')', ui.diagAll, () => { ui.diagAll = !ui.diagAll; }));
+    if (ui.diagAll) rest.forEach((r) => card.append(line(r, true)));
+    card.append(toggle('Recent events (' + diag.events.length + ')', ui.diagEvents, () => { ui.diagEvents = !ui.diagEvents; }));
+    if (ui.diagEvents) {
+      if (!diag.events.length) card.append(h('div', { class: 'dck-sub' }, 'Nothing yet this session.'));
+      diag.events.slice(-8).reverse().forEach((e) => card.append(h('div', { class: 'dck-sub dck-diagevent' }, e.t.toTimeString().slice(0, 8) + '  ' + e.msg)));
+    }
     body.append(card);
     body.append(h('div', { class: 'dck-two' },
       h('button', { type: 'button', class: 'dck-btn', onclick: () => { render(); if (chartsOn()) runSandboxProbe().then(() => render()); } }, 'Refresh'),

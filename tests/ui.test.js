@@ -177,6 +177,24 @@ async function boot(stored, memories) {
     console.log('ok  starter content: new install only, once, on request');
   }
 
+  // ---------- 3c. Diagnostics: problems first, the rest folded ----------
+  {
+    const a = await boot({});
+    a.tab('Settings').click();
+    Array.from(a.drawer.querySelectorAll('.dck-acchead')).find((x) => x.querySelector('.dck-name').textContent === 'Diagnostics').click();
+    assert.ok(a.drawer.querySelector('.dck-diagsum') || a.drawer.querySelector('.dck-diagdot.bad'), 'a green verdict, or the failed checks themselves');
+    assert.strictEqual(a.drawer.querySelectorAll('.dck-diagtoggle').length, 2);
+    assert.strictEqual(a.drawer.querySelectorAll('.dck-diagrow.compact').length, 0, 'OK rows start folded');
+    assert.ok(!a.text().includes('Reasoning blocks'), 'the OK rows are not listed until asked for');
+    a.drawer.querySelectorAll('.dck-diagtoggle')[0].click();
+    assert.ok(a.drawer.querySelectorAll('.dck-diagrow.compact').length >= 8, 'all checks open on request');
+    assert.ok(a.text().includes('Reasoning blocks') && a.text().includes('Stored data'));
+    a.drawer.querySelectorAll('.dck-diagtoggle')[1].click();
+    assert.ok(a.text().includes('Nothing yet this session') || a.drawer.querySelectorAll('.dck-diagevent').length > 0, 'events open on request');
+    assert.ok(a.btn('Copy report') && a.btn('Refresh'));
+    console.log('ok  compact Diagnostics');
+  }
+
   // ---------- 4. Prompts tab: edit, new, delete, default ----------
   {
     const a = await boot({ prompts: [{ id: 'p1', name: 'Concise tone', text: 'Be brief', enabled: true, schedule: 'every', everyN: 5 }] });
