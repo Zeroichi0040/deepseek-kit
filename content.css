@@ -308,7 +308,8 @@ html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-c
 .dck-md pre { margin: .7em 0; padding: 10px 12px; overflow: auto; border-radius: 8px; background: rgba(128,128,128,.15); }
 .dck-md pre code { padding: 0; background: none; font-size: .88em; white-space: pre; }
 .dck-md table { border-collapse: collapse; margin: .7em 0; display: block; overflow: auto; max-width: 100%; }
-.dck-md th, .dck-md td { border: 1px solid rgba(128,128,128,.35); padding: 6px 12px; }
+/* !important: the site styles table cells inside its code block with flush padding, which leaves the text touching the borders */
+.dck-mdprev .dck-md table th, .dck-mdprev .dck-md table td { border: 1px solid rgba(128,128,128,.35); padding: 8px 14px !important; line-height: 1.5 !important; }
 .dck-md th { background: rgba(128,128,128,.15); font-weight: 600; }
 .dck-md .dck-md-img { opacity: .7; font-style: italic; }
 
