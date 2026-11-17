@@ -551,6 +551,98 @@ async function askForms() {
   await ctx.close();
 }
 
+// ---------- Lists in the message box (Shift+Enter)
+async function listKeys() {
+  const html = `<body style="background:#151517;color:#eee;margin:0"><div style="border-radius:20px;background:#2b2b2e;padding:16px;width:700px;margin:20px"><textarea id="main" rows="6" style="width:100%"></textarea></div><script>window.__inputs=0;window.__shiftEnter=0;window.__enter=0;var m=document.getElementById("main");m.addEventListener("input",function(){window.__inputs++});m.addEventListener("keydown",function(e){if(e.key==="Enter"&&e.shiftKey)window.__shiftEnter++;if(e.key==="Enter"&&!e.shiftKey)window.__enter++});</script></body>`;
+  const ctx = await launch(1000, 700);
+  const p = await open(ctx, html);
+  await p.waitForSelector('#dck-fab');
+  const val = () => p.inputValue('#main');
+  const reset = async () => { await p.fill('#main', ''); await p.evaluate(() => { window.__shiftEnter = 0; window.__enter = 0; }); await p.click('#main'); };
+  const typeLines = async (s) => { await p.keyboard.type(s); };
+
+  // off by default: Shift+Enter is the ordinary newline
+  await reset();
+  await typeLines('1. one');
+  await p.keyboard.press('Shift+Enter');
+  assert.strictEqual(await val(), '1. one\n', 'off by default');
+  ok('lists: off by default, Shift+Enter is the plain newline');
+
+  await settingsTab(p, 'Messages');
+  await toggle(p, 'Continue lists with Shift+Enter');
+  await close(p);
+
+  // numbered list: continue, continue, then leave
+  await reset();
+  await typeLines('1. one');
+  await p.keyboard.press('Shift+Enter');
+  assert.strictEqual(await val(), '1. one\n2. ');
+  assert.strictEqual(await p.evaluate(() => { const m = document.getElementById('main'); return m.selectionStart === m.value.length && m.selectionEnd === m.value.length; }), true, 'caret after the new marker');
+  await typeLines('two');
+  await p.keyboard.press('Shift+Enter');
+  assert.strictEqual(await val(), '1. one\n2. two\n3. ');
+  await p.keyboard.press('Shift+Enter');
+  assert.strictEqual(await val(), '1. one\n2. two\n', 'a second press on the empty item leaves the list');
+  await typeLines('after');
+  assert.strictEqual(await val(), '1. one\n2. two\nafter');
+  assert.strictEqual(await p.evaluate(() => window.__shiftEnter), 0, 'the site never saw those Shift+Enter presses (no double newline)');
+  assert.ok(await p.evaluate(() => window.__inputs) >= 8, 'the page saw real input events');
+  ok('lists: numbered list continues, and a second Shift+Enter leaves it');
+
+  // undo works
+  await reset();
+  await typeLines('1. one');
+  await p.keyboard.press('Shift+Enter');
+  await p.keyboard.press('Control+z');
+  assert.strictEqual(await val(), '1. one', 'Ctrl+Z undoes the continuation');
+  ok('lists: Ctrl+Z undoes it');
+
+  // bullets and quotes, nested indent
+  for (const [start, expect] of [['- a', '- a\n- '], ['* a', '* a\n* '], ['  - nested', '  - nested\n  - '], ['> q', '> q\n> '], ['9. nine', '9. nine\n10. ']]) {
+    await reset();
+    await typeLines(start);
+    await p.keyboard.press('Shift+Enter');
+    assert.strictEqual(await val(), expect, 'continues ' + JSON.stringify(start));
+  }
+  ok('lists: bullets, quotes, nested lines and number rollover');
+
+  // everything else keeps the normal behaviour
+  await reset();
+  await typeLines('hello');
+  await p.keyboard.press('Shift+Enter');
+  assert.strictEqual(await val(), 'hello\n');
+  assert.strictEqual(await p.evaluate(() => window.__shiftEnter), 1, 'not a list: the site sees Shift+Enter as usual');
+  await reset();
+  await typeLines('```');
+  await p.keyboard.press('Shift+Enter');
+  await typeLines('- code');
+  await p.keyboard.press('Shift+Enter');
+  assert.strictEqual(await val(), '```\n- code\n', 'inside a code fence nothing is added');
+  await reset();
+  await typeLines('1. one two');
+  for (let i = 0; i < 4; i++) await p.keyboard.press('ArrowLeft');
+  await p.keyboard.press('Shift+Enter');
+  assert.strictEqual(await val(), '1. one\n two', 'with the caret mid-line it is the plain newline');
+  await reset();
+  await typeLines('1. one');
+  await p.keyboard.press('Enter');
+  assert.strictEqual(await val(), '1. one\n', 'plain Enter is not touched (no list item added)');
+  assert.strictEqual(await p.evaluate(() => window.__enter), 1, 'and still reaches the site');
+  ok('lists: ordinary text, code fences, mid-line caret and plain Enter are untouched');
+
+  // switching it off again (the Messages section is still open from before)
+  await p.click('#dck-fab');
+  await toggle(p, 'Continue lists with Shift+Enter');
+  await close(p);
+  await reset();
+  await typeLines('1. one');
+  await p.keyboard.press('Shift+Enter');
+  assert.strictEqual(await val(), '1. one\n', 'off again');
+  ok('lists: the setting switches it off');
+  assert.deepStrictEqual(p.errs, [], 'no page errors');
+  await ctx.close();
+}
+
 // ---------- reasoning fold
 const chevOpen = openHTML.match(/<div class="ds-icon" style="font-size: 14px[^>]*>.*?<\/svg><\/div>/s)[0];
 const chevClosed = closedHTML.match(/<div class="ds-icon _3d79d66"[^>]*>.*?<\/svg><\/div>/s)[0];
@@ -682,6 +774,7 @@ async function starters() {
     await mirror();
     await mdPreview();
     await askForms();
+    await listKeys();
     await fold();
     await twoTabs();
     await starters();

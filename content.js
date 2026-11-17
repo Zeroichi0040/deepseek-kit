@@ -6,7 +6,7 @@
 
   const {
     BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, ASK_PROMPT, askPromptText, cleanMemories, visualsPromptText, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
-    buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery,
+    buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
     memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START, addStarters,
@@ -436,6 +436,35 @@
   document.addEventListener('input', (e) => {
     if (e.target instanceof HTMLTextAreaElement && !e.target.closest('#dck-drawer, .dck-vis')) { updatePicker(); refreshAll(false); }
   }, true);
+
+  // ---------- Lists in the message box: Shift+Enter continues a "1." / "-" / ">" list, on an empty item it leaves it ----------
+  // The edit goes in through the browser's own text insertion, so Ctrl+Z still undoes it and the site sees normal input.
+  function applyListEdit(el, edit) {
+    const before = el.value;
+    const want = before.slice(0, edit.from) + edit.insert + before.slice(edit.to);
+    el.focus();
+    el.setSelectionRange(edit.from, edit.to);
+    let ok = false;
+    try { ok = edit.insert ? document.execCommand('insertText', false, edit.insert) : document.execCommand('delete'); } catch (e) { ok = false; }
+    if (!ok || el.value !== want) setNativeValue(el, want); // the browser would not do it: set the same result directly
+    const caret = edit.from + edit.insert.length;
+    try { el.setSelectionRange(caret, caret); } catch (e) { /* ignore */ }
+  }
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (bypass || e.key !== 'Enter' || !e.shiftKey || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!settings.enabled || !settings.listContinue) return;
+      const el = e.target;
+      if (!(el instanceof HTMLTextAreaElement) || el.closest('#dck-drawer, .dck-vis') || pickerOpen()) return;
+      const edit = continueList(el.value, el.selectionStart, el.selectionEnd);
+      if (!edit) return; // not in a list: Shift+Enter keeps its normal newline
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      applyListEdit(el, edit);
+    },
+    true
+  );
 
   // ---------- Enter handling ----------
   document.addEventListener(
@@ -958,7 +987,8 @@
 
   function renderSettings(body) {
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
-    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking]), (box) => {
+    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, !!settings.listContinue]), (box) => {
+      box.append(settingRow('Continue lists with Shift+Enter', 'In the message box, Shift+Enter on a "1.", "-" or ">" line starts the next item; on an empty item it ends the list', !!settings.listContinue, (v) => { settings.listContinue = v; commit(); }));
       box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
       box.append(settingRow('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
       box.append(settingRow('Collapse reasoning', 'Folds DeepThink blocks to their header while thinking and when finished, also after a refresh. Click a header to open it', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); }));

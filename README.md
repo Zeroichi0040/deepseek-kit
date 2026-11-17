@@ -36,6 +36,8 @@ The panel has four tabs, with the controls you use most pinned above and below t
 
 A small chip row shows what will be attached (Default, Concise tone, 2 memories) and whether context is Visible or Hidden. It sits in the message box toolbar next to the DeepThink and Search pills (hover it for the token estimate), and falls back to just above the message box when the toolbar is not found or the box is narrow. *Chips in the toolbar* (on by default) shows or hides the row.
 
+**Lists in the message box** (Settings > Messages > *Continue lists with Shift+Enter*, off by default): the message box is plain text, so this only helps with typing. With a plain cursor at the end of a line that starts with `1.`, `-`, `*`, `+` or `>` followed by a space, Shift+Enter starts the next item (`2.`, another bullet, another quote line, with the same indent); on an empty item it removes the marker and leaves the list. It does nothing inside a code fence (a line starting with three backticks or tildes), with the cursor in the middle of a line, or on any line that is not a list item, and Enter itself is never touched. Ctrl+Z undoes it.
+
 ## DeepThink reasoning: collapse
 
 Settings > Messages > *Collapse reasoning* (off by default). Reasoning blocks are folded to their header, both while the model is still thinking and once it says "Thought for N seconds", in every message, so they are also folded after a refresh.

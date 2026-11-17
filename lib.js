@@ -59,6 +59,7 @@
     askText: '', // '' = use the built-in text
     askSchedule: 'first',
     askEveryN: 5,
+    listContinue: false, // Shift+Enter in a list in the message box continues it
     askAutoSend: false, // false = answers go into the message box for you to send; true = sent straight away
     starterSeeded: false, // the starter snippets and note were offered once (a new install gets them, an older one never does)
   };
@@ -429,6 +430,31 @@
   }
 
   // "/foo" (and nothing else) in the message box opens the snippet picker.
+  // Shift+Enter in a list: carry the list on to the next line, or leave the list when the item is empty. Pure: takes the
+  // box text and caret and returns null (let the key do its normal newline) or { from, to, insert }, meaning "replace
+  // value[from..to] with insert". Only acts with a plain caret at the very end of a line, and never inside a code fence.
+  function continueList(value, start, end) {
+    value = String(value == null ? '' : value);
+    if (start !== end || start < 0 || start > value.length) return null;
+    const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+    let lineEnd = value.indexOf('\n', start);
+    if (lineEnd < 0) lineEnd = value.length;
+    if (lineEnd !== start) return null;
+    const fences = value.slice(0, lineStart).split('\n').filter((l) => /^\s*(```|~~~)/.test(l)).length;
+    if (fences % 2 === 1) return null; // inside a code block the text is meant literally
+    const line = value.slice(lineStart, lineEnd);
+    const m = /^([ \t]*)(>|[-*+]|(\d{1,9})([.)]))([ \t]+)(.*)$/.exec(line);
+    if (!m) return null;
+    if (!m[6].trim()) return { from: lineStart, to: lineEnd, insert: '' }; // an empty item: the list ends here
+    let marker = m[2];
+    if (m[3] !== undefined) {
+      const next = parseInt(m[3], 10) + 1;
+      if (next > 999999999) return null;
+      marker = next + m[4];
+    }
+    return { from: start, to: start, insert: '\n' + m[1] + marker + m[5] };
+  }
+
   function slashQuery(value) {
     const m = /^\/([^\s\/]*)$/.exec(String(value || ''));
     return m ? m[1] : null;
@@ -664,7 +690,7 @@
   const core = {
     DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, ASK_PROMPT, askPromptText, STARTER_SNIPPETS, STARTER_MEMORIES, addStarters, cleanPrompts, cleanSnippets, cleanMemories, keyMatches, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
     scheduleDue, applyVariables, promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens, summarize,
-    describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, cleanSnippetName, filterSnippets,
+    describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     LANG_EXT, normalizeLang, langFromClass, extFor, sniffLang, previewKind, detectBlock, suggestFilename, uniqueName, crc32, makeZip,
     MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
