@@ -91,6 +91,7 @@ const hidden = { showInjected: false, defaultEnabled: false, visualsPrompt: fals
     assert.ok(a.doc.getElementById('dck-fab'), 'the Kit still mounts with defaults');
     const b = await boot({}, [], { get: () => { throw new Error('Extension context invalidated.'); } });
     assert.ok(b.doc.getElementById('dck-fab'), 'and when the call throws');
+    assert.strictEqual(Object.keys(a.saved).length + Object.keys(b.saved).length, 0, 'a failed read seeds nothing and saves nothing, so real data is never overwritten');
     ok('load failures fall back to defaults');
   }
   // corrupt stored lists do not break the drawer
