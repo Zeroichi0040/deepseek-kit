@@ -26,7 +26,7 @@
 
   const ASK_PROMPT = [
     'When you need the user to choose between options or answer a few short questions before you can go on, put them in a fenced code block whose language is ask. The chat turns it into a form the user can click, so do not also write the questions out.',
-    'Use one JSON object: {"questions":[{"question":"What kind of app?","type":"single","options":["Web","Desktop","Mobile"]},{"question":"Which features?","type":"multi","options":[{"label":"Login","description":"email and password"},"Dashboard"]},{"question":"Anything else?","type":"text"}]}. type is single (pick one), multi (pick several) or text (a free answer). Choice questions get an Other field automatically; add "other":false to remove it. Ask only what you need (usually 1 to 4 questions), keep options short, and use plain text for ordinary questions that need no choices.',
+    'Use one JSON object: {"questions":[{"question":"What kind of app?","type":"single","options":[{"label":"Web","recommended":true},"Desktop","Mobile"]},{"question":"Which features?","type":"multi","options":[{"label":"Login","description":"email and password"},"Dashboard"]},{"question":"Anything else?","type":"text"}]}. type is single (pick one), multi (pick several) or text (a free answer). Choice questions get an Other field automatically; add "other":false to remove it. When one option is clearly the better choice, list it first and add "recommended":true to it; mark at most one per question, and only with a real reason. Ask only what you need (usually 1 to 4 questions), keep options short, and use plain text for ordinary questions that need no choices.',
   ].join('\n');
 
   const DEFAULTS = {

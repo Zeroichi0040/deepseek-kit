@@ -39,7 +39,10 @@
       const label = clip(o.label != null ? o.label : (o.text != null ? o.text : o.value), MAX_LABEL);
       if (!label) return null;
       const description = clip(o.description != null ? o.description : o.hint, MAX_DESC);
-      return description ? { label, description } : { label };
+      const out = { label };
+      if (description) out.description = description;
+      if (o.recommended === true || o.recommended === 'true') out.recommended = true;
+      return out;
     }
     return null;
   }
@@ -56,6 +59,11 @@
     if (t === 'text' || t === 'open' || t === 'free' || t === 'input') type = 'text';
     else if (t === 'multi' || t === 'multiple' || t === 'checkbox' || t === 'checkboxes' || q.multiple === true || q.multi === true) type = 'multi';
     if (!options.length) type = 'text';
+    // "recommended": true on an option, or the question names the option's label (or several, as a list). A name that
+    // matches nothing is ignored. A single-choice question keeps only the first one.
+    const named = (Array.isArray(q.recommended) ? q.recommended : [q.recommended]).filter((x) => typeof x === 'string').map((x) => clip(x, MAX_LABEL).toLowerCase());
+    options.forEach((o) => { if (named.indexOf(o.label.toLowerCase()) >= 0) o.recommended = true; });
+    if (type !== 'multi') { let seen = false; options.forEach((o) => { if (o.recommended) { if (seen) delete o.recommended; seen = true; } }); }
     // "other" is on unless the model turns it off; a string sets its label
     let other = q.other !== false && q.allowOther !== false && q.allow_other !== false;
     let otherLabel = typeof q.other === 'string' ? clip(q.other, 60) : 'Other';
@@ -114,13 +122,20 @@
   function buildAsk(doc, spec, opts) {
     opts = opts || {};
     const el = (tag, cls, txt) => { const n = doc.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+    const total = spec.questions.length;
+    const paged = total > 1;
     const root = el('form', 'dck-ask');
     root.setAttribute('novalidate', '');
-    if (spec.title) root.appendChild(el('div', 'dck-ask-title', spec.title));
+    if (spec.title || total > 1) {
+      const head = el('div', 'dck-ask-head');
+      head.appendChild(el('div', 'dck-ask-title', spec.title || ''));
+      root.appendChild(head);
+    }
     const uid = 'ask' + Math.random().toString(36).slice(2, 8);
     const state = spec.questions.map(() => ({ picked: [], other: '', useOther: false, text: '' }));
     const rows = [];
     let locked = false;
+    let sent = false;
     let changeFn = null;
 
     const submit = el('button', 'dck-ask-submit', opts.submitLabel || 'Add to message');
@@ -128,31 +143,38 @@
     const clear = el('button', 'dck-ask-clear', 'Clear');
     clear.type = 'button';
     const note = el('div', 'dck-ask-note');
-    // With several questions only one shows at a time: Back and Next step through them, the dots jump.
-    const total = spec.questions.length;
-    const paged = total > 1;
+    // With several questions only one shows at a time: arrows at the top right step through them.
     let cur = 0;
-    const back = el('button', 'dck-ask-nav', 'Back');
-    const next = el('button', 'dck-ask-nav', 'Next');
+    let autoTimer = null;
+    const svg = (d) => {
+      const ns = 'http://www.w3.org/2000/svg';
+      const sv = doc.createElementNS(ns, 'svg');
+      sv.setAttribute('width', '16'); sv.setAttribute('height', '16'); sv.setAttribute('viewBox', '0 0 24 24');
+      sv.setAttribute('fill', 'none'); sv.setAttribute('stroke', 'currentColor'); sv.setAttribute('stroke-width', '2.2');
+      sv.setAttribute('stroke-linecap', 'round'); sv.setAttribute('stroke-linejoin', 'round'); sv.setAttribute('aria-hidden', 'true');
+      const pa = doc.createElementNS(ns, 'path'); pa.setAttribute('d', d); sv.appendChild(pa);
+      return sv;
+    };
+    const back = el('button', 'dck-ask-arrow');
+    const next = el('button', 'dck-ask-arrow');
+    back.type = next.type = 'button';
+    back.setAttribute('aria-label', 'Previous question');
+    next.setAttribute('aria-label', 'Next question');
+    back.appendChild(svg('M15 6l-6 6 6 6'));
+    next.appendChild(svg('M9 6l6 6-6 6'));
     const progress = el('span', 'dck-ask-progress');
     progress.setAttribute('aria-live', 'polite');
-    const dots = [];
-    back.type = next.type = 'button';
 
     function showStep(n) {
       cur = Math.max(0, Math.min(total - 1, n));
       if (!paged) return;
       rows.forEach((r, i) => { r.hidden = i !== cur; });
       back.disabled = cur === 0;
-      next.hidden = cur === total - 1;
+      next.disabled = cur === total - 1;
       submit.hidden = cur !== total - 1;
-      progress.textContent = 'Question ' + (cur + 1) + ' of ' + total;
-      dots.forEach((d, i) => {
-        d.classList.toggle('cur', i === cur);
-        d.classList.toggle('done', !!answerValue(spec.questions[i], state[i]));
-        if (i === cur) d.setAttribute('aria-current', 'step'); else d.removeAttribute('aria-current');
-      });
+      progress.textContent = (cur + 1) + ' of ' + total;
     }
+    function go(n) { if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; } showStep(n); }
 
     function refresh() {
       const text = compileAnswers(spec, state);
@@ -191,13 +213,21 @@
         inp.name = name;
         inp.value = o.label;
         const body = el('span', 'dck-ask-optbody');
-        body.appendChild(el('span', 'dck-ask-optlabel', o.label));
+        const lrow = el('span', 'dck-ask-optrow');
+        lrow.appendChild(el('span', 'dck-ask-optlabel', o.label));
+        if (o.recommended) lrow.appendChild(el('span', 'dck-ask-rec', 'Recommended'));
+        body.appendChild(lrow);
         if (o.description) body.appendChild(el('span', 'dck-ask-optdesc', o.description));
         inp.addEventListener('change', () => {
           if (kind === 'radio') { st.picked = inp.checked ? [o.label] : []; st.useOther = false; }
           else if (inp.checked) { if (st.picked.indexOf(o.label) < 0) st.picked.push(o.label); } else st.picked = st.picked.filter((x) => x !== o.label);
           if (kind === 'radio') optRows.forEach((r) => { if (r.other) r.other.classList.remove('on'); });
           refresh();
+          // a single-choice pick moves on by itself (not from the last question, not while sent); Back undoes it
+          if (kind === 'radio' && inp.checked && paged && !locked && qi < total - 1) {
+            if (autoTimer) clearTimeout(autoTimer);
+            autoTimer = setTimeout(() => { autoTimer = null; if (cur === qi && !locked) showStep(qi + 1); }, 260);
+          }
         });
         lab.append(inp, body);
         box.appendChild(lab);
@@ -236,24 +266,17 @@
     });
 
     if (paged) {
-      const nav = el('div', 'dck-ask-pager');
-      const dotbox = el('span', 'dck-ask-dots');
-      spec.questions.forEach((q, i) => {
-        const d = el('button', 'dck-ask-dot');
-        d.type = 'button';
-        d.setAttribute('aria-label', 'Go to question ' + (i + 1));
-        d.addEventListener('click', () => showStep(i));
-        dots.push(d);
-        dotbox.appendChild(d);
-      });
-      back.addEventListener('click', () => showStep(cur - 1));
-      next.addEventListener('click', () => showStep(cur + 1));
-      nav.append(back, el('span', 'dck-ask-mid'), next);
-      nav.querySelector('.dck-ask-mid').append(progress, dotbox);
-      root.appendChild(nav);
+      const pager = el('div', 'dck-ask-pager');
+      back.addEventListener('click', () => go(cur - 1));
+      next.addEventListener('click', () => go(cur + 1));
+      pager.append(progress, back, next);
+      root.querySelector('.dck-ask-head').appendChild(pager);
     }
     const foot = el('div', 'dck-ask-foot');
-    foot.append(submit, clear, note);
+    const again = el('button', 'dck-ask-again', 'Answer again');
+    again.type = 'button';
+    again.hidden = true;
+    foot.append(submit, clear, again, note);
     root.appendChild(foot);
 
     root.addEventListener('submit', (e) => {
@@ -265,6 +288,7 @@
     });
     root.addEventListener('keydown', (e) => e.stopPropagation()); // typing here never reaches the site's shortcuts
     clear.addEventListener('click', () => api.reset());
+    again.addEventListener('click', () => { api.markSent(false); if (opts.onAgain) opts.onAgain(); });
 
     const api = {
       el: root,
@@ -276,9 +300,37 @@
         root.querySelectorAll('input[type=text], textarea').forEach((i) => { i.value = ''; });
         note.textContent = '';
         cur = 0;
+        sent = false; again.hidden = true; root.classList.remove('sent');
         refresh();
       },
       step: () => cur,
+      // After the answers are sent the card is read-only (you can still page through it); "Answer again" undoes that.
+      markSent(v) {
+        sent = !!v;
+        again.hidden = !sent;
+        root.classList.toggle('sent', sent);
+        locked = sent;
+        root.classList.toggle('locked', locked);
+        note.textContent = sent ? 'Answers sent' : '';
+        refresh();
+      },
+      isSent: () => sent,
+      // Puts earlier answers (from answers()) back into the form, e.g. when the site redraws the chat.
+      setAnswers(list) {
+        (list || []).forEach((a, i) => {
+          const st = state[i];
+          const box = rows[i];
+          if (!st || !box || !a) return;
+          st.picked = Array.isArray(a.picked) ? a.picked.map(String) : [];
+          st.other = String(a.other || ''); st.useOther = !!a.useOther; st.text = String(a.text || '');
+          box.querySelectorAll('input[type=radio], input[type=checkbox]').forEach((inp) => {
+            inp.checked = inp.value === '__other__' ? st.useOther : st.picked.indexOf(inp.value) >= 0;
+          });
+          const ot = box.querySelector('.dck-ask-othertext'); if (ot) ot.value = st.other;
+          const ta = box.querySelector('textarea'); if (ta) ta.value = st.text;
+        });
+        refresh();
+      },
       lock(v) { locked = !!v; root.classList.toggle('locked', locked); refresh(); },
       note(t) { note.textContent = t || ''; },
       setSubmitLabel(t) { submit.textContent = t; },
