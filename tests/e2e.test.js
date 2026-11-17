@@ -517,12 +517,21 @@ async function askForms() {
   assert.ok(await first.locator('input[type=radio]').first().isDisabled(), 'sent: the options are locked');
   assert.ok(await first.locator('.dck-ask-again').isVisible());
   await p.evaluate((html) => { const b = document.querySelector('.md-code-block'); b.insertAdjacentHTML('afterend', html); b.remove(); }, fence('ask', SPEC));
-  await p.waitForFunction(() => { const c = document.querySelector('.dck-vis[data-kind=ask]'); return c && /Answers sent/.test(c.querySelector('.dck-ask-note').textContent); }, null, { timeout: 4000 });
+  await p.waitForFunction(() => { const n = document.querySelector('.dck-vis[data-kind=ask] .dck-ask-note'); return !!n && /Answers sent/.test(n.textContent); }, null, { timeout: 4000 });
   const re = p.locator('.dck-vis[data-kind=ask]').first();
   assert.ok(await re.locator('input[type=radio]').first().isDisabled(), 'a redrawn card comes back locked');
   assert.ok(await re.locator('.dck-ask-opt', { hasText: 'Web application' }).locator('input').isChecked(), 'and still shows what was sent');
-  await re.locator('.dck-ask-again').click();
-  assert.ok(await re.locator('input[type=radio]').first().isEnabled(), 'Answer again unlocks it');
+  // a full page reload keeps it locked too (the record is saved, per chat)
+  await p.reload();
+  await p.waitForFunction(() => { const n = document.querySelector('.dck-vis[data-kind=ask] .dck-ask-note'); return !!n && /Answers sent/.test(n.textContent); }, null, { timeout: 4000 });
+  const rl = p.locator('.dck-vis[data-kind=ask]').first();
+  assert.ok(await rl.locator('input[type=radio]').first().isDisabled(), 'after a reload the card is still locked');
+  assert.ok(await rl.locator('.dck-ask-opt', { hasText: 'Web application' }).locator('input').isChecked(), 'and still shows what was sent');
+  await rl.locator('.dck-ask-again').click();
+  assert.ok(await rl.locator('input[type=radio]').first().isEnabled(), 'Answer again unlocks it');
+  await p.reload();
+  await p.waitForSelector('.dck-ask .dck-ask-opt');
+  assert.ok(await p.locator('.dck-vis[data-kind=ask]').first().locator('input[type=radio]').first().isEnabled(), 'and stays unlocked after another reload');
   ok('after the answers are sent the card is read-only (even redrawn); Answer again unlocks it');
 
   // the broken block
@@ -564,6 +573,7 @@ async function askForms() {
   assert.ok(await f2.locator('input[type=radio]').first().isDisabled(), 'the answered form is locked');
   ok('Send straight away: sent with Enter, the form shows Answers sent and locks');
 
+  await f2.locator('.dck-ask-again').click(); // this chat's sent record is saved now; clear it for the next case
   // ... and when the site ignores the Enter, the send button is used once
   await ctx.unroute('https://chat.deepseek.com/**');
   await ctx.route('https://chat.deepseek.com/**', (r) => r.fulfill({ contentType: 'text/html', body: page('ignore') }));

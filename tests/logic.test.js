@@ -463,3 +463,20 @@ console.log('all logic tests passed');
   assert.strictEqual(c.DEFAULTS.listContinue, false, 'off by default');
 }
 console.log('ok  list continuation');
+{
+  // sent question cards are remembered per chat, with a bounded, cleaned record
+  const k1 = c.askKey('/a/chat/s/1', '{"questions":[1]}');
+  assert.strictEqual(k1, c.askKey('/a/chat/s/1', '{"questions":[1]}'), 'same chat and text: same key');
+  assert.notStrictEqual(k1, c.askKey('/a/chat/s/2', '{"questions":[1]}'), 'another chat: another key');
+  assert.notStrictEqual(k1, c.askKey('/a/chat/s/1', '{"questions":[2]}'), 'other text: other key');
+  const good = [{ picked: ['A'], other: '', useOther: false, text: '' }];
+  const cl = c.cleanAsked({ k: good, bad1: 'x', bad2: [], bad3: new Array(11).fill({}), [k1]: [{ picked: 'no', other: 5, useOther: 'yes', text: 'y'.repeat(5000) }] });
+  assert.deepStrictEqual(Object.keys(cl).sort(), ['k', k1].sort(), 'only valid entries survive');
+  assert.strictEqual(JSON.stringify(cl.k), JSON.stringify(good));
+  assert.strictEqual(cl[k1][0].picked.length, 0); assert.strictEqual(cl[k1][0].useOther, false); assert.strictEqual(cl[k1][0].text.length, 2000);
+  const many = {}; for (let i = 0; i < 100; i++) many['k' + i] = good;
+  const kept = Object.keys(c.cleanAsked(many));
+  assert.strictEqual(kept.length, c.ASKED_MAX); assert.strictEqual(kept[kept.length - 1], 'k99', 'the newest are kept');
+  assert.deepStrictEqual(c.cleanAsked(null), {}); assert.deepStrictEqual(c.cleanAsked([1]), {});
+  console.log('ok  sent question cards: key per chat, cleaned and bounded record');
+}

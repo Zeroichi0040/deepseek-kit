@@ -9,7 +9,7 @@
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
-    memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START, addStarters,
+    memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, askKey, cleanAsked, ASKED_MAX, MARKER_START, addStarters,
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
@@ -54,6 +54,7 @@
   const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: null, search: '', showAllVars: false, preview: null, diagAll: false, diagEvents: false };
   let bypass = false; // true while we dispatch our own Enter
   let counts = {}; // messages sent per chat path, saved so a page refresh does not forget them
+  let asked = {}; // answers sent from question cards, per chat, so a reload keeps those cards read-only
   let newChatCount = 0; // messages sent from the new-chat screen ("/") before the page moves to the chat's own URL
   let lastPath = location.pathname;
 
@@ -87,11 +88,12 @@
           dirty = true;
         }
         counts = r.dck_counts && typeof r.dck_counts === 'object' && !Array.isArray(r.dck_counts) ? r.dck_counts : {};
+        asked = cleanAsked(r.dck_asked);
         if (dirty) save(); // write the migrated or seeded shape back once
         resolve();
       };
       try {
-        store.get(['dck_settings', 'dck_memories', 'dck_counts', 'dck_fab'], (r) => {
+        store.get(['dck_settings', 'dck_memories', 'dck_counts', 'dck_fab', 'dck_asked'], (r) => {
           const e = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
           if (e) storage.error = e.message;
           done(r);
@@ -1183,7 +1185,7 @@
           type: 'button', class: 'dck-btn danger',
           onclick: () => {
             if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
-            settings = migrateSettings({}); memories = []; seedStarters(); ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
+            settings = migrateSettings({}); memories = []; seedStarters(); ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); asked = {}; storeSet({ dck_asked: asked }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
           },
         }, 'Reset all'));
     } else {
@@ -1623,9 +1625,21 @@
     setTimeout(tick, 100);
   }
 
-  // Question cards whose answers were sent, remembered by their question text for as long as the page is open, so a
-  // card the site redraws comes back read-only with the answers still shown. Nothing is stored.
-  const askSent = new Map();
+  // Question cards whose answers were sent are remembered per chat (and saved, so a reload keeps them), so a card the
+  // site redraws comes back read-only with the answers still shown.
+  const askSent = {
+    has: (text) => location.pathname !== '/' && !!asked[askKey(location.pathname, text)],
+    get: (text) => asked[askKey(location.pathname, text)],
+    set: (text, answers) => {
+      if (location.pathname === '/') return;
+      const k = askKey(location.pathname, text);
+      delete asked[k]; // re-insert so the newest stay at the end
+      asked[k] = answers;
+      asked = cleanAsked(asked);
+      storeSet({ dck_asked: asked });
+    },
+    delete: (text) => { delete asked[askKey(location.pathname, text)]; storeSet({ dck_asked: asked }); },
+  };
   const askPending = new Set(); // cards whose answers sit in the message box, waiting to be sent
   let askPoll = null;
   function askMarkSent(text, answers) {

@@ -679,6 +679,33 @@
     return out;
   }
 
+  // Question cards whose answers were sent are remembered per chat (storage key dck_asked) so a page reload keeps them
+  // read-only. The key is the chat path plus a short hash of the question block; the value is the answers as shown.
+  const ASKED_MAX = 60;
+  function askKey(path, text) {
+    let h = 5381;
+    const t = String(text || '');
+    for (let i = 0; i < t.length; i++) h = ((h * 33) ^ t.charCodeAt(i)) >>> 0;
+    return String(path || '') + '|' + h.toString(36) + '.' + t.length;
+  }
+  function cleanAsked(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+    const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+    Object.keys(raw).slice(-ASKED_MAX).forEach((k) => {
+      const list = raw[k];
+      if (!Array.isArray(list) || !list.length || list.length > 10) return;
+      out[str(k, 200)] = list.map((a) => {
+        a = a && typeof a === 'object' ? a : {};
+        return {
+          picked: (Array.isArray(a.picked) ? a.picked : []).slice(0, 12).map((x) => str(x, 200)),
+          other: str(a.other, 500), useOther: a.useOther === true, text: str(a.text, 2000),
+        };
+      });
+    });
+    return out;
+  }
+
   // Inserts text into `value` at the selection; returns the new value and caret position.
   function insertAt(value, start, end, text) {
     value = String(value || '');
@@ -693,7 +720,7 @@
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     LANG_EXT, normalizeLang, langFromClass, extFor, sniffLang, previewKind, detectBlock, suggestFilename, uniqueName, crc32, makeZip,
-    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
+    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, askKey, cleanAsked, ASKED_MAX, MARKER_START, MARKER_END,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   else root.DCK_LIB = core;
