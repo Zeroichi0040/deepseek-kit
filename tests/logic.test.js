@@ -420,3 +420,46 @@ console.log('all logic tests passed');
   assert.strictEqual(c.BUILTIN_DEFAULT_PROMPT.split('\n').length, 8, 'a header line plus seven rules');
   console.log('ok  starter content, new defaults and the default prompt');
 }
+
+// ---- list continuation (Shift+Enter in the message box)
+{
+  const run = (v, s, e) => c.continueList(v, s === undefined ? v.length : s, e === undefined ? (s === undefined ? v.length : s) : e);
+  const ins = (v) => { const r = run(v); return r ? { from: r.from, to: r.to, insert: r.insert } : null; };
+  assert.deepStrictEqual(ins('1. one'), { from: 6, to: 6, insert: '\n2. ' });
+  assert.deepStrictEqual(ins('- a'), { from: 3, to: 3, insert: '\n- ' });
+  assert.deepStrictEqual(ins('* a'), { from: 3, to: 3, insert: '\n* ' });
+  assert.deepStrictEqual(ins('+ a'), { from: 3, to: 3, insert: '\n+ ' });
+  assert.deepStrictEqual(ins('  - nested'), { from: 10, to: 10, insert: '\n  - ' });
+  assert.deepStrictEqual(ins('\t1. tabbed'), { from: 10, to: 10, insert: '\n\t2. ' });
+  assert.deepStrictEqual(ins('9. nine'), { from: 7, to: 7, insert: '\n10. ' });
+  assert.deepStrictEqual(ins('1) x'), { from: 4, to: 4, insert: '\n2) ' });
+  assert.deepStrictEqual(ins('> quote'), { from: 7, to: 7, insert: '\n> ' });
+  assert.deepStrictEqual(ins('intro\n\n2. second'), { from: 16, to: 16, insert: '\n3. ' }, 'works on any line');
+  assert.deepStrictEqual(ins('1.   wide'), { from: 9, to: 9, insert: '\n2.   ' }, 'keeps the spacing');
+  // an empty item ends the list
+  assert.deepStrictEqual(ins('1. a\n2. '), { from: 5, to: 8, insert: '' });
+  assert.deepStrictEqual(ins('- '), { from: 0, to: 2, insert: '' });
+  assert.deepStrictEqual(ins('-   '), { from: 0, to: 4, insert: '' });
+  assert.deepStrictEqual(ins('> '), { from: 0, to: 2, insert: '' });
+  assert.deepStrictEqual(ins('  - '), { from: 0, to: 4, insert: '' });
+  // ordinary text and look-alikes are left alone
+  ['', 'plain', '-', '---', '***', '**bold', '1.', '1.x', '2024-01-01', 'a - b', '-nospace', '>quote', '1 . x', 'e.g. this'].forEach((v) => assert.strictEqual(run(v), null, JSON.stringify(v)));
+  // only a plain caret at the end of a line
+  assert.strictEqual(run('1. one', 3), null, 'mid-line');
+  assert.strictEqual(run('1. one', 0, 6), null, 'a selection');
+  assert.strictEqual(c.continueList('1. one', 9, 9), null, 'out of range');
+  assert.ok(run('1. a\n2. b', 4), 'end of a line that is followed by another');
+  // code fences
+  assert.strictEqual(run('```\n- item'), null, 'inside a fence');
+  assert.strictEqual(run('~~~\n1. item'), null, 'inside a tilde fence');
+  assert.ok(run('```\ncode\n```\n- item'), 'after a closed fence');
+  assert.strictEqual(run('1. a\n```\nx\n```\n```\n- b'), null, 'a second fence opened');
+  assert.strictEqual(run('1. ' + '9'.repeat(1) + '\n999999999. last'), null, 'the largest number does not overflow');
+  // applying the edit gives the expected text
+  const apply = (v) => { const r = run(v); return r ? v.slice(0, r.from) + r.insert + v.slice(r.to) : v; };
+  assert.strictEqual(apply('1. one'), '1. one\n2. ');
+  assert.strictEqual(apply(apply('1. one') + 'two'), '1. one\n2. two\n3. ');
+  assert.strictEqual(apply('1. one\n2. '), '1. one\n', 'the second press leaves the list');
+  assert.strictEqual(c.DEFAULTS.listContinue, false, 'off by default');
+}
+console.log('ok  list continuation');
