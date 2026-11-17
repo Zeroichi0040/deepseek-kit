@@ -8,9 +8,9 @@
 
   const BUILTIN_DEFAULT_PROMPT = [
     'You are a helpful, honest assistant. Today is {{date}} ({{weekday}}), local time {{time}} {{timezone}}.',
-    '- Answer directly: lead with the answer, then add supporting detail only as needed.',
-    '- Match the length and depth of your reply to the question. Do not pad.',
-    '- If you are unsure or lack current information, say so instead of guessing.',
+    '- Lead with the answer, then add detail only if it helps. Do not restate the question or open with filler.',
+    '- Match length to the question. Do not pad, and do not end with offers like "let me know if...".',
+    '- If you are unsure or lack current information, say so instead of guessing. Never invent facts, sources or numbers.',
     '- Ask one short clarifying question only when the request is genuinely ambiguous; otherwise make a reasonable assumption and state it.',
     '- Put code, commands and file contents in fenced code blocks with a language tag.',
     '- Use plain prose by default; use lists or tables only when they make the content easier to scan.',
@@ -48,6 +48,7 @@
     visualsText: '', // '' = use the built-in text
     visualsSchedule: 'first',
     visualsEveryN: 5,
+    starterSeeded: false, // the starter snippets and note were offered once (a new install gets them, an older one never does)
   };
 
   const VARIABLES = [
@@ -98,6 +99,60 @@
       category: String(m.category == null ? '' : m.category),
       enabled: m.enabled !== false,
     }));
+  }
+
+  // ---------- Starter content (added once on a new install, or on request from Settings) ----------
+  const STARTER_SNIPPETS = [
+    { id: 'starter-summarize', name: 'summarize', text: 'Summarize the following in 5 bullet points or fewer, then give one sentence on the main takeaway:\n\n{{selection}}' },
+    { id: 'starter-explain', name: 'explain', text: 'Explain this in plain language, as if to a smart beginner. Start with the idea in one sentence, then give one concrete example:\n\n{{selection}}' },
+    { id: 'starter-fix', name: 'fix', text: 'Find the bug in this code. Say what is wrong in a sentence or two, then show the corrected code in full:\n\n{{selection}}' },
+    { id: 'starter-steps', name: 'steps', text: 'Give me exact step-by-step instructions, numbered, with the exact commands or menu names. Skip background and keep each step to one action:\n\n' },
+    { id: 'starter-translate', name: 'translate', text: 'Translate the following to English. Keep the tone and formatting, and note any phrase that has no direct equivalent:\n\n{{selection}}' },
+    {
+      id: 'starter-handoff',
+      name: 'handoff',
+      text: [
+        'Write a handoff so I can continue this conversation in a new chat without losing context. Output ONE fenced markdown block and nothing outside it. Use a four-backtick fence (````markdown) so any code inside can keep normal triple-backtick fences.',
+        '',
+        'Inside the block:',
+        '1. Opening line to the new assistant: "This is a handoff from an earlier conversation. Read it fully, treat it as context, and continue from Next steps. Ask me before assuming anything marked UNSURE."',
+        '2. Goal: what I am trying to achieve, in 1-3 sentences.',
+        '3. Current state: what is done, what is in progress, what is not started.',
+        '4. Decisions made and why, including options I rejected.',
+        '5. Key facts: names, numbers, dates, file names, versions, terms, and any rules or constraints I gave you.',
+        '6. My preferences: tone, format, length, language, and things I told you to avoid.',
+        '7. Code, text or data we produced: include the latest complete version verbatim. Do not summarize it. If it is too long, include the parts still being worked on and list the rest by name.',
+        '8. Open questions and next steps, in order.',
+        '',
+        'Use only what was said in this conversation. Never invent anything, and mark anything you are not sure of as UNSURE. Be dense: no filler, no repeating what the facts above already say.',
+      ].join('\n'),
+    },
+  ];
+  // Switched off, so the placeholder value is never sent until you write your name in and turn it on.
+  const STARTER_MEMORIES = [
+    { key: 'name', value: 'Write your name here', importance: 'always', category: 'About me', enabled: false },
+  ];
+
+  // Adds the starter snippets and notes you do not have yet (matched by name, case ignored). Nothing you have is
+  // changed or removed, and the inputs are not modified.
+  function addStarters(settings, memories) {
+    const snippets = cleanSnippets(settings && settings.snippets);
+    const notes = cleanMemories(memories);
+    const names = new Set(snippets.map((x) => x.name.toLowerCase()));
+    const ids = new Set(snippets.map((x) => x.id));
+    let addedSnippets = 0;
+    let addedNotes = 0;
+    STARTER_SNIPPETS.forEach((st) => {
+      if (names.has(st.name) || ids.has(st.id)) return;
+      snippets.push({ id: st.id, name: st.name, text: st.text });
+      addedSnippets++;
+    });
+    STARTER_MEMORIES.forEach((st) => {
+      if (notes.some((n) => n.key.trim().toLowerCase() === st.key)) return;
+      notes.push({ ...st });
+      addedNotes++;
+    });
+    return { settings: { ...(settings || {}), snippets: snippets }, memories: notes, addedSnippets: addedSnippets, addedNotes: addedNotes };
   }
 
   function migrateSettings(raw) {
@@ -588,7 +643,7 @@
   }
 
   const core = {
-    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, cleanPrompts, cleanSnippets, cleanMemories, keyMatches, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
+    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, STARTER_SNIPPETS, STARTER_MEMORIES, addStarters, cleanPrompts, cleanSnippets, cleanMemories, keyMatches, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
     scheduleDue, applyVariables, promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens, summarize,
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,

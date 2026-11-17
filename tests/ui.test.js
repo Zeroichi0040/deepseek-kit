@@ -118,8 +118,9 @@ async function boot(stored, memories) {
     assert.ok(a.text().includes('Export') && a.text().includes('Import'));
     acc('Code blocks').click();
     a.toggle('Collapse long blocks');
-    assert.strictEqual(a.saved.dck_settings.collapseLong, true);
+    assert.strictEqual(a.saved.dck_settings.collapseLong, false, 'on for a new install, so the first click turns it off');
     a.toggle('Collapse long blocks');
+    assert.strictEqual(a.saved.dck_settings.collapseLong, true);
     acc('Messages').click();
     a.toggle('Next-message summary');
     assert.strictEqual(a.saved.dck_settings.showSummary, false);
@@ -138,8 +139,42 @@ async function boot(stored, memories) {
     // Reset all
     a.btn('Reset all').click();
     assert.strictEqual(a.saved.dck_settings.showSummary, true, 'reset restored defaults');
-    assert.strictEqual(JSON.stringify(a.saved.dck_memories), '[]');
+    assert.strictEqual(a.saved.dck_settings.snippets.length, 6, 'reset gives the same starters as a new install');
+    assert.strictEqual(JSON.stringify(a.saved.dck_memories.map((m) => [m.key, m.enabled])), '[["name",false]]', 'and only the switched-off name note');
     console.log('ok  visibility switch + settings + reset');
+  }
+
+  // ---------- 3b. Starter content: once on a new install, never on an older one, on request from Settings ----------
+  {
+    const a = await boot(undefined); // nothing stored: a new install
+    assert.strictEqual(a.saved.dck_settings.snippets.map((s) => s.name).join(','), 'summarize,explain,fix,steps,translate,handoff');
+    assert.strictEqual(a.saved.dck_settings.starterSeeded, true);
+    assert.strictEqual(JSON.stringify(a.saved.dck_memories.map((m) => [m.key, m.enabled, m.importance])), '[["name",false,"always"]]');
+    assert.ok(a.saved.dck_settings.lineNumbers === true && a.saved.dck_settings.collapseLong === true, 'code defaults are on');
+    a.type(a.ta, 'hello');
+    a.btn('Insert now').click();
+    assert.ok(a.ta.value.includes('Instructions (Default)') && !a.ta.value.includes('Write your name here'), 'the switched-off name note is never sent');
+    // delete one and reload from what was stored: it must not come back
+    const kept = a.saved.dck_settings.snippets.filter((s) => s.name !== 'fix');
+    const b = await boot(Object.assign({}, a.saved.dck_settings, { snippets: kept }), a.saved.dck_memories);
+    assert.ok(b.tab('Snippets').textContent.includes('5'), 'a deleted starter stays deleted');
+    // an older install (settings already stored) is left exactly as it is
+    const c = await boot({ snippets: [{ id: 's1', name: 'summarize', text: 'mine' }] });
+    assert.ok(c.tab('Snippets').textContent.includes('1') && c.tab('Memory').textContent.trim() === 'Memory', 'older install gets nothing added');
+    assert.strictEqual(c.saved.dck_settings.starterSeeded, true, 'and is marked so it never will');
+    // Settings > Backup > Starter content adds only what is missing and never touches your own
+    c.tab('Settings').click();
+    Array.from(c.drawer.querySelectorAll('.dck-acchead')).find((x) => x.querySelector('.dck-name').textContent === 'Backup').click();
+    assert.ok(c.text().includes('Starter content'));
+    c.btn('Add').click();
+    const snips = c.saved.dck_settings.snippets;
+    assert.strictEqual(snips.length, 6, 'five added next to your own');
+    assert.strictEqual(snips.find((s) => s.name === 'summarize').text, 'mine', 'your own summarize is untouched');
+    assert.ok(/Added 5 snippets and 1 note/.test(c.doc.getElementById('dck-toast').textContent), c.doc.getElementById('dck-toast').textContent);
+    c.btn('Add').click();
+    assert.strictEqual(c.saved.dck_settings.snippets.length, 6);
+    assert.ok(/already have all/.test(c.doc.getElementById('dck-toast').textContent));
+    console.log('ok  starter content: new install only, once, on request');
   }
 
   // ---------- 4. Prompts tab: edit, new, delete, default ----------
@@ -191,7 +226,7 @@ async function boot(stored, memories) {
     assert.ok(a.text().includes('Use memory') && a.text().includes('No notes yet') && a.text().includes('Token budget'));
     const q = (sel) => a.drawer.querySelector(sel);
     a.btn('Add').click();
-    assert.strictEqual(a.saved.dck_memories || undefined, undefined, 'empty add is rejected');
+    assert.strictEqual((a.saved.dck_memories || []).length, 0, 'empty add is rejected');
     q('input[aria-label="New note key"]').value = 'my city';
     q('input[aria-label="New note value"]').value = 'Manila';
     q('input[aria-label="New note category"]').value = 'About me';

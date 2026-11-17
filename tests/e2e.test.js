@@ -50,8 +50,8 @@ async function codeBlocks() {
   const p = await open(ctx, `<body style="background:#111;color:#eee;width:560px">${blk('html', '&lt;h1&gt;Hi&lt;/h1&gt;')}${blk('python', long)}${blk('python', 'print(1)')}${noHeader}<div style="position:fixed;left:200px;right:200px;bottom:30px;height:90px;border-radius:20px;background:#2b2b2e"><textarea style="width:90%"></textarea></div></body>`);
   await p.waitForSelector('[data-dck-act]');
   const acts = () => p.evaluate(() => Array.from(document.querySelectorAll('.cb')).map((cb) => Array.from(cb.querySelectorAll('.acts > div')).map((n) => n.textContent.trim()).join(',')));
-  assert.deepStrictEqual(await acts(), ['Collapse,+ ZIP,Copy,Download'.replace('Collapse,', ''), 'Collapse,+ ZIP,Copy,Download', '+ ZIP,Copy,Download']);
-  ok('buttons sit before Copy and Download; a 1-line block has no Collapse');
+  assert.deepStrictEqual(await acts(), ['+ ZIP,Copy,Download', 'Expand (30 lines),+ ZIP,Copy,Download', '+ ZIP,Copy,Download']);
+  ok('buttons sit before Copy and Download; a 1-line block has no Collapse; a 30-line block starts collapsed and says so');
   assert.strictEqual(await p.locator('#nohead [data-dck-act]').count(), 0);
   assert.strictEqual(await p.locator('#dck-codebar').count(), 0);
   await p.hover('#nohead');
@@ -62,11 +62,16 @@ async function codeBlocks() {
   assert.ok(muts < 5, 'idle mutations: ' + muts);
   ok('idle page is quiet (' + muts + ' mutations)');
   const second = p.locator('.cb').nth(1);
+  const folded = () => p.evaluate(() => document.querySelectorAll('pre')[1].hasAttribute('data-dck-collapsed'));
+  assert.ok(await folded(), 'a block over 20 lines starts collapsed on a new install');
   await second.locator('[data-dck-act=collapse]').click();
-  assert.ok(await p.evaluate(() => document.querySelectorAll('pre')[1].hasAttribute('data-dck-collapsed')));
-  assert.ok((await acts())[1].startsWith('Expand'));
-  await second.locator('[data-dck-act=collapse]').click();
+  assert.ok(!(await folded()));
   assert.ok((await acts())[1].startsWith('Collapse'));
+  await p.waitForTimeout(300);
+  assert.ok(!(await folded()), 'a block you opened stays open');
+  await second.locator('[data-dck-act=collapse]').click();
+  assert.ok(await folded());
+  assert.ok((await acts())[1].startsWith('Expand (30 lines)'));
   ok('collapse and expand');
   await p.locator('.cb').nth(0).locator('[data-dck-act=zip]').click();
   await p.locator('.cb').nth(2).locator('[data-dck-act=zip]').click();
@@ -109,15 +114,17 @@ async function lineNumbers() {
   const p = await open(ctx, PAGE);
   await p.waitForSelector('[data-dck-act]');
   const sel = () => p.evaluate(() => { const pre = document.querySelector('pre'); const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return s.toString(); });
-  const off = await sel();
+  const numbered = () => p.evaluate(() => document.querySelector('pre').hasAttribute('data-dck-lines'));
+  assert.ok(await numbered(), 'line numbers are on for a new install');
+  const on = await sel();
   await settingsTab(p, 'Code blocks');
   await toggle(p, 'Line numbers');
   await p.waitForTimeout(200);
   await close(p);
-  assert.ok(await p.evaluate(() => document.querySelector('pre').hasAttribute('data-dck-lines')));
-  assert.strictEqual(await sel(), off, 'selected text identical with numbers on');
-  assert.ok(!/^\d+$/m.test(off));
-  ok('line numbers on: selection and copy text unchanged, blank lines kept');
+  assert.ok(!(await numbered()), 'the switch turns them off');
+  assert.strictEqual(await sel(), on, 'selected text identical with numbers on and off');
+  assert.ok(!/^\d+$/m.test(on));
+  ok('line numbers on by default: selection and copy text unchanged, blank lines kept');
   await ctx.close();
 }
 
@@ -436,16 +443,35 @@ async function twoTabs() {
   await A.fill('[aria-label="New note key"]', 'my city');
   await A.fill('[aria-label="New note value"]', 'Manila');
   await A.locator('.dck-btn.primary:has-text("Add")').click();
-  await B.waitForFunction(() => { const t = Array.from(document.querySelectorAll('[role=tab]')).find((x) => x.textContent.indexOf('Memory') === 0); return !!t && /1$/.test(t.textContent); }, null, { timeout: 3000 });
+  await B.waitForFunction(() => { const t = Array.from(document.querySelectorAll('[role=tab]')).find((x) => x.textContent.indexOf('Memory') === 0); return !!t && /2$/.test(t.textContent); }, null, { timeout: 3000 });
   ok('a note added in one tab shows up in the other without a reload');
   const sw = 'input[aria-label="Enable DeepSeek Kit"]';
   await B.evaluate((s) => { document.querySelector(s).click(); document.querySelector(s).click(); }, sw); // a save from the tab that was open earlier
   await B.waitForTimeout(300);
   const C = await open(ctx, PAGE);
   const txt = (await memTab(C).textContent()).trim();
-  assert.ok(/1$/.test(txt), 'the note was lost after the other tab saved (tab shows "' + txt + '")');
+  assert.ok(/2$/.test(txt), 'the note was lost after the other tab saved (tab shows "' + txt + '")');
   assert.ok(await C.locator(sw).isChecked(), 'switch state');
   ok('a save in the older tab does not erase the new note');
+  await ctx.close();
+}
+
+// ---------- starter snippets in a real new profile: the slash picker lists them and /handoff inserts its text
+async function starters() {
+  const ctx = await launch(1000, 900);
+  const p = await open(ctx, '<body><textarea></textarea></body>');
+  const ta = p.locator('textarea');
+  await ta.click();
+  await p.keyboard.type('/');
+  await p.waitForSelector('#dck-picker .dck-pick');
+  assert.strictEqual(await p.locator('#dck-picker .dck-pick').count(), 6);
+  ok('a new profile lists the six starter snippets after /');
+  await p.keyboard.type('hand');
+  assert.strictEqual(await p.locator('#dck-picker .dck-pick').count(), 1);
+  await p.keyboard.press('Enter');
+  const v = await ta.inputValue();
+  assert.ok(v.startsWith('Write a handoff so I can continue') && v.includes('````markdown'), v.slice(0, 60));
+  ok('/handoff puts the handoff request in the message box');
   await ctx.close();
 }
 
@@ -460,6 +486,7 @@ async function twoTabs() {
     await mirror();
     await fold();
     await twoTabs();
+    await starters();
   } catch (e) {
     if (/Executable doesn't exist|browserType.launch/.test(e.message)) { console.log('skip  e2e (Chromium is not installed)'); process.exit(0); }
     console.error('FAIL:', e.stack || e.message);

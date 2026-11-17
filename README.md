@@ -26,9 +26,9 @@ The panel has four tabs, with the controls you use most pinned above and below t
 
 **Memory**: notes marked *Always* go in whenever context is inserted; *When mentioned* notes are included when a word from the key appears in your message. Edit a note in place (pencil icon), group notes with a category, and switch single notes off without deleting them. Each note shows whether it is in your next message (updates as you type). A **token budget** caps how much memory one message can carry (0 = no limit): *Always* notes are used first, then *When mentioned* ones, and notes that do not fit are shown as "Over budget".
 
-**Snippets**: reusable text. Search them here, or type `/` in the message box to open the picker (keep typing to filter, Up/Down to move, Enter or Tab to insert, Esc to close). Variable chips insert `{{date}}` and friends at the cursor.
+**Snippets**: reusable text. Search them here, or type `/` in the message box to open the picker (keep typing to filter, Up/Down to move, Enter or Tab to insert, Esc to close). Variable chips insert `{{date}}` and friends at the cursor. A new install starts with six: `/summarize`, `/explain`, `/fix`, `/steps`, `/translate` and `/handoff`. `/handoff` asks the model to write one markdown block that carries the conversation into a new chat: send it, press Copy on the block, and paste it into the new chat.
 
-**Settings**: grouped into sections that open one at a time: Messages, Code blocks, Variables, Diagnostics and Backup (export/import), with Reset all pinned at the bottom.
+**Settings**: grouped into sections that open one at a time: Messages, Code blocks, Variables, Diagnostics and Backup (export/import, and **Starter content**, which adds any starter snippets and the name note you do not have yet without touching your own), with Reset all pinned at the bottom.
 
 **Pinned footer** (Prompts and Memory): **Insert now** adds the context to your message immediately, ignoring schedules. **Preview** shows exactly what would be added.
 
@@ -52,8 +52,8 @@ It relies on the site's markup: a block is the element with an inline `--collaps
 
 Kit adds buttons (each with a small icon) to each code block's header, next to the site's own Copy and Download (turn it off in Settings > Code blocks).
 
-- **Line numbers** (Settings > Code blocks, off by default): numbers each line, with wrapped lines hanging under their number. The numbers are drawn by CSS, so selecting, copying and the site's Copy / Download are unchanged. Blocks the site renders without per-line elements are left alone.
-- **Collapse / Expand**: folds a long block down to a few lines. *Collapse long blocks* starts blocks over 20 lines collapsed; a block you expand stays open.
+- **Line numbers** (Settings > Code blocks, on by default for new installs): numbers each line, with wrapped lines hanging under their number. The numbers are drawn by CSS, so selecting, copying and the site's Copy / Download are unchanged. Blocks the site renders without per-line elements are left alone.
+- **Collapse / Expand**: folds a long block down to a few lines. *Collapse long blocks* (on by default for new installs) starts blocks over 20 lines collapsed, and the button says how many lines are hidden; a block you expand stays open.
 - **+ ZIP**: collects blocks. A pill just above the right end of the message box then offers **Download ZIP (n)** (duplicate names get -2, -3). File names come from a comment such as `// file: app.js` in the first lines, otherwise `snippet-N.ext`.
 
 DeepSeek already has its own Run/preview, so Kit does not add one.
@@ -78,6 +78,10 @@ Usable in prompts, memory values and snippets:
 | `{{selection}}` | text you have selected on the page |
 
 Unknown `{{names}}` are left as typed.
+
+## New installs and upgrades
+
+A new install starts with a short Default prompt, the six starter snippets above, and a **name** note that is switched off (edit its value and switch it on to use it). This happens once, so anything you delete stays deleted. An install that already has settings is never changed: it keeps its own snippets, notes and code-block settings. If you open the extension in two tabs, a save in one is picked up by the other.
 
 ## Upgrading from 0.4
 

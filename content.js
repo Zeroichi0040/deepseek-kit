@@ -9,7 +9,7 @@
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
-    memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
+    memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START, addStarters,
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
@@ -77,8 +77,15 @@
         fabPos = cleanFab(r.dck_fab);
         settings = migrateSettings(r.dck_settings);
         memories = cleanMemories(r.dck_memories);
+        let dirty = hasLegacyKeys(r.dck_settings);
+        // Starter snippets and the name note: only a new install gets them, once. An older install keeps what it has, and
+        // a failed read (storage.error) never seeds, so a bad read can not overwrite real data with defaults.
+        if (!settings.starterSeeded && !storage.error) {
+          if (r.dck_settings === undefined) seedStarters(); else settings.starterSeeded = true;
+          dirty = true;
+        }
         counts = r.dck_counts && typeof r.dck_counts === 'object' && !Array.isArray(r.dck_counts) ? r.dck_counts : {};
-        if (hasLegacyKeys(r.dck_settings)) save(); // write the migrated shape back once
+        if (dirty) save(); // write the migrated or seeded shape back once
         resolve();
       };
       try {
@@ -92,6 +99,13 @@
   }
   // Every save carries a fresh tag. Other tabs see the tag change and reload; this tab recognises its own tags and ignores them.
   const myRevs = [];
+  function seedStarters() {
+    const r = addStarters(settings, memories);
+    settings = r.settings;
+    memories = r.memories;
+    settings.starterSeeded = true;
+    return r;
+  }
   function save() {
     const rev = newId();
     myRevs.push(rev);
@@ -1005,6 +1019,16 @@
         }, icon('down'), 'Export'),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => importInput.click() }, icon('up'), 'Import')),
         importInput);
+      box.append(h('div', { class: 'dck-setrow' },
+        h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Starter content'), h('div', { class: 'dck-sub' }, 'Adds the starter snippets and the name note you do not have yet. Nothing you have is changed')),
+        h('button', {
+          type: 'button', class: 'dck-btn',
+          onclick: () => {
+            const r = seedStarters();
+            commit(); render();
+            toast(r.addedSnippets || r.addedNotes ? 'Added ' + r.addedSnippets + (r.addedSnippets === 1 ? ' snippet' : ' snippets') + (r.addedNotes ? ' and ' + r.addedNotes + (r.addedNotes === 1 ? ' note' : ' notes') : '') : 'You already have all the starters');
+          },
+        }, 'Add')));
     }));
   }
 
@@ -1100,7 +1124,7 @@
           type: 'button', class: 'dck-btn danger',
           onclick: () => {
             if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
-            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
+            settings = migrateSettings({}); memories = []; seedStarters(); ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
           },
         }, 'Reset all'));
     } else {
@@ -1237,7 +1261,7 @@
     const folded = pre.hasAttribute('data-dck-collapsed');
     const inBasket = tools.basket.some((b) => b.el === pre);
     const list = [];
-    if (folded || lineCount(pre) > 3) list.push(['collapse', folded ? 'Expand' : 'Collapse', folded ? 'expand' : 'shrink', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
+    if (folded || lineCount(pre) > 3) list.push(['collapse', folded ? 'Expand (' + lineCount(pre) + ' lines)' : 'Collapse', folded ? 'expand' : 'shrink', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
     list.push(['zip', inBasket ? 'Added' : '+ ZIP', inBasket ? 'check' : 'archive', () => toggleBasket(pre)]);
     return list;
   }
