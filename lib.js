@@ -31,7 +31,7 @@
 
   const DEFAULTS = {
     enabled: true,
-    showInjected: true, // false = attach context automatically and hide it in the chat
+    showInjected: false, // false = attach context automatically and hide it in the chat
     autoInsertOnEnter: true,
     memoryEnabled: true,
     showSummary: true, // the "next message includes" strip in the drawer
@@ -59,8 +59,8 @@
     askText: '', // '' = use the built-in text
     askSchedule: 'first',
     askEveryN: 5,
-    listContinue: false, // Shift+Enter in a list in the message box continues it
-    askAutoSend: false, // false = answers go into the message box for you to send; true = sent straight away
+    listContinue: true, // Shift+Enter in a list in the message box continues it
+    askAutoSend: true, // false = answers go into the message box for you to send; true = sent straight away
     starterSeeded: false, // the starter snippets and note were offered once (a new install gets them, an older one never does)
   };
 
