@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DeepSeek Kit",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "minimum_chrome_version": "105",
   "description": "A small, local-only helper for chat.deepseek.com: prompts, memory notes and snippets, code block tools, and inline charts.",
   "permissions": [

@@ -384,41 +384,20 @@ console.log('all logic tests passed');
 }
 
 
-// ---- starter content, new defaults, the default prompt
+// ---- new defaults, the default prompt, no starter content
 {
   const fresh = c.migrateSettings({});
-  const r = c.addStarters(fresh, []);
-  assert.strictEqual(r.addedSnippets, 6); assert.strictEqual(r.addedNotes, 1);
-  assert.strictEqual(r.settings.snippets.map((s) => s.name).join(','), 'summarize,explain,fix,steps,translate,handoff');
-  assert.strictEqual(fresh.snippets.length, 0, 'the input settings are not modified');
-  assert.strictEqual(r.memories[0].key, 'name'); assert.strictEqual(r.memories[0].enabled, false); assert.strictEqual(r.memories[0].importance, 'always');
-  const again = c.addStarters(r.settings, r.memories);
-  assert.strictEqual(again.addedSnippets + again.addedNotes, 0, 'adding twice adds nothing');
-  assert.strictEqual(again.settings.snippets.length, 6);
-  // your own items win: same name (any case) is never replaced, and other items are kept in front
-  const mine = c.addStarters({ snippets: [{ id: 'x', name: 'Summarize', text: 'mine' }] }, [{ key: ' Name ', value: 'Ana', importance: 'always' }]);
-  assert.strictEqual(mine.addedSnippets, 5); assert.strictEqual(mine.addedNotes, 0);
-  assert.strictEqual(mine.settings.snippets[0].text, 'mine'); assert.strictEqual(mine.memories.length, 1);
-  assert.strictEqual(mine.memories[0].value, 'Ana');
-  // every starter is plain ASCII, has a valid slash name, and uses only variables that exist
-  c.STARTER_SNIPPETS.forEach((s) => {
-    assert.ok(/^[\x00-\x7F]*$/.test(s.text), s.name + ' is ASCII');
-    assert.strictEqual(c.cleanSnippetName(s.name), s.name, s.name + ' is a valid snippet name');
-    (s.text.match(/\{\{\s*([a-z_]+)\s*\}\}/gi) || []).forEach((v) => assert.ok(c.VARIABLE_NAMES.indexOf(v.replace(/[{}\s]/g, '').toLowerCase()) >= 0, s.name + ' uses unknown ' + v));
-  });
-  assert.ok(c.STARTER_MEMORIES.every((m) => /^[\x00-\x7F]*$/.test(m.key + m.value + m.category)));
-  const handoff = c.STARTER_SNIPPETS.find((s) => s.name === 'handoff').text;
-  assert.ok(handoff.includes('````markdown') && handoff.includes('UNSURE') && handoff.includes('Next steps'));
-  // the starters are real snippets for the slash picker, and the new-install defaults are on
-  assert.strictEqual(c.filterSnippets(r.settings.snippets, 'hand', 8)[0].name, 'handoff');
-  assert.ok(c.DEFAULTS.lineNumbers === true && c.DEFAULTS.collapseLong === true && c.DEFAULTS.starterSeeded === false);
+  assert.strictEqual(fresh.snippets.length, 0, 'a new install has no snippets');
+  assert.ok(c.STARTER_SNIPPETS === undefined && c.STARTER_MEMORIES === undefined && c.addStarters === undefined, 'starter content is gone');
+  assert.ok(c.DEFAULTS.lineNumbers === true && c.DEFAULTS.collapseLong === true && !('starterSeeded' in c.DEFAULTS));
+  assert.ok(!('starterSeeded' in c.migrateSettings({ starterSeeded: true })), 'the old seeded flag is dropped');
   // an older install that saved the old defaults keeps them
   const old = c.migrateSettings({ lineNumbers: false, collapseLong: false });
   assert.ok(old.lineNumbers === false && old.collapseLong === false, 'saved settings are not flipped');
   // the default prompt
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('Never invent') && c.BUILTIN_DEFAULT_PROMPT.includes('{{date}}'));
   assert.strictEqual(c.BUILTIN_DEFAULT_PROMPT.split('\n').length, 8, 'a header line plus seven rules');
-  console.log('ok  starter content, new defaults and the default prompt');
+  console.log('ok  new defaults, no starter content, the default prompt');
 }
 
 // ---- list continuation (Shift+Enter in the message box)
