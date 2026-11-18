@@ -785,22 +785,16 @@ async function twoTabs() {
   await ctx.close();
 }
 
-// ---------- starter snippets in a real new profile: the slash picker lists them and /handoff inserts its text
-async function starters() {
+// ---------- a new profile has no snippets: the slash picker stays closed
+async function noStarters() {
   const ctx = await launch(1000, 900);
   const p = await open(ctx, '<body><textarea></textarea></body>');
   const ta = p.locator('textarea');
   await ta.click();
   await p.keyboard.type('/');
-  await p.waitForSelector('#dck-picker .dck-pick');
-  assert.strictEqual(await p.locator('#dck-picker .dck-pick').count(), 6);
-  ok('a new profile lists the six starter snippets after /');
-  await p.keyboard.type('hand');
-  assert.strictEqual(await p.locator('#dck-picker .dck-pick').count(), 1);
-  await p.keyboard.press('Enter');
-  const v = await ta.inputValue();
-  assert.ok(v.startsWith('Write a handoff so I can continue') && v.includes('````markdown'), v.slice(0, 60));
-  ok('/handoff puts the handoff request in the message box');
+  await p.waitForTimeout(300);
+  assert.strictEqual(await p.locator('#dck-picker .dck-pick').count(), 0);
+  ok('a new profile has no starter snippets after /');
   await ctx.close();
 }
 
@@ -818,7 +812,7 @@ async function starters() {
     await listKeys();
     await fold();
     await twoTabs();
-    await starters();
+    await noStarters();
   } catch (e) {
     if (/Executable doesn't exist|browserType.launch/.test(e.message)) { console.log('skip  e2e (Chromium is not installed)'); process.exit(0); }
     console.error('FAIL:', e.stack || e.message);

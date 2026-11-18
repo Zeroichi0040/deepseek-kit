@@ -19,7 +19,7 @@ DeepSeek Kit is an independent, community-made browser extension. It is not affi
 | **Question forms** | Turn model-generated `ask` blocks into forms with single-choice, multiple-choice, and free-text questions. |
 | **Charts and widgets** | Render JSON charts as SVG and run small interactive HTML demos in an isolated sandbox. |
 | **Composer helpers** | Continue numbered and bulleted lists with Shift+Enter. Optionally fold DeepSeek's reasoning blocks. |
-| **Settings and backup** | Diagnostics, import/export, starter content, and settings that sync between open tabs through local extension storage. |
+| **Settings and backup** | Diagnostics, import/export, and settings that sync between open tabs through local extension storage. |
 
 ## Install
 
@@ -66,16 +66,7 @@ The token count shown in the Kit is an estimate based on characters, not an exac
 
 Snippets are reusable pieces of text. Type `/` in the DeepSeek message box to open the picker. Keep typing to filter, use **Up/Down** to move, and press **Enter** or **Tab** to insert. **Esc** closes the picker.
 
-A new installation includes these starter snippets:
-
-| Command | Purpose |
-| --- | --- |
-| `/summarize` | Summarize selected text |
-| `/explain` | Explain selected text in plain language |
-| `/fix` | Review and correct selected code |
-| `/steps` | Ask for concise, actionable steps |
-| `/translate` | Translate selected text into English |
-| `/handoff` | Create a Markdown handoff for a new chat |
+A new installation has no snippets. Add your own in the Snippets tab.
 
 Snippets support variables. Click a variable chip in the editor to insert it at the cursor.
 
@@ -83,7 +74,7 @@ Snippets support variables. Click a variable chip in the editor to insert it at 
 
 Settings are grouped into sections that open one at a time. They include message behavior, code-block tools, variables, diagnostics, and backup.
 
-**Starter content** adds any missing starter snippets and the starter name note without replacing your own content. **Reset all** is separate and destructive.
+**Reset all** clears every setting, prompt, note and snippet.
 
 ## In the chat
 
@@ -221,9 +212,9 @@ The extension runs on the DeepSeek Chat page and interacts with that page's mess
 
 ## New installs and upgrades
 
-A new installation is seeded once with the Default prompt, six starter snippets, and a disabled name note. The starter content is not re-added automatically if you delete it.
+A new installation starts with the Default prompt and no snippets or notes.
 
-Existing installations keep their own prompts, memories, snippets, and code-block settings when updated. Settings are migrated as needed; user content is not replaced with starter content.
+Existing installations keep their own prompts, memories, snippets, and code-block settings when updated. Settings are migrated as needed; your own content is never replaced.
 
 Data from the 0.3 and 0.4 settings formats is migrated automatically. Existing notes remain enabled, and the memory token budget defaults to unlimited.
 
