@@ -1,128 +1,283 @@
 # DeepSeek Kit
 
-A small, local-only browser extension for chat.deepseek.com. It keeps system prompts, memory notes and snippets, and puts them into your message box when you ask.
+A local-first toolkit for **DeepSeek Chat**. Add reusable prompts, lightweight memory, slash snippets, richer code blocks, interactive questions, and inline visuals to `chat.deepseek.com` — without turning your browser into a client for another service.
 
-It makes no network requests of its own and does not patch `fetch` or XHR. Everything is stored in `chrome.storage.local`.
+DeepSeek Kit is an independent, community-made browser extension. It is not affiliated with or endorsed by DeepSeek.
 
-## Install (Chrome / Edge / Brave)
+> **Current version:** 0.18.0  
+> **Compatibility:** Chrome and Chromium-based browsers (including Edge and Brave), Chrome 105+
 
-1. Download or clone this repo.
-2. Open `chrome://extensions` and enable **Developer mode**.
-3. Click **Load unpacked** and choose the folder (when upgrading, click the reload icon on the extension card).
-4. Open chat.deepseek.com. A **Kit** tab appears on the right edge. Drag it anywhere; it docks to the nearest side and remembers its position (Settings > Messages > Reset puts it back). While the panel is open, a right-docked tab hides so it never covers the panel.
+## What it adds
 
-## The panel
+| Area | What you get |
+| --- | --- |
+| **Prompts** | A built-in baseline prompt plus as many custom prompts as you want. Schedule each for the first message, every *N* messages, or every message. |
+| **Memory** | Small notes that are always included or included when a matching key is mentioned. Group notes by category and set a per-message token budget. |
+| **Snippets** | Reusable text with slash-command autocomplete. Type `/` in the composer to search, navigate, and insert a snippet. |
+| **Context controls** | See what will be added to your next message, preview it, or insert it immediately. Choose whether inserted context stays visible for review or is hidden and sent automatically. |
+| **Code blocks** | Collapse long blocks, show line numbers, preview Markdown, and collect multiple code blocks into a ZIP. |
+| **Question forms** | Turn model-generated `ask` blocks into forms with single-choice, multiple-choice, and free-text questions. |
+| **Charts and widgets** | Render JSON charts as SVG and run small interactive HTML demos in an isolated sandbox. |
+| **Composer helpers** | Continue numbered and bulleted lists with Shift+Enter. Optionally fold DeepSeek's reasoning blocks. |
+| **Settings and backup** | Diagnostics, import/export, starter content, and settings that sync between open tabs through local extension storage. |
 
-The panel has four tabs, with the controls you use most pinned above and below them.
+## Install
 
-**Pinned header**
-- **On** switch for the whole extension.
-- **Context in chat: Visible / Hidden** (see below).
-- A one-line summary of what the next message will carry, for example "Default, Concise tone + 2 memories, ~310 tokens". The token figure is a rough estimate (characters / 4).
+There is no build step.
 
-**Prompts**
-- **Built-in** default prompt: a general-purpose prompt that ships with the extension. Switch it off, edit it, change its schedule, or reset it to the built-in text.
-- **Yours**: any number of prompts, each with its own on/off switch and schedule (first message, every N messages, every message). All prompts that are due are inserted together. A single prompt is just a list of one.
+1. Download the repository (or clone it).
+2. Open `chrome://extensions` in Chrome, Edge, or Brave.
+3. Turn on **Developer mode**.
+4. Select **Load unpacked** and choose the repository folder.
+5. Open [DeepSeek Chat](https://chat.deepseek.com/). A **Kit** tab appears along the right edge of the page.
 
-**Memory**: notes marked *Always* go in whenever context is inserted; *When mentioned* notes are included when a word from the key appears in your message. Edit a note in place (pencil icon), group notes with a category, and switch single notes off without deleting them. Each note shows whether it is in your next message (updates as you type). A **token budget** caps how much memory one message can carry (0 = no limit): *Always* notes are used first, then *When mentioned* ones, and notes that do not fit are shown as "Over budget".
+To update an existing installation, pull or download the latest files, then click the extension's **Reload** button on the extensions page. Reload the DeepSeek tab too.
 
-**Snippets**: reusable text. Search them here, or type `/` in the message box to open the picker (keep typing to filter, Up/Down to move, Enter or Tab to insert, Esc to close). Variable chips insert `{{date}}` and friends at the cursor. A new install starts with six: `/summarize`, `/explain`, `/fix`, `/steps`, `/translate` and `/handoff`. `/handoff` asks the model to write one markdown block that carries the conversation into a new chat: send it, press Copy on the block, and paste it into the new chat.
+The Kit tab can be dragged to either side of the page. It remembers its position; **Settings → Messages → Reset** restores the default position.
 
-**Settings**: grouped into sections that open one at a time: Messages, Code blocks, Variables, Diagnostics (failed checks first, the rest folded) and Backup (export/import, and **Starter content**, which adds any starter snippets and the name note you do not have yet without touching your own), with Reset all pinned at the bottom.
+## Using the Kit
 
-**Pinned footer** (Prompts and Memory): **Insert now** adds the context to your message immediately, ignoring schedules. **Preview** shows exactly what would be added.
+Open the **Kit** tab to access four main areas:
+
+### Prompts
+
+The built-in **Default** prompt gives DeepSeek general response guidance. You can disable it, edit it, change its schedule, or restore the original text.
+
+Add custom prompts under **Yours**. Each prompt has its own enabled switch and schedule:
+
+- **First message** — once at the start of a chat.
+- **Every N messages** — at the interval you choose.
+- **Every message** — each time you send a message.
+
+Prompts that are due are combined in the same context block. **Insert now** ignores schedules, while **Preview** shows what would be inserted.
+
+### Memory
+
+Create notes with a key, a value, and an optional category.
+
+- **Always** notes are eligible for every context insertion.
+- **When mentioned** notes are eligible when a word from their key appears in your message.
+- Disable individual notes without deleting them.
+- Set a token budget to limit how much memory can be included. Always notes are considered first; notes that do not fit are marked **Over budget**.
+
+The token count shown in the Kit is an estimate based on characters, not an exact model tokenizer count.
+
+### Snippets
+
+Snippets are reusable pieces of text. Type `/` in the DeepSeek message box to open the picker. Keep typing to filter, use **Up/Down** to move, and press **Enter** or **Tab** to insert. **Esc** closes the picker.
+
+A new installation includes these starter snippets:
+
+| Command | Purpose |
+| --- | --- |
+| `/summarize` | Summarize selected text |
+| `/explain` | Explain selected text in plain language |
+| `/fix` | Review and correct selected code |
+| `/steps` | Ask for concise, actionable steps |
+| `/translate` | Translate selected text into English |
+| `/handoff` | Create a Markdown handoff for a new chat |
+
+Snippets support variables. Click a variable chip in the editor to insert it at the cursor.
+
+### Settings
+
+Settings are grouped into sections that open one at a time. They include message behavior, code-block tools, variables, diagnostics, and backup.
+
+**Starter content** adds any missing starter snippets and the starter name note without replacing your own content. **Reset all** is separate and destructive.
 
 ## In the chat
 
-A small chip row shows what will be attached (Default, Concise tone, 2 memories) and whether context is Visible or Hidden. It sits in the message box toolbar next to the DeepThink and Search pills (hover it for the token estimate), and falls back to just above the message box when the toolbar is not found or the box is narrow. *Chips in the toolbar* (on by default) shows or hides the row.
+### Context chips
 
-**Lists in the message box** (Settings > Messages > *Continue lists with Shift+Enter*, off by default): the message box is plain text, so this only helps with typing. With a plain cursor at the end of a line that starts with `1.`, `-`, `*`, `+` or `>` followed by a space, Shift+Enter starts the next item (`2.`, another bullet, another quote line, with the same indent); on an empty item it removes the marker and leaves the list. It does nothing inside a code fence (a line starting with three backticks or tildes), with the cursor in the middle of a line, or on any line that is not a list item, and Enter itself is never touched. Ctrl+Z undoes it.
+A compact row near the message box shows which prompts and memories are due, along with whether context is **Visible** or **Hidden**. Hover over it for the approximate token count.
 
-## DeepThink reasoning: collapse
+If the DeepSeek toolbar cannot be found or the composer is too narrow, the row falls back to a position above the message box. You can hide it with **Settings → Messages → Chips in the toolbar**.
 
-Settings > Messages > *Collapse reasoning* (off by default). Reasoning blocks are folded to their header, both while the model is still thinking and once it says "Thought for N seconds", in every message, so they are also folded after a refresh.
+### Visible and Hidden context
 
-Kit does this with a stylesheet rule, not by clicking the site's own header. With the setting on, `<html>` gets the attribute `data-dck-fold` (an attribute, because a site that rewrites `<html class>` would wipe a class) and a rule in `content.css` hides everything in a reasoning block except the header and the two empty spacer divs, which is exactly what a block the site has closed consists of (same height, to the pixel). Nothing is clicked and no site state changes. This matters because the site's virtual list measures a message once drawn: closing blocks by clicking made them shrink after they had been measured, and scrolling up after a refresh then made the page jump. A folded block is the right height from the start; the only exception is the first few tens of milliseconds after a page load, before the extension's storage has answered, which is earlier than the site draws any chat. A block you open stays open until you refresh, remembered per chat, so opening one in a chat does not open blocks in other chats.
+This setting controls what happens when you send a message that is due to receive context.
 
-Click a folded header to open it; click again to close it. The first click is handled by Kit (the site thinks the block is already open, so passing the click on would close it), the later ones by the site. A block you opened stays open: Kit remembers it by the message's list key for as long as the page is open, and re-applies it when the site rebuilds that message as you scroll. That memory is not saved, so after a refresh the block is folded again.
+- **Visible (default):** Kit inserts the context into the message box. Review or edit it, then press Enter yourself.
+- **Hidden:** Kit attaches the context, hides the inserted block in the chat view, and submits the message for you.
 
-The setting was called *Collapse reasoning while thinking* before and only closed the newest, still-thinking block; the stored setting is the same, so an existing opt-in carries over to the new behaviour.
+Hidden mode is more automated. Kit waits for the page to accept Enter and only tries the send button as a fallback if the composer has not cleared. If it cannot confirm submission, it reports that instead of repeatedly trying. The full text, including context, remains present when editing the sent message.
 
-It relies on the site's markup: a block is the element with an inline `--collapsible-area-title-height`, directly containing a `.ds-think-content`. If DeepSeek changes that, adjust the selector in `content.css` and `BLOCK_SEL` in `content.js` (`applyFold()`, `initThinkTracker()`). The `:has()` selector needs Chrome 105 or newer.
+Use Visible mode if you want to inspect every prompt and memory before sending.
 
-## Code blocks: collapse and ZIP
+### List continuation
 
-Kit adds buttons (each with a small icon) to each code block's header, next to the site's own Copy and Download (turn it off in Settings > Code blocks).
+Enable **Settings → Messages → Continue lists with Shift+Enter** to continue a list while typing:
 
-- **Questions**: when DeepSeek needs a choice from you it can put the questions in an `ask` code block and the Kit draws a form: pick one, pick several, or type your own answer (every choice question has an Other field), plus free-text questions. With more than one question they appear one at a time, with arrows and a "2 of 4" counter at the top right; picking a single-choice answer moves on by itself, and **Add to message** appears on the last question. If the model marks an option as recommended it gets a small badge (never preselected). Once your answers are sent the card turns read-only and stays that way if the site redraws the chat (Answer again unlocks it). The answers are written as Q1/A1, Q2/A2 pairs, with skipped questions listed, so the model can tell what it asked from what you answered. **Add to message** puts your answers into the message box so you can add more and press Enter; with **Send answers straight away** (Settings > Questions) they are sent when you submit. If the Kit still owes the chat its first-message context, it adds that first and waits for you to review, as for any message. A short built-in Questions prompt (Prompts tab, switch it off in Settings) teaches the model the format. If a block is not valid you get a clear message and the source is one click away, and plain-text questions are never touched. Nothing is sent anywhere by the form itself; it only fills or presses Enter in your message box.
-- **Markdown preview**: blocks marked `markdown` or `md` get a **Preview** button (once the site has finished writing the block). It shows the rendered headings, bold/italic, lists, quotes, rules, links, inline code, code fences and tables; **Source** switches back. The original block stays in the page (hidden), so Copy, Download and + ZIP still use the exact source. The renderer is built into the kit (`markdown.js`) and creates elements directly instead of parsing HTML, so nothing in the Markdown can run a script or load anything: images show as `[image: name]`, only http, https and mailto links are kept, raw HTML shows as text. Turn it off in Settings > Code blocks.
-- **Line numbers** (Settings > Code blocks, on by default for new installs): numbers each line, with wrapped lines hanging under their number. The numbers are drawn by CSS, so selecting, copying and the site's Copy / Download are unchanged. Blocks the site renders without per-line elements are left alone.
-- **Collapse / Expand**: folds a long block down to a few lines. *Collapse long blocks* (on by default for new installs) starts blocks over 20 lines collapsed, and the button says how many lines are hidden; a block you expand stays open.
-- **+ ZIP**: collects blocks. A pill just above the right end of the message box then offers **Download ZIP (n)** (duplicate names get -2, -3). File names come from a comment such as `// file: app.js` in the first lines, otherwise `snippet-N.ext`.
+- `1. ` becomes `2. `
+- `- `, `* `, and `+ ` continue as bullets
+- `> ` continues as a quote line
+- Indentation is preserved
+- Shift+Enter on an empty list item removes its marker
 
-DeepSeek already has its own Run/preview, so Kit does not add one.
+It only applies when the cursor is at the end of a list line. It does not change Enter behavior or operate inside code fences. Ctrl+Z undoes the change.
 
-## Show / hide inserted context
+### Reasoning blocks
 
-- **Visible (default)**: pressing Enter puts the context into your message box. Review or edit it, then press Enter again to send. Nothing is sent for you.
-- **Hidden**: pressing Enter attaches the context and sends the message in one step. The inserted block is hidden in the chat view, but it is part of the message that is sent. This mode presses Enter / clicks the send button for you, so it behaves more like an automation tool than the default mode does. It waits up to 1.5 seconds for the site to take the Enter; only if the box has not emptied does it press the send button, once, and if that cannot be confirmed either it tells you instead of trying again. The edit box of an earlier message shows the full text that was sent, context included, and in this mode it is sized to fit that text. Use it knowingly.
+**Settings → Messages → Collapse reasoning** folds DeepSeek's reasoning blocks to their headers, both while the model is thinking and after the response finishes. Click a folded header to open it.
+
+Kit uses CSS to fold the content rather than clicking DeepSeek's own collapse control. This avoids changing the page's internal open/closed state and helps preserve the block's measured height in DeepSeek's virtualized chat list. Blocks opened by you stay open while the page remains loaded; a refresh folds them again.
+
+This feature depends on DeepSeek's current page markup. If that markup changes, the selector may need updating.
+
+## Code blocks
+
+Kit adds its own controls to code-block headers. Turn them off under **Settings → Code blocks**.
+
+- **Collapse / Expand:** Long blocks start collapsed (20 lines by default). Expand a block to keep it open while the page is loaded.
+- **Line numbers:** Optional CSS line numbers that do not affect selection, copying, or downloading.
+- **Markdown preview:** Blocks tagged `markdown` or `md` get a rendered preview. Switch between **Preview** and **Source**.
+- **+ ZIP:** Collect code blocks and download them together. Kit uses a `// file: filename.ext` comment near the top of a block when available; otherwise it assigns a name such as `snippet-1.ext`. Duplicate names receive a numeric suffix.
+
+The Markdown preview builds DOM elements directly rather than parsing source as HTML. Raw HTML is shown as text, images are represented by placeholders, and only HTTP, HTTPS, and mailto links are retained. The original source remains available for copying, downloading, and ZIP collection.
+
+DeepSeek already provides its own code execution and preview controls, so Kit does not add another code runner.
+
+## Interactive questions
+
+When DeepSeek needs you to make a choice, it can return a fenced code block tagged `ask`. Kit turns supported JSON in that block into a form.
+
+Supported question types:
+
+- **Single choice**
+- **Multiple choice**
+- **Free text**
+
+Choice questions include an **Other** field by default. A question can mark one option as recommended; the badge is informational and never preselects an answer.
+
+For multi-question forms, questions appear one at a time with a counter and navigation arrows. Selecting a single-choice answer advances to the next question. After submission, the form becomes read-only; choose **Answer again** to edit it.
+
+Answers are added to the message box by default. Enable **Settings → Questions → Send answers straight away** to submit them immediately. If first-message context is still due, Kit inserts that context first and lets you review it as usual.
+
+The built-in **Questions** prompt teaches DeepSeek the expected format. You can disable or edit it in the Prompts area.
+
+## Charts and interactive widgets
+
+The built-in **Visuals** prompt teaches DeepSeek two optional output formats. When a finished code block uses one of these language tags, Kit renders it as a card.
+
+### Charts: `chart`
+
+A chart block contains one JSON object. Supported types are `bar`, `line`, `area`, `scatter`, `pie`, and `donut`.
+
+Example:
+
+```chart
+{
+  "type": "bar",
+  "title": "Monthly signups",
+  "labels": ["Jan", "Feb", "Mar"],
+  "series": [
+    { "name": "Signups", "values": [12, 19, 15] }
+  ],
+  "unit": "users"
+}
+```
+
+Charts are drawn as SVG by Kit and support hover details, legends, a full-size view, and PNG/SVG export. Chart labels and titles are treated as text, not markup.
+
+### Widgets: `viz`
+
+A widget block contains a self-contained HTML snippet (HTML, CSS, and JavaScript) for a small interactive demo, calculator, or diagram.
+
+Widgets run in an isolated iframe with scripts enabled but without same-origin access. A restrictive Content Security Policy blocks network connections and external resources. The widget cannot access the DeepSeek page.
+
+The sandbox provides a small set of ready-made classes, including `v-card`, `v-title`, `v-btn`, `v-btn-outline`, `v-row`, `v-control-group`, `v-label`, and `v-stat`. Keep the background transparent and size content to itself; viewport-height sizing is not supported.
+
+If a chart or widget fails, its card explains the error. **Send error to DeepSeek** puts the error into your message box; it does not send it automatically. **Code** shows the original block.
+
+Under **Settings → Visuals**, you can separately enable rendering and the built-in Visuals prompt. **Settings → Diagnostics** includes a sandbox check. If isolated frames cannot run on the current page, charts can still work even when widgets cannot.
 
 ## Variables
 
-Usable in prompts, memory values and snippets:
+Variables can be used in prompts, memory values, and snippets.
 
-| Variable | Result |
+| Variable | Expands to |
 | --- | --- |
-| `{{date}}` | `2026-11-14` |
-| `{{time}}` | `15:30` (24-hour, local) |
-| `{{datetime}}` | date and time together |
-| `{{weekday}}` | `Saturday` |
-| `{{timezone}}` | e.g. `Asia/Manila` |
-| `{{message_number}}` | number of this message in the chat |
-| `{{selection}}` | text you have selected on the page |
+| `{{date}}` | Local date in YYYY-MM-DD format |
+| `{{time}}` | Local time in 24-hour format |
+| `{{datetime}}` | Local date and time |
+| `{{weekday}}` | Local weekday |
+| `{{timezone}}` | Local time zone, such as `Asia/Manila` |
+| `{{message_number}}` | Approximate message number in the current chat |
+| `{{selection}}` | Text currently selected on the page |
 
-Unknown `{{names}}` are left as typed.
+Unknown variables are left unchanged.
+
+## Storage and privacy
+
+DeepSeek Kit is designed to work locally:
+
+- It uses the browser's `chrome.storage.local` API for its settings, prompts, memories, snippets, and related state.
+- The extension does not make its own network requests.
+- It does not patch `fetch` or XHR.
+- It does not send your prompts, memories, snippets, or widget content to a Kit-operated server.
+- It requests the browser's `storage` permission; it does not request broad access to unrelated websites.
+
+The extension runs on the DeepSeek Chat page and interacts with that page's message box and interface. **Visible mode leaves sending to you. Hidden mode can submit messages on your behalf.** As with any browser extension that modifies a third-party website, use it at your own discretion.
 
 ## New installs and upgrades
 
-A new install starts with a short Default prompt, the six starter snippets above, and a **name** note that is switched off (edit its value and switch it on to use it). This happens once, so anything you delete stays deleted. An install that already has settings is never changed: it keeps its own snippets, notes and code-block settings. If you open the extension in two tabs, a save in one is picked up by the other.
+A new installation is seeded once with the Default prompt, six starter snippets, and a disabled name note. The starter content is not re-added automatically if you delete it.
 
-## Upgrading from 0.4
+Existing installations keep their own prompts, memories, snippets, and code-block settings when updated. Settings are migrated as needed; user content is not replaced with starter content.
 
-Data carries over. Existing notes get no category and stay switched on; the memory budget starts at 0 (no limit).
+Data from the 0.3 and 0.4 settings formats is migrated automatically. Existing notes remain enabled, and the memory token budget defaults to unlimited.
 
-## Upgrading from 0.3
+If the extension is open in multiple DeepSeek tabs, a save in one tab is picked up by the others.
 
-Your data carries over. The old single "system prompt" box and the multi-prompt switch are gone: a single prompt you had written becomes the first entry under **Yours** (kept switched off if you were using multi-prompt mode, where it was inactive).
+## Known limitations
 
-## How "first message" is decided
+DeepSeek Kit is an independent project and is not yet guaranteed to work with every change to DeepSeek Chat.
 
-The extension counts the messages you send in each chat and saves the count, so refreshing the page does not make it think a conversation has just started. A chat it has no record of (for example one that was open before you installed or updated it) is treated as already started, so "first message" prompts only attach in a new chat. `{{message_number}}` is approximate in those chats until a few messages have been sent. Reset all clears the saved counts.
-
-## Caveats
-
-- Not yet thoroughly tested against the live site. I am one person developing this extension. The message box is found with `document.querySelector('textarea')`, the chip row is placed just above it, and hidden mode finds the send button heuristically. If DeepSeek changes its markup, adjust the finders in `site.js`; Settings > Diagnostics shows which one stopped finding its target.
-- In hidden mode the inserted block is stripped from user messages in the page. If DeepSeek renders messages in a way that splits the block across elements, it may remain visible. Chat titles generated from the first message may include part of it.
-- Using any extension on a consumer site is at your own risk, and nothing here can promise it won't affect your account.
-
-## Visuals
-
-The model can draw charts and small interactive widgets right in the chat. The built-in **Visuals** prompt (Prompts tab, on by default, first message of a chat) asks it to put them in a code block whose language is `chart` or `viz`. When the block is finished it is replaced by a card; nothing needs clicking. While the site is still writing, a small "Building..." placeholder shows.
-
-- **Charts** (`chart`): one JSON object (bar, line, area, scatter, pie, donut) drawn as SVG by the Kit itself, with hover tooltips, legend, PNG and SVG download and a full-size view. Titles and labels are always text, never markup.
-- **Widgets** (`viz`): one HTML snippet that runs in an isolated frame (`sandbox="allow-scripts"`, no same-origin access) with a strict Content-Security-Policy: no network, no external scripts, no access to the DeepSeek page. They get a small set of ready-made classes and size themselves to their content.
-- If something fails, the card says what and offers **Send error to DeepSeek**, which puts the error in your message box (it is never sent for you). **Code** shows the original block.
-- Settings > Visuals has two switches: draw the cards, and add the Visuals prompt. Settings > Diagnostics has a "Widget sandbox" row that tests whether isolated frames can run scripts on your DeepSeek page; if they cannot, charts still work and widgets will not.
+- It relies on DeepSeek's page structure to find the composer, toolbar, send button, code-block headers, and reasoning blocks.
+- If DeepSeek changes its markup, some features may stop working until the relevant selectors or finders are updated. **Settings → Diagnostics** helps identify which page elements Kit can no longer find.
+- Hidden mode depends on the site's composer and send behavior. If submission cannot be confirmed, Kit reports the problem rather than repeatedly sending.
+- The message number is approximate for chats that existed before Kit began tracking them.
+- The extension has not been exhaustively tested against every live DeepSeek interface variant.
 
 ## Development
 
-`lib.js` holds the pure logic (settings migration, schedules, variables, memory budget, summary, snippet search, code-block detection, ZIP writer). `ask.js` reads and draws the question forms. `markdown.js` is the small Markdown renderer behind the code-block Preview. `site.js` holds everything that knows DeepSeek's markup (message box, send button, toolbar pills, code block Copy buttons, reasoning blocks) and the probe behind Diagnostics. `content.js` is the browser code that uses them.
+The extension is plain JavaScript and CSS. It has no runtime dependencies, bundler, or build step.
 
+### Run the tests
+
+```sh
+npm ci
+npm test
 ```
-npm ci           # once: jsdom and Playwright, exact versions from package-lock.json (Chromium via: npx playwright install chromium)
-npm test         # logic, site finders, UI, and real-Chromium tests; the Chromium part is skipped if unavailable
+
+The test suite covers pure logic, DeepSeek page finders, UI behavior, question forms, Markdown rendering, chart rendering, hardening, refresh behavior, and real-Chromium integration. The Chromium checks are skipped if Playwright or its browser is unavailable.
+
+To install the Playwright Chromium browser for the integration tests:
+
+```sh
+npx playwright install chromium
 ```
 
-Tests live in `tests/`; `tests/fixtures/` holds small pieces of DeepSeek markup the finders are checked against.
+You can also run the browser integration tests directly:
 
-The JS and CSS files are plain ASCII on purpose, because Chrome refuses content scripts that are not valid UTF-8.
+```sh
+npm run test:e2e
+```
+
+### Project structure
+
+| File | Responsibility |
+| --- | --- |
+| `manifest.json` | Manifest V3 configuration and content-script loading order |
+| `content.js` | Extension runtime, panel UI, storage, context insertion, and feature coordination |
+| `lib.js` | Pure logic: settings migration, schedules, variables, memory budgeting, snippets, and ZIP creation |
+| `site.js` | DeepSeek-specific DOM finders and diagnostics probes |
+| `ask.js` | Parsing and rendering interactive question forms |
+| `markdown.js` | Safe Markdown preview renderer |
+| `visuals.js` | SVG chart renderer and isolated widget document |
+| `content.css` | Extension interface and page-level styles |
+| `tests/` | Unit, UI, hardening, refresh, and browser integration tests |
+
+---
+
+DeepSeek Kit is an independent open-source project. DeepSeek and related product names are trademarks of their respective owners.
