@@ -4,7 +4,7 @@ A local-first toolkit for **DeepSeek Chat**. Add reusable prompts, lightweight m
 
 DeepSeek Kit is an independent, community-made browser extension. It is not affiliated with or endorsed by DeepSeek.
 
-> **Current version:** 0.18.0  
+> **Current version:** 0.19.2  
 > **Compatibility:** Chrome and Chromium-based browsers (including Edge and Brave), Chrome 105+
 
 ## What it adds
@@ -34,6 +34,18 @@ There is no build step.
 To update an existing installation, pull or download the latest files, then click the extension's **Reload** button on the extensions page. Reload the DeepSeek tab too.
 
 The Kit tab can be dragged to either side of the page. It remembers its position; **Settings → Messages → Reset** restores the default position.
+
+## Tests
+
+Install the development dependencies and the Chromium browser used by the end-to-end suite:
+
+```sh
+npm ci
+npx playwright install chromium
+npm test
+```
+
+`npm test` runs the unit tests and the real-Chromium end-to-end tests. It fails when Playwright or Chromium is missing rather than silently skipping browser coverage. Use `npm run test:unit` only when you intentionally want to run the unit tests without a browser.
 
 ## Using the Kit
 
@@ -176,7 +188,7 @@ Charts are drawn as SVG by Kit and support hover details, legends, a full-size v
 
 A widget block contains a self-contained HTML snippet (HTML, CSS, and JavaScript) for a small interactive demo, calculator, or diagram.
 
-Widgets run in an isolated iframe with scripts enabled but without same-origin access. A restrictive Content Security Policy blocks network connections and external resources. The widget cannot access the DeepSeek page.
+Widgets run in an opaque-origin iframe with scripts enabled but without same-origin access. The Content Security Policy blocks fetch/XHR-style connections and external resource loads; the iframe sandbox blocks popups and navigation to the host page. **Important limitation:** browsers still allow a document to navigate its own iframe, and there is no portable CSP directive that forbids this. Treat generated widget code as untrusted: the sandbox isolates it from the DeepSeek page, but it is not a guarantee of zero outbound navigation.
 
 The sandbox provides a small set of ready-made classes, including `v-card`, `v-title`, `v-btn`, `v-btn-outline`, `v-row`, `v-control-group`, `v-label`, and `v-stat`. Keep the background transparent and size content to itself; viewport-height sizing is not supported.
 
