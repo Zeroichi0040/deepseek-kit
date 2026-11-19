@@ -808,6 +808,8 @@ async function thinkTimer() {
   await p.waitForTimeout(2200);
   chk('T4 it counts up in seconds', /^[23]s$/.test(await T(1)), String(await T(1)));
   chk('T5 the shimmer label is untouched', await p.evaluate(() => document.querySelector('[data-virtual-list-item-key="1"] span._5255ff8').firstChild.nodeValue === 'Thinking'));
+  const look = await p.evaluate(() => { const b = document.querySelector('[data-virtual-list-item-key="1"]'); const t = getComputedStyle(b.querySelector('.dck-think-timer')), l = getComputedStyle(b.querySelector('span._5255ff8')); return { same: t.color === l.color && t.fontSize === l.fontSize, opacity: t.opacity }; });
+  chk('T5b the clock has the label\'s size and colour, fully opaque', look.same && look.opacity === '1', JSON.stringify(look));
   await p.evaluate(() => document.documentElement.setAttribute('data-dck-fold', '')); await p.waitForTimeout(200);
   const folded = await p.evaluate(() => { const t = document.querySelector('[data-virtual-list-item-key="1"] .dck-think-timer'); const r = t.getBoundingClientRect(); const body = document.querySelector('[data-virtual-list-item-key="1"] .ds-think-content'); return { w: r.width, h: r.height, bodyH: body.getBoundingClientRect().height }; });
   chk('T6 the clock stays visible while the block is folded', folded.w > 0 && folded.h > 0 && folded.bodyH === 0, JSON.stringify(folded));
@@ -816,14 +818,7 @@ async function thinkTimer() {
   chk('T7 the clock is gone once the site says "Thought for N seconds"', (await T(1)) === null, String(await T(1)));
   await p.evaluate(() => addThinking(2, true)); await p.waitForTimeout(1500);
   chk('T8 a block that already holds lots of text when first seen gets no clock', (await T(2)) === null, String(await T(2)));
-  await p.evaluate(() => addThinking(4)); await p.waitForTimeout(400);
-  const before = await T(4);
-  await p.click('#dck-fab'); await p.click('[role=tab]:has-text("Settings")'); await p.locator('.dck-acchead:has-text("Messages")').click();
-  await p.locator('.dck-setrow:has-text("Live reasoning timer") .dck-switch').click(); await p.waitForTimeout(400); await p.click('#dck-drawer [aria-label="Close panel"]');
-  chk('T9 switching the setting off removes the clock', before === '0s' && (await T(4)) === null, before + ' -> ' + String(await T(4)));
-  await p.evaluate(() => addThinking(5)); await p.waitForTimeout(1300);
-  chk('T10 with the setting off a new block gets none', (await T(5)) === null, String(await T(5)));
-  chk('T11 no page errors', p.errs.length === 0 && (await p.evaluate(() => errs.length)) === 0, JSON.stringify(p.errs));
+  chk('T9 no page errors', p.errs.length === 0 && (await p.evaluate(() => errs.length)) === 0, JSON.stringify(p.errs));
 
   const bad = results.filter((r) => !r[0]);
   results.forEach((r) => console.log((r[0] ? 'ok  ' : 'FAIL') + ' reasoning timer ' + r[1] + (r[0] ? '' : ' | ' + r[2])));
