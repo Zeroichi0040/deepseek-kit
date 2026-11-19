@@ -88,16 +88,16 @@ If the DeepSeek toolbar cannot be found or the composer is too narrow, the row f
 
 This setting controls what happens when you send a message that is due to receive context.
 
-- **Visible (default):** Kit inserts the context into the message box. Review or edit it, then press Enter yourself.
-- **Hidden:** Kit attaches the context, hides the inserted block in the chat view, and submits the message for you.
+- **Visible:** Kit inserts the context into the message box. Review or edit it, then press Enter yourself.
+- **Hidden (default):** Kit attaches the context, hides the inserted block in the chat view, and submits the message for you.
 
-Hidden mode is more automated. Kit waits for the page to accept Enter and only tries the send button as a fallback if the composer has not cleared. If it cannot confirm submission, it reports that instead of repeatedly trying. The full text, including context, remains present when editing the sent message.
+Hidden mode is more automated, and it is the default on a new install. Kit waits for the page to accept Enter and only tries the send button as a fallback if the composer has not cleared. If it cannot confirm submission, it reports that instead of repeatedly trying. The full text, including context, remains present when editing the sent message.
 
-Use Visible mode if you want to inspect every prompt and memory before sending.
+Switch to Visible mode if you want to inspect every prompt and memory before sending.
 
 ### List continuation
 
-Enable **Settings → Messages → Continue lists with Shift+Enter** to continue a list while typing:
+List continuation is on by default. You can turn it off in **Settings → Messages → Continue lists with Shift+Enter**. While it is on, Shift+Enter continues a list as you type:
 
 - `1. ` becomes `2. `
 - `- `, `* `, and `+ ` continue as bullets
@@ -142,7 +142,7 @@ Choice questions include an **Other** field by default. A question can mark one 
 
 For multi-question forms, questions appear one at a time with a counter and navigation arrows. Selecting a single-choice answer advances to the next question. After submission, the form becomes read-only; choose **Answer again** to edit it.
 
-Answers are added to the message box by default. Enable **Settings → Questions → Send answers straight away** to submit them immediately. If first-message context is still due, Kit inserts that context first and lets you review it as usual.
+Answers are submitted straight away by default. To have them added to the message box for you to review and send yourself, turn off **Settings → Questions → Send answers straight away**. If first-message context is still due, Hidden mode attaches it and sends; in Visible mode Kit inserts that context first and lets you review it as usual.
 
 The built-in **Questions** prompt teaches DeepSeek the expected format. You can disable or edit it in the Prompts area.
 
