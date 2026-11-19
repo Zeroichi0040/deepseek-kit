@@ -541,7 +541,7 @@
     new MutationObserver((records) => {
       if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
       if (settings.collapseThinking) scheduleThinkScan();
-      if (settings.thinkTimer !== false || tt.timer) scheduleThinkTimerScan();
+      if (settings.enabled || tt.timer) scheduleThinkTimerScan();
       if (settings.collapseLong) scheduleCollapseScan();
       if (visOn() || vis.list.length) scheduleVisScan();
       if (settings.showInjected !== false) return;
@@ -984,12 +984,11 @@
 
   function renderSettings(body) {
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
-    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, settings.thinkTimer !== false, !!settings.listContinue]), (box) => {
+    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, !!settings.listContinue]), (box) => {
       box.append(settingRow('Continue lists with Shift+Enter', 'In the message box, Shift+Enter on a "1.", "-" or ">" line starts the next item; on an empty item it ends the list', !!settings.listContinue, (v) => { settings.listContinue = v; commit(); }));
       box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
       box.append(settingRow('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
       box.append(settingRow('Collapse reasoning', 'Folds DeepThink blocks to their header while thinking and when finished, also after a refresh. Click a header to open it', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); }));
-      box.append(settingRow('Live reasoning timer', 'Shows how long DeepThink has been thinking, like 23s or 1m 2s, next to the Thinking label', settings.thinkTimer !== false, (v) => { settings.thinkTimer = v; commit(); scheduleThinkTimerScan(); }));
       box.append(settingRow('Chips in the toolbar', 'Shows what will be attached, next to DeepThink and Search', settings.showChips !== false, (v) => { settings.showChips = v; commit(); liveSig = ''; refreshAll(true); }));
       box.append(h('div', { class: 'dck-setrow' },
         h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Kit button position'), h('div', { class: 'dck-sub' }, 'Drag the button to move it; it docks to the nearest side')),
@@ -1244,7 +1243,7 @@
   const TT_BOOT_MS = 4000;
 
   function scanThinkTimer() {
-    const on = !!(settings.enabled && settings.thinkTimer !== false);
+    const on = !!settings.enabled;
     if (location.pathname !== tt.path) {
       if (tt.path !== '/') { tt.live.clear(); tt.hidden.clear(); } // "/" becomes the chat's own address after the first message
       tt.path = location.pathname;

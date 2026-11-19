@@ -61,7 +61,6 @@
     memoryBudget: 0, // max tokens of memory per message, 0 = no limit
     codeTools: true, // header buttons (collapse, ZIP) on code blocks
     collapseThinking: false, // close DeepThink reasoning blocks, while thinking and once finished (also after a refresh)
-    thinkTimer: true, // live clock in the header of a reasoning block while it is still thinking
     lineNumbers: true, // number the lines of code blocks (CSS counters, never part of copied text)
     mdPreview: true, // Preview button on markdown code blocks
     collapseLong: true, // collapse long code blocks automatically
