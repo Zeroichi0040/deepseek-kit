@@ -397,6 +397,12 @@ console.log('all logic tests passed');
   // the default prompt
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('Never invent') && c.BUILTIN_DEFAULT_PROMPT.includes('{{date}}'));
   assert.strictEqual(c.BUILTIN_DEFAULT_PROMPT.split('\n').length, 8, 'a header line plus seven rules');
+  // the Default prompt asks for a file-name comment on each file of a multi-file reply, and the ZIP reads exactly those forms
+  assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('// file: src/app.js') && c.BUILTIN_DEFAULT_PROMPT.includes('# file: main.py'), 'prompt asks for file-name comments');
+  [['javascript', '// file: src/app.js\nlet a = 1;', 'src/app.js'], ['python', '# file: main.py\nprint(1)', 'main.py'], ['html', '<!-- file: index.html -->\n<p>x</p>', 'index.html'],
+    ['css', '/* file: style.css */\nbody{}', 'style.css'], ['bash', '#!/bin/bash\n# file: run.sh\necho 1', 'run.sh']].forEach(([lang, text, want]) => {
+    assert.strictEqual(c.suggestFilename(lang, text, 4), want, 'file-name comment in ' + lang);
+  });
   console.log('ok  new defaults, no starter content, the default prompt');
 }
 

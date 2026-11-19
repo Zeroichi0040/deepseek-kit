@@ -122,7 +122,7 @@ Kit adds its own controls to code-block headers. Turn them off under **Settings 
 - **Collapse / Expand:** Long blocks start collapsed (20 lines by default). Expand a block to keep it open while the page is loaded.
 - **Line numbers:** Optional CSS line numbers that do not affect selection, copying, or downloading.
 - **Markdown preview:** Blocks tagged `markdown` or `md` get a rendered preview. Switch between **Preview** and **Source**.
-- **+ ZIP:** Collect code blocks and download them together. Kit uses a `// file: filename.ext` comment near the top of a block when available; otherwise it assigns a name such as `snippet-1.ext`. Duplicate names receive a numeric suffix.
+- **+ ZIP:** Collect code blocks and download them together. Kit uses a `// file: filename.ext` comment near the top of a block when available; otherwise it assigns a name such as `snippet-1.ext`. The built-in Default prompt asks DeepSeek to put such a comment at the top of each file when a reply has several files (it is sent with the first message of a chat; if you edited the Default prompt, add the line yourself). The comment stays in the downloaded file, which is why JSON and other formats without comments are left out. Duplicate names receive a numeric suffix.
 
 The Markdown preview builds DOM elements directly rather than parsing source as HTML. Raw HTML is shown as text, images are represented by placeholders, and only HTTP, HTTPS, and mailto links are retained. The original source remains available for copying, downloading, and ZIP collection.
 
