@@ -649,12 +649,9 @@
     return { value: value.slice(0, start) + text + value.slice(end), caret: start + text.length };
   }
 
-  // Elapsed time for the reasoning timer: "23s", "1m 2s", "1h 5m". Never "0:23".
+  // Elapsed time for the reasoning timer, in seconds only ("23s", "86s"), like the site's own "Thought for 86 seconds".
   function formatElapsed(ms) {
-    const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
-    if (total < 60) return total + 's';
-    if (total < 3600) return Math.floor(total / 60) + 'm ' + (total % 60) + 's';
-    return Math.floor(total / 3600) + 'h ' + Math.floor((total % 3600) / 60) + 'm';
+    return Math.max(0, Math.floor((Number(ms) || 0) / 1000)) + 's';
   }
 
   const core = {
