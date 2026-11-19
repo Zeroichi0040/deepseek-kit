@@ -177,6 +177,32 @@
   // A block with a `.ds-think-content` child is open as far as the site knows.
   function blockIsOpen(block) { return !!block.querySelector(':scope > .ds-think-content'); }
 
+  // The label inside a block's header ("Thinking" while it writes, "Thought for N seconds" once done), or null.
+  function blockLabel(block) {
+    const head = block.firstElementChild;
+    const t = head ? firstText(head) : null; // not textContent: our own timer would run into the label
+    return t ? t.parentElement : null;
+  }
+
+  // Is this block still being written? While it is, the label reads "Thinking" and carries a shimmer element whose
+  // inline style says `animation-play-state: running`. A finished block reads "Thought for N seconds" with no shimmer.
+  // The shimmer is the primary signal (it does not depend on the site's language); the text is the fallback.
+  function blockLive(block) {
+    const label = blockLabel(block);
+    if (!label) return false;
+    const text = (firstText(block.firstElementChild).nodeValue || '').trim();
+    if (/^Thought/i.test(text)) return false;
+    const shimmer = label.querySelector('[style*="animation-play-state"]');
+    if (shimmer) return !/paused/i.test(shimmer.getAttribute('style') || '');
+    return /^Thinking/i.test(text);
+  }
+
+  // How much reasoning text the block holds right now (open or folded, the text is in the page either way).
+  function blockThoughtLength(block) {
+    const body = block.querySelector(':scope > .ds-think-content');
+    return body ? body.textContent.length : 0;
+  }
+
   // ----- probe: what was found, hook by hook (for Diagnostics)
   function probe() {
     const el = composer();
@@ -196,12 +222,13 @@
       codeHeaders: headed,
       reasoning: blocks.length,
       reasoningOpen: blocks.filter(blockIsOpen).length,
+      reasoningLive: blocks.filter(blockLive).length,
     };
   }
 
   const api = {
     BLOCK_SEL, oncePerFrame, textNodes, findByText, firstText, composer, sendButton, composerBox, toolbarPills,
-    copyButton, codeBlocks, blockBox, blockLang, blockBusy, reasoningBlocks, blockOfHeader, blockKey, blockIsOpen, probe,
+    copyButton, codeBlocks, blockBox, blockLang, blockBusy, reasoningBlocks, blockOfHeader, blockKey, blockIsOpen, blockLabel, blockLive, blockThoughtLength, probe,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.DCK_SITE = api;

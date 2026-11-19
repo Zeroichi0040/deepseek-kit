@@ -783,6 +783,54 @@ async function fold() {
   assert.strictEqual(bad.length, 0, bad.length + ' fold check(s) failed');
 }
 
+// ---------- live reasoning timer
+const thinkingHTML = fx('reasoning-thinking.html');
+const TPAGE = `<!doctype html><html class="dark"><body style="background:#151517;color:#ddd;font-family:sans-serif;width:640px;padding:20px"><textarea></textarea><div id="list">
+<div data-virtual-list-item-key="boot"><div class="ds-message">${thinkingHTML}</div></div></div><script>
+window.errs=[]; window.addEventListener('error',e=>errs.push(e.message));
+window.addThinking=(key,more)=>{ const item=document.createElement('div'); item.setAttribute('data-virtual-list-item-key',String(key)); const m=document.createElement('div'); m.className='ds-message'; m.innerHTML=${JSON.stringify(thinkingHTML)};
+  if(more) m.querySelector('.ds-markdown-paragraph span').textContent='x'.repeat(300); item.append(m); document.getElementById('list').append(item); };
+window.finish=(key)=>{ document.querySelector('[data-virtual-list-item-key="'+key+'"] span._5255ff8').textContent='Thought for 5 seconds'; };
+</script></body></html>`;
+
+async function thinkTimer() {
+  const ctx = await launch(900, 900);
+  const p = await open(ctx, TPAGE, 'https://chat.deepseek.com/a/chat/s/T');
+  const results = [];
+  const chk = (n, c, d) => { results.push([c, n, d || '']); };
+  const T = (k) => p.evaluate((k) => { const t = document.querySelector('[data-virtual-list-item-key="' + k + '"] .dck-think-timer'); return t ? t.textContent : null; }, k);
+  await p.waitForTimeout(1500);
+  chk('T1 a block already thinking when the page loaded gets no clock (start unknown)', (await T('boot')) === null, String(await T('boot')));
+  await p.waitForTimeout(3500); // past the first seconds after load
+  await p.evaluate(() => addThinking(1)); await p.waitForTimeout(400);
+  chk('T2 a block that starts thinking now gets a clock at 0s', (await T(1)) === '0s', String(await T(1)));
+  chk('T3 the clock sits right after the Thinking label, not inside it', await p.evaluate(() => { const t = document.querySelector('[data-virtual-list-item-key="1"] .dck-think-timer'); return !!t && t.previousElementSibling.matches('span._5255ff8') && t.parentElement.matches('._5ab5d64'); }));
+  await p.waitForTimeout(2200);
+  chk('T4 it counts up in seconds', /^[23]s$/.test(await T(1)), String(await T(1)));
+  chk('T5 the shimmer label is untouched', await p.evaluate(() => document.querySelector('[data-virtual-list-item-key="1"] span._5255ff8').firstChild.nodeValue === 'Thinking'));
+  await p.evaluate(() => document.documentElement.setAttribute('data-dck-fold', '')); await p.waitForTimeout(200);
+  const folded = await p.evaluate(() => { const t = document.querySelector('[data-virtual-list-item-key="1"] .dck-think-timer'); const r = t.getBoundingClientRect(); const body = document.querySelector('[data-virtual-list-item-key="1"] .ds-think-content'); return { w: r.width, h: r.height, bodyH: body.getBoundingClientRect().height }; });
+  chk('T6 the clock stays visible while the block is folded', folded.w > 0 && folded.h > 0 && folded.bodyH === 0, JSON.stringify(folded));
+  await p.evaluate(() => document.documentElement.removeAttribute('data-dck-fold'));
+  await p.evaluate(() => finish(1)); await p.waitForTimeout(300);
+  chk('T7 the clock is gone once the site says "Thought for N seconds"', (await T(1)) === null, String(await T(1)));
+  await p.evaluate(() => addThinking(2, true)); await p.waitForTimeout(1500);
+  chk('T8 a block that already holds lots of text when first seen gets no clock', (await T(2)) === null, String(await T(2)));
+  await p.evaluate(() => addThinking(4)); await p.waitForTimeout(400);
+  const before = await T(4);
+  await p.click('#dck-fab'); await p.click('[role=tab]:has-text("Settings")'); await p.locator('.dck-acchead:has-text("Messages")').click();
+  await p.locator('.dck-setrow:has-text("Live reasoning timer") .dck-switch').click(); await p.waitForTimeout(400); await p.click('#dck-drawer [aria-label="Close panel"]');
+  chk('T9 switching the setting off removes the clock', before === '0s' && (await T(4)) === null, before + ' -> ' + String(await T(4)));
+  await p.evaluate(() => addThinking(5)); await p.waitForTimeout(1300);
+  chk('T10 with the setting off a new block gets none', (await T(5)) === null, String(await T(5)));
+  chk('T11 no page errors', p.errs.length === 0 && (await p.evaluate(() => errs.length)) === 0, JSON.stringify(p.errs));
+
+  const bad = results.filter((r) => !r[0]);
+  results.forEach((r) => console.log((r[0] ? 'ok  ' : 'FAIL') + ' reasoning timer ' + r[1] + (r[0] ? '' : ' | ' + r[2])));
+  await ctx.close();
+  assert.strictEqual(bad.length, 0, bad.length + ' timer check(s) failed');
+}
+
 // ---------- two tabs: a save in one tab must not be overwritten by a tab that was opened earlier
 async function twoTabs() {
   const ctx = await launch(1000, 900);
@@ -834,6 +882,7 @@ async function noStarters() {
     await askForms();
     await listKeys();
     await fold();
+    await thinkTimer();
     await twoTabs();
     await noStarters();
   } catch (e) {

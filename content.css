@@ -350,3 +350,6 @@ html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-c
 .dck-ask-again:hover { background: rgba(128,128,128,.16); }
 .dck-ask-again[hidden] { display: none; }
 .dck-ask.locked .dck-ask-opt { opacity: .65; cursor: default; }
+
+/* Live reasoning timer (setting "Live reasoning timer"): a small clock after the Thinking label. */
+.dck-think-timer { margin-left: 8px; font-size: 12px; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; opacity: .7; }

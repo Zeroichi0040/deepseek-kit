@@ -541,6 +541,7 @@
     new MutationObserver((records) => {
       if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
       if (settings.collapseThinking) scheduleThinkScan();
+      if (settings.thinkTimer !== false || tt.timer) scheduleThinkTimerScan();
       if (settings.collapseLong) scheduleCollapseScan();
       if (visOn() || vis.list.length) scheduleVisScan();
       if (settings.showInjected !== false) return;
@@ -911,7 +912,7 @@
     add('Hidden-mode cleanup', null, hidden ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
     const toolsState = settings.codeTools === false ? 'tools off' : 'tools on';
     add('Code block headers', settings.codeTools === false || !p.codeBlocks ? null : p.codeHeaders === p.codeBlocks, p.codeBlocks + ' code block(s), ' + p.codeHeaders + ' with a Copy button found, ' + toolsState);
-    add('Reasoning blocks', null, p.reasoning + ' found (' + p.reasoningOpen + ' open), fold ' + (document.documentElement.hasAttribute('data-dck-fold') ? 'on' : 'off'));
+    add('Reasoning blocks', null, p.reasoning + ' found (' + p.reasoningOpen + ' open, ' + p.reasoningLive + ' thinking), fold ' + (document.documentElement.hasAttribute('data-dck-fold') ? 'on' : 'off'));
     add('Chat', null, chatPathLabel() + ', message count ' + chatCount());
     let bytes = 0;
     try { bytes = JSON.stringify({ settings, memories, counts }).length; } catch (e) { bytes = 0; }
@@ -983,11 +984,12 @@
 
   function renderSettings(body) {
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
-    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, !!settings.listContinue]), (box) => {
+    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, settings.thinkTimer !== false, !!settings.listContinue]), (box) => {
       box.append(settingRow('Continue lists with Shift+Enter', 'In the message box, Shift+Enter on a "1.", "-" or ">" line starts the next item; on an empty item it ends the list', !!settings.listContinue, (v) => { settings.listContinue = v; commit(); }));
       box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
       box.append(settingRow('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
       box.append(settingRow('Collapse reasoning', 'Folds DeepThink blocks to their header while thinking and when finished, also after a refresh. Click a header to open it', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); }));
+      box.append(settingRow('Live reasoning timer', 'Shows how long DeepThink has been thinking, like 23s or 1m 2s, next to the Thinking label', settings.thinkTimer !== false, (v) => { settings.thinkTimer = v; commit(); scheduleThinkTimerScan(); }));
       box.append(settingRow('Chips in the toolbar', 'Shows what will be attached, next to DeepThink and Search', settings.showChips !== false, (v) => { settings.showChips = v; commit(); liveSig = ''; refreshAll(true); }));
       box.append(h('div', { class: 'dck-setrow' },
         h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Kit button position'), h('div', { class: 'dck-sub' }, 'Drag the button to move it; it docks to the nearest side')),
@@ -1228,6 +1230,62 @@
       }
     }, true);
   }
+
+  // ---------- DeepThink reasoning: live timer ----------
+  // The site only writes "Thought for N seconds" at the end. While a block still says "Thinking", the Kit shows a
+  // clock after the label ("23s", "1m 2s"), counted from the moment it first saw that block thinking. Nothing is
+  // requested and nothing on the site changes; our <span class="dck-think-timer"> is the only addition. It is checked
+  // four times a second, only while a block is thinking, so the shown second is never more than a moment late.
+  // After a refresh the real start is unknown, so a block that was already thinking when the page loaded gets no clock
+  // (it would show a wrong number). Such a block is recognised by already holding a good amount of reasoning text, or
+  // by appearing within the first seconds after the page loaded in an existing chat.
+  const tt = { live: new Map(), hidden: new Set(), timer: 0, born: Date.now(), path: location.pathname };
+  const TT_MIN_CHARS = 80; // a block that is just starting holds less text than this
+  const TT_BOOT_MS = 4000;
+
+  function scanThinkTimer() {
+    const on = !!(settings.enabled && settings.thinkTimer !== false);
+    if (location.pathname !== tt.path) {
+      if (tt.path !== '/') { tt.live.clear(); tt.hidden.clear(); } // "/" becomes the chat's own address after the first message
+      tt.path = location.pathname;
+    }
+    const now = Date.now();
+    let anyLive = false;
+    SITE.reasoningBlocks().forEach((block) => {
+      const item = block.closest('[data-virtual-list-item-key]');
+      const key = item ? String(item.getAttribute('data-virtual-list-item-key')) : block;
+      const el = block.querySelector('.dck-think-timer');
+      if (!SITE.blockLive(block)) { // finished (or not a reasoning header): no clock
+        if (el) el.remove();
+        tt.live.delete(key); tt.hidden.delete(key);
+        return;
+      }
+      anyLive = true;
+      if (!on || tt.hidden.has(key)) { if (el) el.remove(); return; }
+      if (!tt.live.has(key)) {
+        if (SITE.blockThoughtLength(block) > TT_MIN_CHARS || (now - tt.born < TT_BOOT_MS && location.pathname !== '/')) {
+          tt.hidden.add(key); // thinking began before the Kit could see it
+          return;
+        }
+        tt.live.set(key, now);
+      }
+      const text = DCK_LIB.formatElapsed(now - tt.live.get(key));
+      const label = SITE.blockLabel(block);
+      if (!label || !label.parentElement) return;
+      let span = el;
+      if (!span || span.previousElementSibling !== label) {
+        if (span) span.remove();
+        span = document.createElement('span');
+        span.className = 'dck-think-timer';
+        span.title = 'Time spent thinking so far (DeepSeek Kit)';
+        label.after(span);
+      }
+      if (span.textContent !== text) span.textContent = text;
+    });
+    if (anyLive && on && !tt.timer) tt.timer = setInterval(scanThinkTimer, 250);
+    else if ((!anyLive || !on) && tt.timer) { clearInterval(tt.timer); tt.timer = 0; }
+  }
+  const scheduleThinkTimerScan = SITE.oncePerFrame(scanThinkTimer);
 
   // ---------- Code block tools (buttons in the code block header: collapse, ZIP basket) ----------
   const tools = { basket: [], zip: null };
@@ -1830,6 +1888,7 @@
     syncVisuals();
     setTimeout(() => { if (chartsOn()) runSandboxProbe(); }, 1500);
     initThinkTracker();
+    scheduleThinkTimerScan();
     listenForOtherTabs();
     applyFold();
     if (settings.collapseLong) scheduleCollapseScan();
