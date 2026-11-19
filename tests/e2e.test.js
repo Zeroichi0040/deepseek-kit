@@ -1,11 +1,11 @@
 // Real-Chromium checks: loads this folder as an unpacked extension and runs it on mocked chat.deepseek.com pages.
-// Skipped (exit 0) when Playwright or its Chromium is not installed.
+// Required by the default test suite; missing Playwright or Chromium is a test failure.
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const assert = require('assert');
 let chromium;
-try { ({ chromium } = require('playwright')); } catch (e) { console.log('skip  e2e (playwright is not installed)'); process.exit(0); }
+try { ({ chromium } = require('playwright')); } catch (e) { console.error('FAIL e2e: Playwright is not installed. Run `npm ci` first.'); process.exit(1); }
 
 const EXT = path.join(__dirname, '..');
 const fx = (n) => fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8').trim();
@@ -277,13 +277,38 @@ async function visuals() {
   assert.strictEqual(await fl.locator('#n').innerText(), '2', 'widget script runs');
   await p.waitForFunction(() => parseInt(document.querySelector('.dck-vis[data-kind=viz] iframe').style.height, 10) > 250);
   ok('widget runs in the sandbox and sizes itself to its content');
-  const frame = p.frames().find((f) => f !== p.mainFrame() && /Counter/.test(f.url() + '') === false && f.parentFrame() === p.mainFrame());
-  const blocked = await p.frames().filter((f) => f !== p.mainFrame())[0].evaluate(() => fetch('https://example.com/x').then(() => 'reached', () => 'blocked'));
+
+  // The expanded view must preserve the exact same isolation settings.
+  await p.locator('.dck-vis[data-kind=viz]').first().locator('.dck-vbtn:has-text("Full size")').click();
+  const fullFrame = p.locator('.dck-visfull iframe');
+  assert.strictEqual(await fullFrame.getAttribute('sandbox'), 'allow-scripts');
+  assert.strictEqual(await fullFrame.getAttribute('referrerpolicy'), 'no-referrer');
+  await p.locator('.dck-visfull button[aria-label="Close"]').click();
+  ok('full-size widget keeps the same sandbox and referrer policy');
+
+  const frame = p.frames().find((f) => f !== p.mainFrame() && f.parentFrame() === p.mainFrame());
+  assert.ok(frame, 'widget frame exists');
+  const blocked = await frame.evaluate(() => fetch('https://example.com/x').then(() => 'reached', () => 'blocked'));
   assert.strictEqual(blocked, 'blocked', 'widget fetch is blocked by its CSP');
-  const sameOrigin = await p.frames().filter((f) => f !== p.mainFrame())[0].evaluate(() => { try { return typeof parent.document.title; } catch (e) { return 'denied'; } });
-  assert.strictEqual(sameOrigin, 'denied', 'widget cannot reach the page');
-  assert.ok([...hosts].every((h) => h === 'chat.deepseek.com' || h === ''), 'no request left the page: ' + [...hosts].join(','));
-  ok('widget has no network and no access to the page');
+  const guard = await frame.evaluate(() => {
+    let popup;
+    try { popup = window.open('https://example.com/'); } catch (e) { popup = null; }
+    let parentAccess = 'allowed';
+    try { void parent.document.title; } catch (e) { parentAccess = 'denied'; }
+    return { popupBlocked: popup === null, parentAccess: parentAccess };
+  });
+  assert.deepStrictEqual(guard, { popupBlocked: true, parentAccess: 'denied' }, 'widget cannot open a popup or reach the host page');
+  await frame.evaluate(() => {
+    const a = document.createElement('a');
+    a.href = 'https://example.com/';
+    a.target = '_top';
+    document.body.appendChild(a);
+    a.click();
+  });
+  await p.waitForTimeout(100);
+  assert.strictEqual(p.url(), 'https://chat.deepseek.com/a/chat/s/1', 'widget cannot navigate the top-level page');
+  assert.ok([...hosts].every((h) => h === 'chat.deepseek.com' || h === ''), 'no external resource request was observed during normal rendering: ' + [...hosts].join(','));
+  ok('widget blocks fetch, popups and top-level navigation while remaining isolated from the page');
 
   // error path
   const bad = p.locator('.dck-vis[data-kind=viz]').nth(1);
@@ -881,7 +906,6 @@ async function noStarters() {
     await twoTabs();
     await noStarters();
   } catch (e) {
-    if (/Executable doesn't exist|browserType.launch/.test(e.message)) { console.log('skip  e2e (Chromium is not installed)'); process.exit(0); }
     console.error('FAIL:', e.stack || e.message);
     process.exit(1);
   }
