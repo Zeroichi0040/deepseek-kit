@@ -207,7 +207,7 @@ async function boot(stored, memories) {
     // built-in default: edit then reset
     a.btn('Edit Default prompt').click();
     const dta = a.drawer.querySelector('textarea[aria-label="Prompt text"]');
-    assert.ok(dta.value.includes('helpful, honest assistant'));
+    assert.ok(dta.value.includes('honesty and safety'));
     dta.value = 'My default';
     a.btn('Save').click();
     assert.strictEqual(a.saved.dck_settings.defaultText, 'My default');

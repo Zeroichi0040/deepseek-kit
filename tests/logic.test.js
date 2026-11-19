@@ -395,8 +395,8 @@ console.log('all logic tests passed');
   const old = c.migrateSettings({ lineNumbers: false, collapseLong: false });
   assert.ok(old.lineNumbers === false && old.collapseLong === false, 'saved settings are not flipped');
   // the default prompt
-  assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('Never invent') && c.BUILTIN_DEFAULT_PROMPT.includes('{{date}}'));
-  assert.strictEqual(c.BUILTIN_DEFAULT_PROMPT.split('\n').length, 8, 'a header line plus seven rules');
+  assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('honesty and safety') && c.BUILTIN_DEFAULT_PROMPT.includes('{{date}}'));
+  assert.ok(['## Answering', '## Formatting', '## Tone'].every((h) => c.BUILTIN_DEFAULT_PROMPT.includes(h)), 'three sections');
   // the Default prompt asks for a file-name comment on each file of a multi-file reply, and the ZIP reads exactly those forms
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('// file: src/app.js') && c.BUILTIN_DEFAULT_PROMPT.includes('# file: main.py'), 'prompt asks for file-name comments');
   [['javascript', '// file: src/app.js\nlet a = 1;', 'src/app.js'], ['python', '# file: main.py\nprint(1)', 'main.py'], ['html', '<!-- file: index.html -->\n<p>x</p>', 'index.html'],
