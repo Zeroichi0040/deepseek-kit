@@ -1243,9 +1243,10 @@
     const codeEl = pre.querySelector('code');
     const text = (codeEl || pre).textContent.replace(/\n$/, '');
     const hints = [langFromClass((codeEl && codeEl.className) || ''), langFromClass(pre.className)];
-    const prev = pre.previousElementSibling || (pre.parentElement && pre.parentElement.firstElementChild !== pre ? pre.parentElement.firstElementChild : null);
-    const label = prev ? String(prev.textContent || '').trim().split(/\s+/)[0] : '';
-    if (label && label.length <= 20) hints.push(label);
+    // The header label comes from SITE.blockLang (first text node of the header). Reading the header's textContent
+    // ran the label into the Copy/Download buttons ("pythonCopyDownload"), so every block fell back to .txt.
+    const label = SITE.blockLang(pre);
+    if (label) hints.push(label);
     const info = detectBlock(hints, text);
     const all = SITE.codeBlocks();
     return { text, lang: info.lang, kind: info.kind, name: suggestFilename(info.lang, text, all.indexOf(pre) + 1) };

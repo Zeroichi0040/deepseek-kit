@@ -44,11 +44,13 @@ const ok = (m) => console.log('ok  ' + m);
 const long = Array.from({ length: 30 }, (_, i) => 'line ' + (i + 1)).join('\n');
 const btn = (t) => `<div role="button" class="sb"><svg width="12" height="12"><rect width="12" height="12"/></svg><span class="lb">${t}</span></div>`;
 const blk = (lang, code) => `<div class="cb" style="margin:14px 0;border:1px solid #444;background:#222;color:#eee"><div style="display:flex;align-items:center;padding:8px 12px"><span>${lang}</span><div class="acts" style="margin-left:auto;display:flex;gap:16px">${btn('Copy')}${btn('Download')}</div></div><pre style="margin:0;padding:12px;white-space:pre-wrap"><code class="language-${lang}">${code}</code></pre></div>`;
+// the real site puts no language class on the code element: the language is only the header label
+const plainBlk = (lang, code) => `<div class="cb" style="margin:14px 0;border:1px solid #444;background:#222;color:#eee"><div style="display:flex;align-items:center;padding:8px 12px"><span>${lang}</span><div class="acts" style="margin-left:auto;display:flex;gap:16px">${btn('Copy')}${btn('Download')}</div></div><pre style="margin:0;padding:12px;white-space:pre-wrap">${code}</pre></div>`;
 const noHeader = '<pre id="nohead" style="margin:12px 0;padding:12px">plain block without a header</pre>';
 
 async function codeBlocks() {
   const ctx = await launch(1000, 900);
-  const p = await open(ctx, `<body style="background:#111;color:#eee;width:560px">${blk('html', '&lt;h1&gt;Hi&lt;/h1&gt;')}${blk('python', long)}${blk('python', 'print(1)')}${noHeader}<div style="position:fixed;left:200px;right:200px;bottom:30px;height:90px;border-radius:20px;background:#2b2b2e"><textarea style="width:90%"></textarea></div></body>`);
+  const p = await open(ctx, `<body style="background:#111;color:#eee;width:560px">${blk('html', '&lt;h1&gt;Hi&lt;/h1&gt;')}${blk('python', long)}${plainBlk('python', 'print(1)')}${noHeader}<div style="position:fixed;left:200px;right:200px;bottom:30px;height:90px;border-radius:20px;background:#2b2b2e"><textarea style="width:90%"></textarea></div></body>`);
   await p.waitForSelector('[data-dck-act]');
   const acts = () => p.evaluate(() => Array.from(document.querySelectorAll('.cb')).map((cb) => Array.from(cb.querySelectorAll('.acts > div')).map((n) => n.textContent.trim()).join(',')));
   assert.deepStrictEqual(await acts(), ['+ ZIP,Copy,Download', 'Expand (30 lines),+ ZIP,Copy,Download', '+ ZIP,Copy,Download']);
@@ -92,6 +94,9 @@ async function codeBlocks() {
   await z.saveAs(zp);
   const bytes = fs.readFileSync(zp);
   assert.strictEqual(bytes.readUInt32LE(0), 0x04034b50, 'zip signature');
+  const names = bytes.toString('latin1');
+  assert.ok(/snippet-1\.html/.test(names), 'html block keeps .html: ' + names.replace(/[^\x20-\x7e]/g, '.').slice(0, 200));
+  assert.ok(/snippet-3\.py/.test(names), 'a python block whose language is only in the header label keeps .py: ' + names.replace(/[^\x20-\x7e]/g, '.').slice(0, 200));
   fs.unlinkSync(zp);
   assert.ok(!(await p.locator('#dck-zipchip').isVisible()));
   ok('ZIP of two blocks downloads and the chip clears');
