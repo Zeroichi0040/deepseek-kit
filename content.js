@@ -1232,7 +1232,7 @@
 
   // ---------- DeepThink reasoning: live timer ----------
   // The site only writes "Thought for N seconds" at the end. While a block still says "Thinking", the Kit shows a
-  // clock after the label ("23s", "1m 2s"), counted from the moment it first saw that block thinking. Nothing is
+  // clock after the label ("23s", "86s"), counted from the moment it first saw that block thinking. Nothing is
   // requested and nothing on the site changes; our <span class="dck-think-timer"> is the only addition. It is checked
   // four times a second, only while a block is thinking, so the shown second is never more than a moment late.
   // After a refresh the real start is unknown, so a block that was already thinking when the page loaded gets no clock

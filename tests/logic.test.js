@@ -454,8 +454,7 @@ console.log('ok  list continuation');
 {
   const f = c.formatElapsed;
   assert.deepStrictEqual([0, 999, 1000, 23000, 49999, 59999].map(f), ['0s', '0s', '1s', '23s', '49s', '59s']);
-  assert.deepStrictEqual([60000, 62000, 119999, 600000, 3599000].map(f), ['1m 0s', '1m 2s', '1m 59s', '10m 0s', '59m 59s']);
-  assert.deepStrictEqual([3600000, 3900000].map(f), ['1h 0m', '1h 5m']);
+  assert.deepStrictEqual([60000, 86000, 119999, 600000, 3900000].map(f), ['60s', '86s', '119s', '600s', '3900s'], 'seconds only, like the site');
   assert.deepStrictEqual([-5, NaN, undefined].map(f), ['0s', '0s', '0s']);
 }
 console.log('ok  reasoning timer format');

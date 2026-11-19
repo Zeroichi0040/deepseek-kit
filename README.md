@@ -111,7 +111,7 @@ It only applies when the cursor is at the end of a list line. It does not change
 
 **Settings → Messages → Collapse reasoning** folds DeepSeek's reasoning blocks to their headers, both while the model is thinking and after the response finishes. Click a folded header to open it.
 
-The Kit adds a live clock after the "Thinking" label while the model is still thinking, such as `23s` or `1m 2s`. It counts from the moment the Kit sees the block start thinking, makes no requests, and disappears when DeepSeek writes its own "Thought for N seconds". If you refresh the page in the middle of a thought, that block gets no clock, because the real start time is unknown. The clock stays visible when the block is folded.
+The Kit adds a live clock after the "Thinking" label while the model is still thinking, such as `23s` or `86s` (seconds only, like DeepSeek's own label). It counts from the moment the Kit sees the block start thinking, makes no requests, and disappears when DeepSeek writes its own "Thought for N seconds". If you refresh the page in the middle of a thought, that block gets no clock, because the real start time is unknown. The clock stays visible when the block is folded.
 
 Kit uses CSS to fold the content rather than clicking DeepSeek's own collapse control. This avoids changing the page's internal open/closed state and helps preserve the block's measured height in DeepSeek's virtualized chat list. Blocks opened by you stay open while the page remains loaded; a refresh folds them again.
 
