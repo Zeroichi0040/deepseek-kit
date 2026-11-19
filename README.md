@@ -192,7 +192,7 @@ Variables can be used in prompts, memory values, and snippets.
 | `{{time}}` | Local time in 24-hour format |
 | `{{datetime}}` | Local date and time |
 | `{{weekday}}` | Local weekday |
-| `{{timezone}}` | Local time zone, such as `Asia/Manila` |
+| `{{timezone}}` | Local time zone identifier |
 | `{{message_number}}` | Approximate message number in the current chat |
 | `{{selection}}` | Text currently selected on the page |
 
