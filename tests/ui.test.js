@@ -228,11 +228,11 @@ async function boot(stored, memories) {
     a.btn('Add').click();
     assert.strictEqual((a.saved.dck_memories || []).length, 0, 'empty add is rejected');
     q('input[aria-label="New note key"]').value = 'my city';
-    q('input[aria-label="New note value"]').value = 'Manila';
+    q('input[aria-label="New note value"]').value = 'Sample City';
     q('input[aria-label="New note category"]').value = 'About me';
     q('select[aria-label="New note: when to include"]').value = 'called';
     a.btn('Add').click();
-    assert.strictEqual(JSON.stringify(a.saved.dck_memories), JSON.stringify([{ key: 'my city', value: 'Manila', importance: 'called', category: 'About me', enabled: true }]));
+    assert.strictEqual(JSON.stringify(a.saved.dck_memories), JSON.stringify([{ key: 'my city', value: 'Sample City', importance: 'called', category: 'About me', enabled: true }]));
     assert.ok(a.text().includes('my city') && a.text().includes('About me') && a.text().includes('Included when mentioned'));
     assert.ok(a.text().includes('Not mentioned'), 'status idle: ' + a.text());
     // live status follows the message box
@@ -248,11 +248,11 @@ async function boot(stored, memories) {
     // edit in place
     a.btn('Edit my city').click();
     q('input[aria-label=Key]').value = 'home city';
-    q('textarea[aria-label=Value]').value = 'Cebu';
+    q('textarea[aria-label=Value]').value = 'Example City';
     q('select[aria-label="When to include"]').value = 'always';
     a.btn('Save').click();
     const m0 = a.saved.dck_memories[0];
-    assert.ok(m0.key === 'home city' && m0.value === 'Cebu' && m0.importance === 'always' && m0.category === 'About me', JSON.stringify(m0));
+    assert.ok(m0.key === 'home city' && m0.value === 'Example City' && m0.importance === 'always' && m0.category === 'About me', JSON.stringify(m0));
     // budget
     const bud = q('input[aria-label="Memory token budget"]');
     bud.value = '300'; bud.dispatchEvent(new a.w.Event('change', { bubbles: true }));

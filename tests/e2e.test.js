@@ -793,7 +793,7 @@ async function twoTabs() {
   await A.click('#dck-fab');
   await memTab(A).click();
   await A.fill('[aria-label="New note key"]', 'my city');
-  await A.fill('[aria-label="New note value"]', 'Manila');
+  await A.fill('[aria-label="New note value"]', 'Sample City');
   await A.locator('.dck-btn.primary:has-text("Add")').click();
   await B.waitForFunction(() => { const t = Array.from(document.querySelectorAll('[role=tab]')).find((x) => x.textContent.indexOf('Memory') === 0); return !!t && /1$/.test(t.textContent); }, null, { timeout: 3000 });
   ok('a note added in one tab shows up in the other without a reload');

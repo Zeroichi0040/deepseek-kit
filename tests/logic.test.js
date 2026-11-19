@@ -2,12 +2,12 @@
 const assert = require('assert');
 const c = require('../lib.js');
 
-const fixed = { now: new Date(2026, 10, 14, 15, 30), timezone: 'Asia/Manila', messageNumber: 3, selection: 'picked' };
+const fixed = { now: new Date(2026, 10, 14, 15, 30), timezone: 'Etc/UTC', messageNumber: 3, selection: 'picked' };
 const base = { enabled: true, memoryEnabled: true, defaultEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [] };
 
 // ---- variables
 assert.strictEqual(c.applyVariables('{{date}} {{time}} {{weekday}}', fixed), '2026-11-14 15:30 Saturday');
-assert.strictEqual(c.applyVariables('{{ DATE }}|{{datetime}}|{{timezone}}', fixed), '2026-11-14|2026-11-14 15:30|Asia/Manila');
+assert.strictEqual(c.applyVariables('{{ DATE }}|{{datetime}}|{{timezone}}', fixed), '2026-11-14|2026-11-14 15:30|Etc/UTC');
 assert.strictEqual(c.applyVariables('n={{message_number}} s={{selection}}', fixed), 'n=3 s=picked');
 assert.strictEqual(c.applyVariables('{{nope}} stays', fixed), '{{nope}} stays');
 assert.deepStrictEqual(c.VARIABLE_NAMES, c.VARIABLES.map((v) => v.name));
@@ -70,7 +70,7 @@ assert.strictEqual(c.buildPrefix({ ...base, memoryEnabled: false }, mem, 'x', 0)
 const withDefault = { enabled: true, memoryEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [] };
 p = c.buildPrefix(withDefault, [], 'x', 0, false, fixed);
 assert.ok(p.includes('Instructions (Default):'));
-assert.ok(p.includes('Today is 2026-11-14 (Saturday), local time 15:30 Asia/Manila'));
+assert.ok(p.includes('Today is 2026-11-14 (Saturday), local time 15:30 Etc/UTC'));
 assert.ok(!p.includes('{{'));
 assert.ok(!c.buildPrefix({ ...withDefault, defaultEnabled: false }, [], 'x', 0).includes('Default'));
 assert.ok(c.buildPrefix({ ...withDefault, defaultText: 'My own default' }, [], 'x', 0).includes('My own default'));
@@ -164,7 +164,7 @@ const notes = [
   { key: 'favorite editor', value: 'vim', importance: 'called', category: 'work' },
   { key: 'long note', value: 'x'.repeat(400), importance: 'always' },
   { key: 'dog', value: 'Rex', importance: 'called', enabled: false },
-  { key: 'timezone', value: 'Asia/Manila', importance: 'always', category: 'Personal' },
+  { key: 'timezone', value: 'Etc/UTC', importance: 'always', category: 'Personal' },
 ];
 let plan = c.memoryPlan(notes, 'which editor', 0);
 assert.deepStrictEqual(plan.status, ['included', 'included', 'included', 'off', 'included'], 'no budget: everything due is included');

@@ -84,7 +84,7 @@
     { name: 'time', desc: 'Local time, 24-hour' },
     { name: 'datetime', desc: 'Date and time' },
     { name: 'weekday', desc: 'e.g. Saturday' },
-    { name: 'timezone', desc: 'e.g. Asia/Manila' },
+    { name: 'timezone', desc: 'e.g. Etc/UTC' },
     { name: 'message_number', desc: 'Message # in this chat' },
     { name: 'selection', desc: 'Text selected on the page' },
   ];
