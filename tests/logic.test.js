@@ -449,3 +449,16 @@ console.log('all logic tests passed');
   assert.strictEqual(c.DEFAULTS.listContinue, true, 'on by default');
 }
 console.log('ok  list continuation');
+
+// ---- live reasoning timer: format and default
+{
+  const f = c.formatElapsed;
+  assert.deepStrictEqual([0, 999, 1000, 23000, 49999, 59999].map(f), ['0s', '0s', '1s', '23s', '49s', '59s']);
+  assert.deepStrictEqual([60000, 62000, 119999, 600000, 3599000].map(f), ['1m 0s', '1m 2s', '1m 59s', '10m 0s', '59m 59s']);
+  assert.deepStrictEqual([3600000, 3900000].map(f), ['1h 0m', '1h 5m']);
+  assert.deepStrictEqual([-5, NaN, undefined].map(f), ['0s', '0s', '0s']);
+  assert.strictEqual(c.DEFAULTS.thinkTimer, true, 'on by default');
+  assert.strictEqual(c.migrateSettings(undefined).thinkTimer, true);
+  assert.strictEqual(c.migrateSettings({ thinkTimer: false }).thinkTimer, false, 'an opt-out is kept');
+}
+console.log('ok  reasoning timer format');

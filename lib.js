@@ -61,6 +61,7 @@
     memoryBudget: 0, // max tokens of memory per message, 0 = no limit
     codeTools: true, // header buttons (collapse, ZIP) on code blocks
     collapseThinking: false, // close DeepThink reasoning blocks, while thinking and once finished (also after a refresh)
+    thinkTimer: true, // live clock in the header of a reasoning block while it is still thinking
     lineNumbers: true, // number the lines of code blocks (CSS counters, never part of copied text)
     mdPreview: true, // Preview button on markdown code blocks
     collapseLong: true, // collapse long code blocks automatically
@@ -649,8 +650,16 @@
     return { value: value.slice(0, start) + text + value.slice(end), caret: start + text.length };
   }
 
+  // Elapsed time for the reasoning timer: "23s", "1m 2s", "1h 5m". Never "0:23".
+  function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    if (total < 60) return total + 's';
+    if (total < 3600) return Math.floor(total / 60) + 'm ' + (total % 60) + 's';
+    return Math.floor(total / 3600) + 'h ' + Math.floor((total % 3600) / 60) + 'm';
+  }
+
   const core = {
-    DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, ASK_PROMPT, askPromptText, cleanPrompts, cleanSnippets, cleanMemories, keyMatches, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
+    formatElapsed, DEFAULTS, BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, ASK_PROMPT, askPromptText, cleanPrompts, cleanSnippets, cleanMemories, keyMatches, visualsPromptText, VARIABLES, VARIABLE_NAMES, migrateSettings, hasLegacyKeys, tokens, selectMemories,
     scheduleDue, applyVariables, promptEntries, shouldInject, activePrompts, buildPrefix, estimateTokens, summarize,
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,

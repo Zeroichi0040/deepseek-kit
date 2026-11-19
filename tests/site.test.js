@@ -132,6 +132,27 @@ const ok = (m) => console.log('ok  ' + m);
     assert.strictEqual(p.reasoning, 2); assert.strictEqual(p.reasoningOpen, 1);
     ok('reasoning blocks, open/closed state and keys');
   }
+  // live reasoning: "Thinking" with a running shimmer (captured from the real site) versus "Thought for N seconds"
+  {
+    const wrap = (html) => '<div data-virtual-list-item-key="3">' + html + '</div>';
+    const { doc, SITE } = page(wrap(fx('reasoning-thinking.html')) + wrap(fx('reasoning-open.html')) + wrap(fx('reasoning-closed.html')));
+    const [live, done, closed] = SITE.reasoningBlocks();
+    assert.strictEqual(SITE.blockLive(live), true, 'Thinking + running shimmer is live');
+    assert.strictEqual(SITE.blockLive(done), false, 'finished open block is not');
+    assert.strictEqual(SITE.blockLive(closed), false, 'finished closed block is not');
+    assert.strictEqual(SITE.blockLabel(live).firstChild.nodeValue, 'Thinking');
+    assert.strictEqual(SITE.blockLabel(done).textContent, 'Thought for 1 second');
+    assert.strictEqual(SITE.probe().reasoningLive, 1);
+    const shimmer = live.querySelector('[style*="animation-play-state"]');
+    shimmer.setAttribute('style', 'animation-play-state: paused;');
+    assert.strictEqual(SITE.blockLive(live), false, 'a paused shimmer means it stopped');
+    shimmer.remove();
+    assert.strictEqual(SITE.blockLive(live), true, 'without a shimmer the word Thinking still counts');
+    SITE.blockLabel(live).firstChild.nodeValue = 'Thought for 4 seconds';
+    assert.strictEqual(SITE.blockLive(live), false, 'finished text wins');
+    assert.ok(SITE.blockThoughtLength(done) > 0 && SITE.blockThoughtLength(closed) === 0);
+    ok('live reasoning detection');
+  }
   // once-per-frame scheduler
   {
     const { w, SITE } = page('');
