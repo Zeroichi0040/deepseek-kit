@@ -1576,7 +1576,7 @@
     if (st.kind === 'chart' && st.spec) {
       body.append(VIS.buildChart(document, st.spec).el);
     } else if (st.kind === 'viz') {
-      body.append(h('iframe', { sandbox: 'allow-scripts', referrerpolicy: 'no-referrer', title: 'Interactive visual', srcdoc: VIS.buildWidgetDocument(st.text, visTheme(vis.dark), 'full'), style: 'width:100%;height:100%;border:0;display:block;color-scheme:' + (vis.dark ? 'dark' : 'light') }));
+      body.append(h('iframe', { sandbox: 'allow-scripts', referrerPolicy: 'no-referrer', title: 'Interactive visual', srcdoc: VIS.buildWidgetDocument(st.text, visTheme(vis.dark), 'full'), style: 'width:100%;height:100%;border:0;display:block;color-scheme:' + (vis.dark ? 'dark' : 'light') }));
     }
     overlay.append(body);
     overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') overlay.remove(); });
@@ -1742,7 +1742,7 @@
       st.spec = r.spec;
       st.body.append(VIS.buildChart(document, r.spec).el);
     } else {
-      const frame = h('iframe', { sandbox: 'allow-scripts', referrerpolicy: 'no-referrer', title: 'Interactive visual', class: 'dck-visframe', style: 'height:150px;color-scheme:' + (vis.dark ? 'dark' : 'light') });
+      const frame = h('iframe', { sandbox: 'allow-scripts', referrerPolicy: 'no-referrer', title: 'Interactive visual', class: 'dck-visframe', style: 'height:150px;color-scheme:' + (vis.dark ? 'dark' : 'light') });
       frame.srcdoc = VIS.buildWidgetDocument(st.text, visTheme(vis.dark), st.id);
       st.iframe = frame;
       st.body.append(frame);
