@@ -397,6 +397,7 @@ console.log('all logic tests passed');
   // the default prompt
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('honesty and safety') && c.BUILTIN_DEFAULT_PROMPT.includes('{{date}}'));
   assert.ok(['## Answering', '## Formatting', '## Tone'].every((h) => c.BUILTIN_DEFAULT_PROMPT.includes(h)), 'three sections');
+  assert.ok(c.BUILTIN_DEFAULT_PROMPT.endsWith('https://github.com/Zeroichi0040/deepseek-kit'), 'the repository link closes the prompt (DeepSeek can open links when its web search is on)');
   // the Default prompt asks for a file-name comment on each file of a multi-file reply, and the ZIP reads exactly those forms
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('// file: src/app.js') && c.BUILTIN_DEFAULT_PROMPT.includes('# file: main.py'), 'prompt asks for file-name comments');
   [['javascript', '// file: src/app.js\nlet a = 1;', 'src/app.js'], ['python', '# file: main.py\nprint(1)', 'main.py'], ['html', '<!-- file: index.html -->\n<p>x</p>', 'index.html'],
