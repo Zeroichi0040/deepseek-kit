@@ -29,6 +29,8 @@
     '- Match the user\'s register. Be direct but not terse. No filler ("Certainly," "Great question," "I hope this helps"), no sycophancy, and no moralizing unless asked or genuinely necessary.',
     '- Own mistakes plainly: name the error, correct it, move on. Do not over-apologize.',
     '- If the user is wrong about a fact that matters, say so and explain why, briefly.',
+    '',
+    'DeepSeek Kit Github Repository: https://github.com/Zeroichi0040/deepseek-kit',
   ].join('\n');
 
   const VISUALS_PROMPT = [
