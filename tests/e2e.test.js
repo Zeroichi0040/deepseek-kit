@@ -272,6 +272,7 @@ async function visuals() {
   const frameEl = p.locator('.dck-vis[data-kind=viz] iframe').first();
   await frameEl.waitFor();
   assert.strictEqual(await frameEl.getAttribute('sandbox'), 'allow-scripts', 'sandbox is scripts only');
+  assert.strictEqual(await frameEl.getAttribute('referrerpolicy'), 'no-referrer', 'widget does not send the chat URL as a referrer');
   const fl = p.frameLocator('.dck-vis[data-kind=viz] iframe').first();
   await fl.locator('#inc').click(); await fl.locator('#inc').click();
   assert.strictEqual(await fl.locator('#n').innerText(), '2', 'widget script runs');
