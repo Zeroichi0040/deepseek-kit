@@ -82,7 +82,7 @@ async function boot(stored, memories) {
     assert.ok(strip.textContent.includes('2 memories'), 'strip updates while typing: ' + strip.textContent);
     const chips = a.doc.getElementById('dck-chips');
     assert.ok(chips, 'chips element exists');
-    assert.ok(chips.textContent.includes('Kit') && chips.textContent.includes('Default') && chips.textContent.includes('2 memories') && chips.textContent.includes('Visible'), chips.textContent);
+    assert.ok(chips.textContent.includes('Kit') && chips.textContent.includes('Default') && chips.textContent.includes('2 memories') && chips.textContent.includes('Hidden'), chips.textContent);
     // tab badges
     assert.ok(a.tab('Memory').textContent.includes('2'));
     console.log('ok  summary strip + chips');
@@ -90,7 +90,7 @@ async function boot(stored, memories) {
 
   // ---------- 3. Visible/Hidden switch + settings tab ----------
   {
-    const a = await boot({});
+    const a = await boot({ showInjected: true }); // Hidden is the default now; start from Visible to test the switch both ways
     assert.strictEqual(a.btn('Visible').getAttribute('aria-pressed'), 'true');
     a.btn('Edit Default prompt').click();
     const draft = a.drawer.querySelector('textarea[aria-label="Prompt text"]');

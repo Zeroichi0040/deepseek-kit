@@ -38,7 +38,7 @@ assert.deepStrictEqual(c.migrateSettings(m).prompts, m.prompts);
 assert.ok(c.hasLegacyKeys({ systemPrompt: '' }) && c.hasLegacyKeys({ multiPrompt: true }) && !c.hasLegacyKeys({ prompts: [] }) && !c.hasLegacyKeys(undefined));
 // defaults for a fresh install
 m = c.migrateSettings(undefined);
-assert.ok(m.enabled && m.showInjected && m.showSummary && m.showChips && m.defaultEnabled && Array.isArray(m.prompts) && Array.isArray(m.snippets));
+assert.ok(m.enabled && m.showInjected === false && m.showSummary && m.showChips && m.defaultEnabled && Array.isArray(m.prompts) && Array.isArray(m.snippets));
 
 // ---- list of prompts with schedules
 const list = {
@@ -341,7 +341,7 @@ console.log('ok  visuals prompt');
   assert.strictEqual(c.askPromptText({ askText: '  ' }), c.ASK_PROMPT, 'blank text means built-in');
   assert.ok(c.promptEntries(s0).some((e) => e.id === 'ask'));
   assert.strictEqual(c.DEFAULTS.askEnabled, true);
-  assert.strictEqual(c.DEFAULTS.askAutoSend, false, 'answers go into the box by default');
+  assert.strictEqual(c.DEFAULTS.askAutoSend, true, 'answers are sent straight away by default');
   assert.strictEqual(c.migrateSettings({}).askEnabled, true, 'old settings get the new defaults');
   assert.ok(c.ASK_PROMPT.length < 1400, 'stays short');
 }
@@ -439,6 +439,6 @@ console.log('all logic tests passed');
   assert.strictEqual(apply('1. one'), '1. one\n2. ');
   assert.strictEqual(apply(apply('1. one') + 'two'), '1. one\n2. two\n3. ');
   assert.strictEqual(apply('1. one\n2. '), '1. one\n', 'the second press leaves the list');
-  assert.strictEqual(c.DEFAULTS.listContinue, false, 'off by default');
+  assert.strictEqual(c.DEFAULTS.listContinue, true, 'on by default');
 }
 console.log('ok  list continuation');

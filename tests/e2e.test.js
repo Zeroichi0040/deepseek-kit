@@ -472,6 +472,11 @@ async function askForms() {
   const card = p.locator('.dck-vis[data-kind=ask]').first();
   await card.waitFor({ timeout: 8000 });
   await p.waitForSelector('.dck-ask .dck-ask-opt');
+  // "Send answers straight away" is on by default now; these first checks cover the "Add to message" mode
+  await settingsTab(p, 'Questions');
+  await toggle(p, 'Send answers straight away');
+  await close(p);
+  await p.waitForFunction(() => document.querySelector('.dck-ask-submit').textContent === 'Add to message');
   const info = await p.evaluate(() => ({
     fs: document.querySelectorAll('.dck-vis[data-kind=ask]')[0].querySelectorAll('fieldset').length,
     radios: document.querySelectorAll('.dck-vis[data-kind=ask]')[0].querySelectorAll('input[type=radio]').length,
@@ -538,7 +543,9 @@ async function askForms() {
   ok('an invalid block shows a clear message with the source one click away');
 
   // send straight away - context due (first message, Insert on Enter is on): the Kit adds it first, you review
-  await settingsTab(p, 'Questions');
+  await p.click('#dck-fab'); // the Questions section is still open from the first visit
+  await p.locator('#dck-drawer button:has-text("Visible")').first().click(); // Hidden is the default; this part checks the review flow
+  await p.click('[role=tab]:has-text("Settings")');
   await toggle(p, 'Send answers straight away');
   await close(p);
   assert.strictEqual(await first.locator('.dck-ask-submit').innerText(), 'Send answers', 'the button says what it will do');
@@ -607,14 +614,25 @@ async function listKeys() {
   const reset = async () => { await p.fill('#main', ''); await p.evaluate(() => { window.__shiftEnter = 0; window.__enter = 0; }); await p.click('#main'); };
   const typeLines = async (s) => { await p.keyboard.type(s); };
 
-  // off by default: Shift+Enter is the ordinary newline
+  // on by default: Shift+Enter continues the list
   await reset();
   await typeLines('1. one');
   await p.keyboard.press('Shift+Enter');
-  assert.strictEqual(await val(), '1. one\n', 'off by default');
-  ok('lists: off by default, Shift+Enter is the plain newline');
+  assert.strictEqual(await val(), '1. one\n2. ', 'on by default');
+  ok('lists: on by default');
 
+  // switched off: Shift+Enter is the ordinary newline
   await settingsTab(p, 'Messages');
+  await toggle(p, 'Continue lists with Shift+Enter');
+  await close(p);
+  await reset();
+  await typeLines('1. one');
+  await p.keyboard.press('Shift+Enter');
+  assert.strictEqual(await val(), '1. one\n', 'off when switched off');
+  ok('lists: switched off, Shift+Enter is the plain newline');
+
+  await p.click('#dck-fab'); // the Messages section is still open from the first visit
+  await p.click('[role=tab]:has-text("Settings")');
   await toggle(p, 'Continue lists with Shift+Enter');
   await close(p);
 
@@ -777,14 +795,14 @@ async function twoTabs() {
   await A.fill('[aria-label="New note key"]', 'my city');
   await A.fill('[aria-label="New note value"]', 'Manila');
   await A.locator('.dck-btn.primary:has-text("Add")').click();
-  await B.waitForFunction(() => { const t = Array.from(document.querySelectorAll('[role=tab]')).find((x) => x.textContent.indexOf('Memory') === 0); return !!t && /2$/.test(t.textContent); }, null, { timeout: 3000 });
+  await B.waitForFunction(() => { const t = Array.from(document.querySelectorAll('[role=tab]')).find((x) => x.textContent.indexOf('Memory') === 0); return !!t && /1$/.test(t.textContent); }, null, { timeout: 3000 });
   ok('a note added in one tab shows up in the other without a reload');
   const sw = 'input[aria-label="Enable DeepSeek Kit"]';
   await B.evaluate((s) => { document.querySelector(s).click(); document.querySelector(s).click(); }, sw); // a save from the tab that was open earlier
   await B.waitForTimeout(300);
   const C = await open(ctx, PAGE);
   const txt = (await memTab(C).textContent()).trim();
-  assert.ok(/2$/.test(txt), 'the note was lost after the other tab saved (tab shows "' + txt + '")');
+  assert.ok(/1$/.test(txt), 'the note was lost after the other tab saved (tab shows "' + txt + '")');
   assert.ok(await C.locator(sw).isChecked(), 'switch state');
   ok('a save in the older tab does not erase the new note');
   await ctx.close();
