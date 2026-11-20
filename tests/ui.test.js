@@ -177,6 +177,81 @@ async function boot(stored, memories) {
     console.log('ok  compact Diagnostics');
   }
 
+  // ---------- 3d. Settings categories: non-interactive headings group the accordions ----------
+  {
+    const a = await boot({});
+    a.tab('Settings').click();
+    const body = () => a.drawer.querySelector('.dck-body');
+    // The top level of the Settings body, in order: headings and accordions as [kind, label]
+    const layout = () => Array.from(body().children).map((el) => {
+      if (el.classList.contains('dck-group')) return ['group', el.textContent];
+      if (el.classList.contains('dck-acc')) return ['acc', el.querySelector('.dck-acchead .dck-name').textContent];
+      return ['other', el.className];
+    });
+    const EXPECTED = [
+      ['group', 'Chat Behavior'], ['acc', 'Messages'],
+      ['group', 'Response Display'], ['acc', 'Code blocks'], ['acc', 'Questions'], ['acc', 'Visuals'],
+      ['group', 'Tools & Maintenance'], ['acc', 'Variables'], ['acc', 'Diagnostics'], ['acc', 'Backup'],
+    ];
+    const head = (t) => Array.from(a.drawer.querySelectorAll('.dck-acchead')).find((b) => b.querySelector('.dck-name').textContent === t);
+    const openNames = () => Array.from(a.drawer.querySelectorAll('.dck-acc.open')).map((el) => el.querySelector('.dck-name').textContent);
+    const expandedCount = () => a.drawer.querySelectorAll('.dck-acchead[aria-expanded="true"]').length;
+    const headings = () => Array.from(body().querySelectorAll('.dck-group'));
+
+    // all three headings appear, each accordion sits under the right one, in the intended order
+    assert.deepStrictEqual(layout(), EXPECTED, 'category layout: ' + JSON.stringify(layout()));
+    assert.strictEqual(body().firstElementChild.textContent, 'Chat Behavior', 'the first heading leads the list, so .dck-group:first-child drops its top margin');
+    assert.strictEqual(headings().length, 3);
+    assert.strictEqual(openNames().length, 0, 'every section still starts closed');
+
+    // headings are plain labels: not buttons, links, inputs or focus targets, and carry no state
+    headings().forEach((hd) => {
+      assert.strictEqual(hd.tagName, 'DIV', hd.textContent + ' is a plain div');
+      assert.strictEqual(hd.children.length, 0, hd.textContent + ' holds text only');
+      ['tabindex', 'role', 'aria-expanded', 'aria-pressed', 'aria-controls', 'onclick'].forEach((attr) => assert.ok(!hd.hasAttribute(attr), hd.textContent + ' has no ' + attr));
+      assert.ok(!hd.closest('button, a, input, [role=button]'), hd.textContent + ' is not inside a control');
+    });
+    assert.strictEqual(body().querySelectorAll('.dck-group button, .dck-group a, .dck-group input, .dck-group [tabindex]').length, 0, 'no controls inside headings');
+
+    // clicking or pressing keys on a heading does nothing: no re-render, no accordion change, nothing saved
+    const nodes = headings();
+    const savedBefore = JSON.stringify(a.saved);
+    nodes.forEach((hd) => { hd.click(); a.key(hd, 'Enter'); a.key(hd, ' '); });
+    assert.ok(nodes.every((el) => el.isConnected), 'headings are not re-rendered by clicks');
+    assert.strictEqual(openNames().length, 0, 'clicking a heading opens nothing');
+    assert.strictEqual(JSON.stringify(a.saved), savedBefore, 'clicking a heading saves nothing');
+    head('Messages').click();
+    headings().forEach((hd) => hd.click());
+    assert.deepStrictEqual(openNames(), ['Messages'], 'clicking a heading does not close the open section');
+    head('Messages').click();
+
+    // opening one accordion closes the previous one, across all three categories, and the layout holds
+    ['Messages', 'Code blocks', 'Questions', 'Visuals', 'Variables', 'Diagnostics', 'Backup'].forEach((t) => {
+      head(t).click();
+      assert.deepStrictEqual(openNames(), [t], 'only ' + t + ' is open');
+      assert.strictEqual(expandedCount(), 1, 'one aria-expanded=true while ' + t + ' is open');
+      assert.strictEqual(head(t).getAttribute('aria-expanded'), 'true');
+      assert.deepStrictEqual(layout(), EXPECTED, 'headings stay in place while ' + t + ' is open');
+    });
+    head('Messages').click();
+    assert.deepStrictEqual(openNames(), ['Messages'], 'jumping back to the first section closes Backup');
+    head('Messages').click();
+    assert.strictEqual(openNames().length, 0, 'clicking the open section closes it');
+    assert.strictEqual(expandedCount(), 0);
+
+    // the sections themselves still work: Questions and Visuals open and save
+    head('Questions').click();
+    assert.ok(a.text().includes('Draw question forms') && a.text().includes('Send answers straight away'), 'Questions content');
+    a.toggle('Draw question forms');
+    assert.strictEqual(a.saved.dck_settings.askEnabled, false);
+    head('Visuals').click();
+    assert.ok(a.text().includes('Draw charts and widgets') && !a.text().includes('Draw question forms'), 'Visuals content, Questions closed');
+    a.toggle('Draw charts and widgets');
+    assert.strictEqual(a.saved.dck_settings.visualsEnabled, false);
+    assert.deepStrictEqual(layout(), EXPECTED, 'layout survives saving a setting');
+    console.log('ok  Settings categories');
+  }
+
   // ---------- 4. Prompts tab: edit, new, delete, default ----------
   {
     const a = await boot({ prompts: [{ id: 'p1', name: 'Concise tone', text: 'Be brief', enabled: true, schedule: 'every', everyN: 5 }] });
