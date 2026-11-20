@@ -243,7 +243,7 @@ async function boot(stored, memories) {
     head('Messages').click();
     assert.ok(a.text().includes('Send answers straight away'), 'Messages contains answer submission setting');
     assert.match(head('Messages').querySelector('.dck-sub').textContent, /\d+ of 6 on$/, 'Messages count includes the moved setting');
-    const autoSendBefore = a.saved.dck_settings.askAutoSend;
+    const autoSendBefore = Array.from(a.drawer.querySelectorAll('input[type=checkbox]')).find((input) => input.getAttribute('aria-label') === 'Send answers straight away').checked;
     a.toggle('Send answers straight away');
     assert.strictEqual(a.saved.dck_settings.askAutoSend, !autoSendBefore, 'moved setting still updates askAutoSend');
     a.toggle('Send answers straight away');
