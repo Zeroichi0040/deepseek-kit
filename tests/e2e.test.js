@@ -391,8 +391,8 @@ async function visuals() {
 
 // ---------- Hidden mode must not touch the site's hidden measuring copy of a box (its height comes from that text)
 async function mirror() {
-  const newText = '[Additional instructions and context]\\nInstructions (Default):\\nline\\n[End of additional context]\\n\\nhello';
-  const legacyText = '[Context from my notes]\\nInstructions (Default):\\nlegacy\\n[End of context]\\n\\nhello';
+  const newText = '[Additional instructions and context]\nInstructions (Default):\nline\n[End of additional context]\n\nhello';
+  const legacyText = '[Context from my notes]\nInstructions (Default):\nlegacy\n[End of context]\n\nhello';
   const html = `<body style="background:#151517;color:#eee;margin:0"><div id="bubble">${newText.replace(/\n/g, '<br>')}</div><div id="legacy-bubble">${legacyText.replace(/\n/g, '<br>')}</div><div id="wrap"><textarea id="ta"></textarea><div class="ds-textarea__mirror" id="mir"></div></div><div id="wrap2"><textarea id="ta2"></textarea><div class="b13855df" id="mir2"></div></div></body>`;
   const ctx = await launch(1000, 800);
   const p = await open(ctx, html);
