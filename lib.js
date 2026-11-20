@@ -63,6 +63,7 @@
 
   const ASK_PROMPT = [
     'Use an ask form only when the user must make a structured choice or answer several short, related setup questions together, and a form is easier than prose. For one clarification, ask naturally in prose. If a reasonable assumption lets you continue safely, proceed instead. Do not add forms just to keep the conversation going.',
+    'When using an ask form, put exactly one valid JSON object inside a fenced code block tagged ask (```ask). Do not output the form JSON bare, in a json fence, or as ordinary prose. Do not repeat the questions outside the form.',
     'Use one JSON object: {"questions":[{"question":"What kind of app?","type":"single","options":[{"label":"Web","recommended":true},"Desktop","Mobile"]},{"question":"Which features?","type":"multi","options":[{"label":"Login","description":"email and password"},"Dashboard"]},{"question":"Anything else?","type":"text"}]}. type is single (pick one), multi (pick several), or text (a free answer). Choice questions get an Other field automatically; add "other":false to remove it. Mark one option recommended only when there is a clear reason.',
     'Ask only for missing information (usually 1 to 4 questions). Keep options concise and distinct, and do not ask again for details already given. Use ordinary prose for a conversational follow-up or a single important question.',
   ].join('\n');
