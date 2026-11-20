@@ -6,7 +6,7 @@
 
   const {
     BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, ASK_PROMPT, askPromptText, cleanMemories, visualsPromptText, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
-    buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList,
+    buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, hasContextMarker, stripContext, slashQuery, continueList,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
     memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
@@ -522,7 +522,7 @@
       if (!par || par.closest('textarea, #dck-drawer, #dck-picker, #dck-chips, #dck-toast, .md-code-block, [class*="textarea__mirror"]')) return;
       // the site's hidden measuring copy of a box sits right next to its textarea (its class name varies): leave it alone
       if (par.parentElement && par.parentElement.querySelector(':scope > textarea')) return;
-      if (node.nodeValue && node.nodeValue.indexOf(MARKER_START) !== -1) {
+      if (node.nodeValue && hasContextMarker(node.nodeValue)) {
         const v = stripContext(node.nodeValue);
         if (v !== node.nodeValue) { node.nodeValue = v; diag.stripped += 1; }
       }
