@@ -604,7 +604,7 @@ async function askForms() {
   await nf.locator('.dck-ask-submit').click();
   await p.waitForFunction(() => /Context added|Answers sent|Could not/.test(document.querySelector('.dck-ask-note').textContent), null, { timeout: 6000 });
   const rev = await p.evaluate(() => ({ note: document.querySelector('.dck-ask-note').textContent, box: document.getElementById('main').value, sent: window.__sent.length }));
-  assert.ok(/review it/.test(rev.note) && rev.box.indexOf('[Context from my notes]') >= 0 && rev.box.indexOf('Here are my answers') > 0 && rev.sent === 0, 'due context is added for review, not sent: ' + JSON.stringify(rev).slice(0, 300));
+  assert.ok(/review it/.test(rev.note) && rev.box.indexOf('[Additional instructions and context]') >= 0 && rev.box.indexOf('Here are my answers') > 0 && rev.sent === 0, 'due context is added for review, not sent: ' + JSON.stringify(rev).slice(0, 300));
   ok('Send straight away: when context is due the Kit adds it and waits for you');
 
   // ... and with nothing due it goes out on Enter
