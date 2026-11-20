@@ -90,7 +90,7 @@ This setting controls what happens when you send a message that is due to receiv
 - **Visible:** Kit inserts the context into the message box. Review or edit it, then press Enter yourself.
 - **Hidden (default):** Kit attaches the context, hides the inserted block in the chat view, and submits the message for you.
 
-Hidden mode is more automated, and it is the default on a new install. Kit waits for the page to accept Enter and only tries the send button as a fallback if the composer has not cleared. If it cannot confirm submission, it reports that instead of repeatedly trying. The full text, including context, remains present when editing the sent message.
+Hidden mode is more automated, and it is the default on a new install. Kit dispatches Enter first. If the page does not handle that keypress, Kit can try the send button once as a fallback. If the page handles Enter, Kit waits for the composer to clear and does not click Send again just because the acknowledgement is slow. If submission still cannot be confirmed, it asks you to check the chat before trying again. The full text, including context, remains present when editing the sent message.
 
 Switch to Visible mode if you want to inspect every prompt and memory before sending.
 
