@@ -344,8 +344,14 @@ async function visuals() {
   // turning it off
   await close(p);
   await settingsTab(p, 'Visuals');
-  const visualsCopy = await p.locator('.dck-setrow:has-text("Draw charts and widgets")').innerText();
-  assert.ok(/sandboxed frame/.test(visualsCopy) && /can navigate its own frame/.test(visualsCopy), 'Visuals setting explains the sandbox and self-navigation limitation');
+  const visualsRow = p.locator('.dck-setrow:has-text("Draw charts and widgets")');
+  assert.ok(!/isolated iframe/.test(await visualsRow.innerText()), 'help is collapsed until asked for');
+  await visualsRow.locator('.dck-infobtn').click();
+  const visualsCopy = await visualsRow.innerText();
+  assert.ok(/isolated iframe/.test(visualsCopy) && /can navigate that frame/.test(visualsCopy) && /untrusted/.test(visualsCopy), 'Visuals info explains the sandbox and self-navigation limitation');
+  assert.strictEqual(await visualsRow.locator('.dck-switch input').isChecked(), true, 'opening the info panel does not toggle the setting');
+  await visualsRow.locator('.dck-infobtn').click();
+  assert.ok(!/isolated iframe/.test(await visualsRow.innerText()), 'second click closes it');
   await toggle(p, 'Draw charts and widgets');
   await p.waitForTimeout(300);
   assert.strictEqual(await p.locator('.dck-vis').count(), 0, 'cards removed');
@@ -915,6 +921,49 @@ async function noStarters() {
   await ctx.close();
 }
 
+async function settingsInfo() {
+  const ctx = await launch(420, 800);
+  const p = await open(ctx, openHTML);
+  await settingsTab(p, 'Messages');
+  const row = (t) => p.locator('.dck-setrow:has-text("' + t + '")');
+  const btn = (t) => row(t).locator('.dck-infobtn');
+  const visibleHelp = () => p.locator('#dck-drawer .dck-help:visible').count();
+  assert.strictEqual(await visibleHelp(), 0, 'no help panel takes space by default');
+  assert.strictEqual(await row('Continue lists with Shift+Enter').locator('.dck-infobtn').count(), 0, 'no icon on Continue lists');
+  // keyboard: focus the button, Enter opens, Space closes; the switch is untouched
+  const before = await row('Insert context on Enter').locator('.dck-switch input').isChecked();
+  await btn('Insert context on Enter').focus();
+  await p.keyboard.press('Enter');
+  assert.strictEqual(await btn('Insert context on Enter').getAttribute('aria-expanded'), 'true');
+  assert.strictEqual(await visibleHelp(), 1);
+  await p.keyboard.press('Space');
+  assert.strictEqual(await btn('Insert context on Enter').getAttribute('aria-expanded'), 'false');
+  assert.strictEqual(await visibleHelp(), 0);
+  assert.strictEqual(await row('Insert context on Enter').locator('.dck-switch input').isChecked(), before, 'keyboard on the icon never toggles the switch');
+  // one panel at a time, and the focused icon keeps focus when it opens
+  await btn('Next-message summary').click();
+  await btn('Collapse reasoning').click();
+  assert.strictEqual(await visibleHelp(), 1, 'only one panel open');
+  assert.ok(await p.evaluate(() => document.activeElement && document.activeElement.classList.contains('dck-infobtn')), 'focus stays on the icon');
+  // panel stays inside the drawer at a narrow width, in both colour schemes, with readable contrast against its background
+  for (const scheme of ['dark', 'light']) {
+    await p.emulateMedia({ colorScheme: scheme });
+    const r = await p.evaluate(() => {
+      const el = document.querySelector('#dck-drawer .dck-help:not([hidden])');
+      const d = document.querySelector('#dck-drawer').getBoundingClientRect();
+      const b = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      const lum = (c) => { const m = c.match(/[\d.]+/g).map(Number).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]; };
+      const a = lum(cs.color), c = lum(cs.backgroundColor);
+      return { inside: b.left >= d.left && b.right <= d.right, ratio: (Math.max(a, c) + 0.05) / (Math.min(a, c) + 0.05), shown: b.height > 0 };
+    });
+    assert.ok(r.shown && r.inside, scheme + ': help panel visible and inside the drawer');
+    assert.ok(r.ratio >= 4.5, scheme + ': help text is readable (contrast ' + r.ratio.toFixed(1) + ')');
+  }
+  ok('Settings information icons: keyboard, single panel, themes');
+  await ctx.close();
+}
+
 (async () => {
   try {
     await codeBlocks();
@@ -931,6 +980,7 @@ async function noStarters() {
     await thinkTimer();
     await twoTabs();
     await noStarters();
+    await settingsInfo();
   } catch (e) {
     console.error('FAIL:', e.stack || e.message);
     process.exit(1);
