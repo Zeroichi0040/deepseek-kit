@@ -4,6 +4,7 @@ A local-first toolkit for **DeepSeek Chat**. Add reusable prompts, lightweight m
 
 DeepSeek Kit is an independent, community-made browser extension. It is not affiliated with or endorsed by DeepSeek.
 
+> **Current version:** 0.19.4  
 > **Compatibility:** Chrome and Chromium-based browsers (including Edge and Brave), Chrome 105+
 
 ## What it adds
