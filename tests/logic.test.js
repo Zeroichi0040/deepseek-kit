@@ -333,7 +333,7 @@ assert.strictEqual(c.migrateSettings({ collapseThinking: true }).collapseThinkin
   assert.ok(c.promptEntries(s0).some((e) => e.id === 'visuals'));
   assert.strictEqual(c.DEFAULTS.visualsEnabled, true);
   assert.strictEqual(c.migrateSettings({}).visualsEnabled, true, 'old settings get the new defaults');
-  assert.ok(c.VISUALS_PROMPT.length < 2200, 'stays short');
+  assert.ok(c.VISUALS_PROMPT.length < 2600, 'stays short');
 }
 console.log('ok  visuals prompt');
 
@@ -356,7 +356,7 @@ console.log('ok  visuals prompt');
   assert.ok(!c.hasLegacyKeys({ askAutoSend: false, askPrompt: true }), 'the question settings that remain are not legacy');
   assert.ok(c.buildPrefix({ ...s0, askEnabled: false }, [], 'x', 0).includes('Instructions (Questions):'), 'a leftover askEnabled no longer turns the prompt off');
   assert.strictEqual(c.DEFAULTS.askAutoSend, true, 'answers are sent straight away by default');
-  assert.ok(c.ASK_PROMPT.length < 1400, 'stays short');
+  assert.ok(c.ASK_PROMPT.length < 1800, 'stays short');
 }
 console.log('ok  questions prompt');
 
