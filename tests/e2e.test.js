@@ -391,19 +391,26 @@ async function visuals() {
 
 // ---------- Hidden mode must not touch the site's hidden measuring copy of a box (its height comes from that text)
 async function mirror() {
-  const ctxText = '[Context from my notes]\nInstructions (Default):\nline\n[End of context]\n\nhello';
-  const html = `<body style="background:#151517;color:#eee;margin:0"><div id="bubble">${ctxText.replace(/\n/g, '<br>')}</div><div id="wrap"><textarea id="ta"></textarea><div class="ds-textarea__mirror" id="mir"></div></div><div id="wrap2"><textarea id="ta2"></textarea><div class="b13855df" id="mir2"></div></div></body>`;
+  const newText = '[Additional instructions and context]\\nInstructions (Default):\\nline\\n[End of additional context]\\n\\nhello';
+  const legacyText = '[Context from my notes]\\nInstructions (Default):\\nlegacy\\n[End of context]\\n\\nhello';
+  const html = `<body style="background:#151517;color:#eee;margin:0"><div id="bubble">${newText.replace(/\n/g, '<br>')}</div><div id="legacy-bubble">${legacyText.replace(/\n/g, '<br>')}</div><div id="wrap"><textarea id="ta"></textarea><div class="ds-textarea__mirror" id="mir"></div></div><div id="wrap2"><textarea id="ta2"></textarea><div class="b13855df" id="mir2"></div></div></body>`;
   const ctx = await launch(1000, 800);
   const p = await open(ctx, html);
   await p.click('#dck-fab');
   await p.locator('#dck-drawer button:has-text("Hidden")').first().click();
   await p.waitForTimeout(500);
-  await p.evaluate((t) => { document.getElementById('mir').textContent = t; document.getElementById('mir2').textContent = t; document.getElementById('bubble').textContent = t; }, ctxText);
+  await p.evaluate((v) => {
+    document.getElementById('mir').textContent = v.newText;
+    document.getElementById('mir2').textContent = v.legacyText;
+    document.getElementById('bubble').textContent = v.newText;
+    document.getElementById('legacy-bubble').textContent = v.legacyText;
+  }, { newText, legacyText });
   await p.waitForTimeout(600);
-  assert.strictEqual(await p.evaluate(() => document.getElementById('mir').textContent.indexOf('[Context from my notes]') === 0), true, 'the measuring copy keeps its full text');
-  assert.strictEqual(await p.evaluate(() => document.getElementById('mir2').textContent.indexOf('[Context from my notes]') === 0), true, 'the message box copy (any class name) keeps its full text');
-  assert.strictEqual(await p.evaluate(() => document.getElementById('bubble').textContent.indexOf('[Context from my notes]') === -1), true, 'the chat bubble is still shortened');
-  ok('Hidden mode: bubbles are shortened, the site measuring copy of a box is left alone');
+  assert.strictEqual(await p.evaluate(() => document.getElementById('mir').textContent.indexOf('[Additional instructions and context]') === 0), true, 'the measuring copy keeps the new wrapper intact');
+  assert.strictEqual(await p.evaluate(() => document.getElementById('mir2').textContent.indexOf('[Context from my notes]') === 0), true, 'the message-box copy keeps the legacy wrapper intact');
+  assert.strictEqual(await p.evaluate(() => !document.getElementById('bubble').textContent.includes('[Additional instructions and context]')), true, 'the new wrapper is hidden in the chat bubble');
+  assert.strictEqual(await p.evaluate(() => !document.getElementById('legacy-bubble').textContent.includes('[Context from my notes]')), true, 'legacy chat bubbles remain hidden too');
+  ok('Hidden mode: both context wrappers are stripped from chat bubbles, while measuring copies remain untouched');
   await ctx.close();
 }
 
