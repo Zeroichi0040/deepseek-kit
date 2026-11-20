@@ -65,12 +65,12 @@
     mdPreview: true, // Preview button on markdown code blocks
     collapseLong: true, // collapse long code blocks automatically
     collapseLines: 20, // blocks longer than this many lines count as long
+    collapseAlways: false, // collapse every code block (of more than 3 lines); takes over from collapseLong while on
     visualsEnabled: true, // draw chart and viz code blocks as inline cards
     visualsPrompt: true, // built-in "Visuals" prompt that teaches the model the two formats
     visualsText: '', // '' = use the built-in text
     visualsSchedule: 'first',
     visualsEveryN: 5,
-    askEnabled: true, // draw ask code blocks as clickable question forms
     askPrompt: true, // built-in "Questions" prompt that teaches the model the format
     askText: '', // '' = use the built-in text
     askSchedule: 'first',
@@ -150,6 +150,7 @@
     delete s.multiPrompt;
     delete s.starterSeeded; // starter content was removed
     delete s.chipsInline; // placement is automatic now: the toolbar
+    delete s.askEnabled; // question forms are always drawn now; the built-in Questions prompt is the only switch
     s.prompts = cleanPrompts(s.prompts);
     s.snippets = cleanSnippets(s.snippets);
     return s;
@@ -315,7 +316,7 @@
     if (settings.visualsPrompt !== false && settings.visualsEnabled !== false) {
       list.push({ id: 'visuals', name: 'Visuals', text: visualsPromptText(settings), enabled: true, schedule: settings.visualsSchedule || 'first', everyN: settings.visualsEveryN || 5 });
     }
-    if (settings.askPrompt !== false && settings.askEnabled !== false) {
+    if (settings.askPrompt !== false) {
       list.push({ id: 'ask', name: 'Questions', text: askPromptText(settings), enabled: true, schedule: settings.askSchedule || 'first', everyN: settings.askEveryN || 5 });
     }
     (settings.prompts || []).forEach((p) => { if (p) list.push(p); });

@@ -15,7 +15,7 @@ DeepSeek Kit is an independent, community-made browser extension. It is not affi
 | **Memory** | Small notes that are always included or included when a matching key is mentioned. Group notes by category and set a per-message token budget. |
 | **Snippets** | Reusable text with slash-command autocomplete. Type `/` in the composer to search, navigate, and insert a snippet. |
 | **Context controls** | See what will be added to your next message, preview it, or insert it immediately. Choose whether inserted context stays visible for review or is hidden and sent automatically. |
-| **Code blocks** | Collapse long blocks, show line numbers, preview Markdown, and collect multiple code blocks into a ZIP. |
+| **Code blocks** | Collapse long blocks (or every block), show line numbers, preview Markdown, and collect multiple code blocks into a ZIP. |
 | **Question forms** | Turn model-generated `ask` blocks into forms with single-choice, multiple-choice, and free-text questions. |
 | **Charts and widgets** | Render JSON charts as SVG and run small interactive HTML demos in an isolated sandbox. |
 | **Composer helpers** | Continue numbered and bulleted lists with Shift+Enter. Optionally fold DeepSeek's reasoning blocks. |
@@ -121,7 +121,7 @@ This feature depends on DeepSeek's current page markup. If that markup changes, 
 
 Kit adds its own controls to code-block headers. Turn them off under **Settings → Code blocks**.
 
-- **Collapse / Expand:** Long blocks start collapsed (20 lines by default). Expand a block to keep it open while the page is loaded.
+- **Collapse / Expand:** Long blocks start collapsed (20 lines by default; change the limit under **Settings → Code blocks → Lines before collapsing**). Turn on **Always collapse** to fold every block of more than 3 lines instead; while it is on, **Collapse long blocks** and its line limit are greyed out. Expand a block to keep it open while the page is loaded.
 - **Line numbers:** Optional CSS line numbers that do not affect selection, copying, or downloading.
 - **Markdown preview:** Blocks tagged `markdown` or `md` get a rendered preview. Switch between **Preview** and **Source**.
 - **+ ZIP:** Collect code blocks and download them together. Kit uses a `// file: filename.ext` comment near the top of a block when available; otherwise it assigns a name such as `snippet-1.ext`. The built-in Default prompt asks DeepSeek to put such a comment at the top of each file when a reply has several files (it is sent with the first message of a chat; if you edited the Default prompt, add the line yourself). The comment stays in the downloaded file, which is why JSON and other formats without comments are left out. Duplicate names receive a numeric suffix.
@@ -144,9 +144,9 @@ Choice questions include an **Other** field by default. A question can mark one 
 
 For multi-question forms, questions appear one at a time with a counter and navigation arrows. Selecting a single-choice answer advances to the next question. After submission, the form becomes read-only; choose **Answer again** to edit it.
 
-Answers are submitted straight away by default. To have them added to the message box for you to review and send yourself, turn off **Settings → Questions → Send answers straight away**. If first-message context is still due, Hidden mode attaches it and sends; in Visible mode Kit inserts that context first and lets you review it as usual.
+Answers are submitted straight away by default. To have them added to the message box for you to review and send yourself, turn off **Settings → Messages → Send answers straight away**. If first-message context is still due, Hidden mode attaches it and sends; in Visible mode Kit inserts that context first and lets you review it as usual.
 
-The built-in **Questions** prompt teaches DeepSeek the expected format. You can disable or edit it in the Prompts area.
+The built-in **Questions** prompt teaches DeepSeek the expected format. You can edit it in the Prompts area, or switch it off there if you do not want question forms; Kit has no separate setting for drawing them.
 
 ## Charts and interactive widgets
 

@@ -336,13 +336,13 @@ console.log('ok  visuals prompt');
   assert.ok(/ask/.test(c.ASK_PROMPT) && /single/.test(c.ASK_PROMPT) && /multi/.test(c.ASK_PROMPT));
   assert.ok(!c.buildPrefix(s0, [], 'x', 1), 'first message only by default');
   assert.ok(!c.buildPrefix({ ...s0, askPrompt: false }, [], 'x', 0), 'its own switch');
-  assert.ok(!c.buildPrefix({ ...s0, askEnabled: false }, [], 'x', 0), 'off when question forms are off');
   assert.ok(c.buildPrefix({ ...s0, askText: 'My own questions text' }, [], 'x', 0).includes('My own questions text'), 'custom text wins');
   assert.strictEqual(c.askPromptText({ askText: '  ' }), c.ASK_PROMPT, 'blank text means built-in');
   assert.ok(c.promptEntries(s0).some((e) => e.id === 'ask'));
-  assert.strictEqual(c.DEFAULTS.askEnabled, true);
+  assert.ok(!('askEnabled' in c.DEFAULTS), 'question forms are always drawn: no switch for it');
+  assert.ok(!('askEnabled' in c.migrateSettings({ askEnabled: false })), 'a saved askEnabled is dropped');
+  assert.ok(c.buildPrefix({ ...s0, askEnabled: false }, [], 'x', 0).includes('Instructions (Questions):'), 'a leftover askEnabled no longer turns the prompt off');
   assert.strictEqual(c.DEFAULTS.askAutoSend, true, 'answers are sent straight away by default');
-  assert.strictEqual(c.migrateSettings({}).askEnabled, true, 'old settings get the new defaults');
   assert.ok(c.ASK_PROMPT.length < 1400, 'stays short');
 }
 console.log('ok  questions prompt');
@@ -390,6 +390,8 @@ console.log('all logic tests passed');
   assert.strictEqual(fresh.snippets.length, 0, 'a new install has no snippets');
   assert.ok(c.STARTER_SNIPPETS === undefined && c.STARTER_MEMORIES === undefined && c.addStarters === undefined, 'starter content is gone');
   assert.ok(c.DEFAULTS.lineNumbers === true && c.DEFAULTS.collapseLong === true && !('starterSeeded' in c.DEFAULTS));
+  assert.strictEqual(c.DEFAULTS.collapseAlways, false, 'Always collapse is off by default');
+  assert.strictEqual(c.migrateSettings({}).collapseAlways, false, 'old settings get the new default');
   assert.ok(!('starterSeeded' in c.migrateSettings({ starterSeeded: true })), 'the old seeded flag is dropped');
   // an older install that saved the old defaults keeps them
   const old = c.migrateSettings({ lineNumbers: false, collapseLong: false });
