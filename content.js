@@ -1056,7 +1056,8 @@
       });
       const linesIn = h('input', { type: 'number', min: COLLAPSE_MIN_LINES, step: 1, value: Math.max(COLLAPSE_MIN_LINES, settings.collapseLines || 20), 'aria-label': 'Lines before a block collapses', class: 'dck-linesin' });
       linesIn.addEventListener('change', () => {
-        const n = Math.max(COLLAPSE_MIN_LINES, parseInt(linesIn.value, 10) || 20);
+        const parsed = parseInt(linesIn.value, 10);
+        const n = Number.isFinite(parsed) ? Math.max(COLLAPSE_MIN_LINES, parsed) : 20;
         linesIn.value = n;
         if (n === settings.collapseLines) return;
         settings.collapseLines = n;
