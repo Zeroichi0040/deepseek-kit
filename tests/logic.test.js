@@ -108,8 +108,14 @@ assert.strictEqual(c.memoryLabel(3), '3 memories');
 // ---- hide / strip
 const single = { enabled: true, memoryEnabled: false, defaultEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [{ id: '1', name: 'A', text: 'Be brief', enabled: true, schedule: 'first' }] };
 const withCtx = c.buildPrefix(single, [], 'hello', 0);
+assert.ok(withCtx.startsWith('[Additional instructions and context]'), 'new messages use the clearer wrapper');
 assert.ok(c.alreadyHasContext(withCtx + 'hello'));
+assert.ok(c.hasContextMarker(withCtx + 'hello'));
 assert.strictEqual(c.stripContext(withCtx + 'hello'), 'hello');
+const legacyContext = '[Context from my notes]\\nInstructions (Default):\\nlegacy\\n[End of context]\\n\\nhello';
+assert.ok(c.alreadyHasContext(legacyContext), 'older messages remain recognizable');
+assert.ok(c.hasContextMarker('prefix ' + legacyContext), 'legacy marker can be found in rendered message text');
+assert.strictEqual(c.stripContext(legacyContext), 'hello', 'older wrappers still strip cleanly');
 assert.strictEqual(c.stripContext('no context here'), 'no context here');
 
 // ---- snippets
