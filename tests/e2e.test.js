@@ -511,8 +511,8 @@ async function askForms() {
   const card = p.locator('.dck-vis[data-kind=ask]').first();
   await card.waitFor({ timeout: 8000 });
   await p.waitForSelector('.dck-ask .dck-ask-opt');
-  // "Send answers straight away" is on by default now; these first checks cover the "Add to message" mode
-  await settingsTab(p, 'Questions');
+  // "Send answers straight away" is in Messages; these first checks cover the "Add to message" mode
+  await settingsTab(p, 'Messages');
   await toggle(p, 'Send answers straight away');
   await close(p);
   await p.waitForFunction(() => document.querySelector('.dck-ask-submit').textContent === 'Add to message');
@@ -582,7 +582,7 @@ async function askForms() {
   ok('an invalid block shows a clear message with the source one click away');
 
   // send straight away - context due (first message, Insert on Enter is on): the Kit adds it first, you review
-  await p.click('#dck-fab'); // the Questions section is still open from the first visit
+  await p.click('#dck-fab'); // the Messages section is still open from the first visit
   await p.locator('#dck-drawer button:has-text("Visible")').first().click(); // Hidden is the default; this part checks the review flow
   await p.click('[role=tab]:has-text("Settings")');
   await toggle(p, 'Send answers straight away');
