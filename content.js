@@ -996,6 +996,7 @@
 
   function renderSettings(body) {
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
+    body.append(group('Chat Behavior'));
     body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, !!settings.listContinue]), (box) => {
       box.append(settingRow('Continue lists with Shift+Enter', 'In the message box, Shift+Enter on a "1.", "-" or ">" line starts the next item; on an empty item it ends the list', !!settings.listContinue, (v) => { settings.listContinue = v; commit(); }));
       box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
@@ -1007,6 +1008,7 @@
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { resetFab(); toast('Button position reset'); } }, 'Reset')));
     }));
 
+    body.append(group('Response Display'));
     body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse, ZIP, preview and line numbers', (box) => {
       box.append(settingRow('Code block tools', 'Adds Collapse and + ZIP next to Copy and Download', settings.codeTools !== false, (v) => {
         settings.codeTools = v;
@@ -1043,6 +1045,7 @@
       }));
     }));
 
+    body.append(group('Tools & Maintenance'));
     body.append(accordion('vars', 'Variables', VARIABLES.length + ' available in prompts, notes and snippets', (box) => {
       const grid = h('div', { class: 'dck-vargrid' });
       VARIABLES.forEach((v) => grid.append(h('div', {}, h('span', { class: 'dck-vchip static' }, '{{' + v.name + '}}'), h('div', { class: 'dck-faint' }, v.desc))));
