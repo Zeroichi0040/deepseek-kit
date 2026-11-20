@@ -1,0 +1,75 @@
+name: Publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install test dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run full test suite
+        run: npm test
+
+      - name: Verify release tag matches project versions
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          export VERSION
+          node <<'NODE'
+          const fs = require('node:fs');
+          const expected = process.env.VERSION;
+          const checks = [
+            ['manifest.json', require('./manifest.json').version],
+            ['package.json', require('./package.json').version],
+            ['package-lock.json', require('./package-lock.json').version],
+            ['package-lock.json packages[""]', require('./package-lock.json').packages[''].version],
+          ];
+          for (const [file, actual] of checks) {
+            if (actual !== expected) {
+              console.error(`${file}: expected ${expected}, found ${actual}`);
+              process.exitCode = 1;
+            }
+          }
+          if (!process.exitCode) console.log(`All project versions match ${expected}`);
+          NODE
+
+      - name: Build installable extension ZIP
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_DIR="dist/DeepSeek-Kit-${VERSION}"
+          mkdir -p "${PACKAGE_DIR}"
+          cp manifest.json lib.js site.js visuals.js markdown.js ask.js content.js content.css README.md LICENSE "${PACKAGE_DIR}/"
+          (cd dist && zip -qr "DeepSeek-Kit-${VERSION}.zip" "DeepSeek-Kit-${VERSION}")
+          unzip -l "dist/DeepSeek-Kit-${VERSION}.zip"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          gh release create "${TAG}" "dist/DeepSeek-Kit-${VERSION}.zip" \
+            --verify-tag \
+            --title "DeepSeek Kit ${TAG}" \
+            --notes-file "release-notes/${TAG}.md"
