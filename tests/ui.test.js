@@ -239,13 +239,22 @@ async function boot(stored, memories) {
     assert.strictEqual(openNames().length, 0, 'clicking the open section closes it');
     assert.strictEqual(expandedCount(), 0);
 
-    // the sections themselves still work: Questions and Visuals open and save
+    // the sections themselves still work, and the moved setting belongs to Messages
+    head('Messages').click();
+    assert.ok(a.text().includes('Send answers straight away'), 'Messages contains answer submission setting');
+    assert.match(head('Messages').querySelector('.dck-sub').textContent, /\d+ of 6 on$/, 'Messages count includes the moved setting');
+    const autoSendBefore = a.saved.dck_settings.askAutoSend;
+    a.toggle('Send answers straight away');
+    assert.strictEqual(a.saved.dck_settings.askAutoSend, !autoSendBefore, 'moved setting still updates askAutoSend');
+    a.toggle('Send answers straight away');
+    assert.strictEqual(a.saved.dck_settings.askAutoSend, autoSendBefore, 'moved setting can be restored');
     head('Questions').click();
-    assert.ok(a.text().includes('Draw question forms') && a.text().includes('Send answers straight away'), 'Questions content');
+    assert.ok(a.text().includes('Draw question forms') && !a.text().includes('Send answers straight away') && !a.text().includes('Ask the model for them'), 'Questions contains only the renderer setting');
+    assert.strictEqual(head('Questions').querySelector('.dck-sub').textContent, 'Interactive question forms', 'Questions summary no longer depends on answer sending');
     a.toggle('Draw question forms');
     assert.strictEqual(a.saved.dck_settings.askEnabled, false);
     head('Visuals').click();
-    assert.ok(a.text().includes('Draw charts and widgets') && !a.text().includes('Draw question forms'), 'Visuals content, Questions closed');
+    assert.ok(a.text().includes('Draw charts and widgets') && !a.text().includes('Draw question forms') && !a.text().includes('Ask the model for visuals'), 'Visuals contains only the renderer setting');
     a.toggle('Draw charts and widgets');
     assert.strictEqual(a.saved.dck_settings.visualsEnabled, false);
     assert.deepStrictEqual(layout(), EXPECTED, 'layout survives saving a setting');
@@ -264,6 +273,7 @@ async function boot(stored, memories) {
     const SPEC = {
       Messages: {
         'Insert context on Enter': 'When enabled, Kit automatically adds scheduled prompts and eligible memory to your message when you send it. When disabled, use Insert now to add context manually.',
+        'Send answers straight away': 'When enabled, submitting a form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.',
         'Next-message summary': 'Shows which prompts and memories are scheduled to be included in your next message. This is not a summary of your conversation.',
         'Collapse reasoning': "Folds DeepSeek's reasoning content to its header while it is generating and after it finishes. Click the header to expand it.",
         'Chips in the toolbar': 'Displays which prompts and memories are due for your next message, along with whether context is Visible or Hidden, beside DeepThink and Search.',
@@ -274,7 +284,6 @@ async function boot(stored, memories) {
       },
       Questions: {
         'Draw question forms': 'Converts supported ask code blocks into interactive forms. When disabled, they remain ordinary code blocks.',
-        'Send answers straight away': 'When enabled, submitting a form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.',
       },
       Visuals: {
         'Draw charts and widgets': 'Renders chart and viz code blocks as inline cards. Widgets execute generated code in an isolated iframe, but can navigate that frame. Treat generated widget code as untrusted.',
@@ -283,7 +292,9 @@ async function boot(stored, memories) {
     const NO_INFO = {
       Messages: ['Continue lists with Shift+Enter'],
       'Code blocks': ['Line numbers', 'Markdown preview'],
-      Questions: ['Ask the model for them'],
+    };
+    const REMOVED = {
+      Questions: ['Ask the model for them', 'Send answers straight away'],
       Visuals: ['Ask the model for visuals'],
     };
 
@@ -293,7 +304,8 @@ async function boot(stored, memories) {
       // 1 + 2: no permanent description on toggle rows; icons only on the specified settings
       rows.forEach((r) => assert.strictEqual(r.querySelectorAll('.dck-sub').length, section === 'Messages' && r.textContent.includes('Kit button position') ? 1 : 0, 'no permanent description in ' + r.textContent));
       assert.strictEqual(a.drawer.querySelectorAll('.dck-accbody .dck-infobtn').length, Object.keys(SPEC[section]).length, section + ': icon count');
-      NO_INFO[section].forEach((t) => assert.ok(rowOf(t) && !rowOf(t).querySelector('.dck-infobtn'), t + ' has no info icon'));
+      (NO_INFO[section] || []).forEach((t) => assert.ok(rowOf(t) && !rowOf(t).querySelector('.dck-infobtn'), t + ' has no info icon'));
+      (REMOVED[section] || []).forEach((t) => assert.ok(!rowOf(t), t + ' is removed from ' + section));
       assert.strictEqual(openPanels().length, 0, 'every panel starts closed');
       // 3: each icon shows its own text, as a proper accessible disclosure button
       Object.entries(SPEC[section]).forEach(([t, text]) => {
@@ -364,6 +376,13 @@ async function boot(stored, memories) {
   {
     const a = await boot({ prompts: [{ id: 'p1', name: 'Concise tone', text: 'Be brief', enabled: true, schedule: 'every', everyN: 5 }] });
     assert.ok(a.text().includes('Every 5 messages') && a.text().includes('First message'));
+    assert.ok(a.btn('Edit Questions prompt') && a.btn('Edit Visuals prompt'), 'built-in Questions and Visuals prompts remain in the Prompts tab');
+    a.toggle('Enable Questions prompt');
+    assert.strictEqual(a.saved.dck_settings.askPrompt, false, 'Questions prompt remains independently controllable');
+    a.toggle('Enable Questions prompt');
+    a.toggle('Enable Visuals prompt');
+    assert.strictEqual(a.saved.dck_settings.visualsPrompt, false, 'Visuals prompt remains independently controllable');
+    a.toggle('Enable Visuals prompt');
     // toggle a prompt off -> strip drops it
     a.toggle('Enable Concise tone prompt');
     assert.strictEqual(a.saved.dck_settings.prompts[0].enabled, false);
