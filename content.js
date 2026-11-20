@@ -1035,7 +1035,7 @@
     }));
 
     body.append(accordion('visuals', 'Visuals', settings.visualsEnabled === false ? 'Off' : 'Charts and widgets drawn in the chat', (box) => {
-      box.append(settingRow('Draw charts and widgets', 'Turns chart and viz code blocks into inline cards. Widgets run in an isolated frame: treat their code as untrusted', settings.visualsEnabled !== false, (v) => {
+      box.append(settingRow('Draw charts and widgets', 'Turns chart and viz code blocks into inline cards. Widgets run in a sandboxed frame; treat their code as untrusted because it can navigate its own frame', settings.visualsEnabled !== false, (v) => {
         settings.visualsEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
       }));
       box.append(settingRow('Ask the model for visuals', 'Adds the short built-in Visuals prompt (edit it in the Prompts tab)', settings.visualsPrompt !== false, (v) => {
