@@ -70,7 +70,7 @@ assert.strictEqual(c.buildPrefix({ ...base, memoryEnabled: false }, mem, 'x', 0)
 const withDefault = { enabled: true, memoryEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [] };
 p = c.buildPrefix(withDefault, [], 'x', 0, false, fixed);
 assert.ok(p.includes('Instructions (Default):'));
-assert.ok(p.includes('Today is 2026-11-14 (Saturday), local time 15:30 Etc/UTC'));
+assert.ok(p.includes('prepared 2026-11-14 (Saturday) at 15:30 Etc/UTC'));
 assert.ok(!p.includes('{{'));
 assert.ok(!c.buildPrefix({ ...withDefault, defaultEnabled: false }, [], 'x', 0).includes('Default'));
 assert.ok(c.buildPrefix({ ...withDefault, defaultText: 'My own default' }, [], 'x', 0).includes('My own default'));
