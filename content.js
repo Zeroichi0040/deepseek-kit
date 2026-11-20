@@ -1022,7 +1022,7 @@
     }));
 
     body.append(accordion('ask', 'Questions', settings.askEnabled === false ? 'Off' : (settings.askAutoSend ? 'Clickable questions, sent straight away' : 'Clickable questions, added to your message'), (box) => {
-      box.append(settingRow('Draw question forms', 'Turns ask code blocks into forms you can click. Nothing leaves the page', settings.askEnabled !== false, (v) => {
+      box.append(settingRow('Draw question forms', 'Turns ask code blocks into forms you can click. Your answers go into the message box', settings.askEnabled !== false, (v) => {
         settings.askEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
       }));
       box.append(settingRow('Ask the model for them', 'Adds the short built-in Questions prompt (edit it in the Prompts tab)', settings.askPrompt !== false, (v) => {
@@ -1035,7 +1035,7 @@
     }));
 
     body.append(accordion('visuals', 'Visuals', settings.visualsEnabled === false ? 'Off' : 'Charts and widgets drawn in the chat', (box) => {
-      box.append(settingRow('Draw charts and widgets', 'Turns chart and viz code blocks into inline cards. Nothing leaves the page', settings.visualsEnabled !== false, (v) => {
+      box.append(settingRow('Draw charts and widgets', 'Turns chart and viz code blocks into inline cards. Widgets run in a sandboxed frame; treat their code as untrusted because it can navigate its own frame', settings.visualsEnabled !== false, (v) => {
         settings.visualsEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
       }));
       box.append(settingRow('Ask the model for visuals', 'Adds the short built-in Visuals prompt (edit it in the Prompts tab)', settings.visualsPrompt !== false, (v) => {

@@ -383,6 +383,18 @@ async function boot(stored, memories) {
     console.log('ok  drawer typing is isolated');
   }
 
+  {
+    // The widget iframe can still navigate itself, so the settings text must not promise that nothing leaves the page.
+    assert.ok(!/Nothing leaves the page/.test(src), 'settings text does not overclaim isolation');
+    assert.ok(/sandboxed frame/.test(src), 'widget setting describes the sandbox');
+    assert.ok(/treat their code as untrusted/.test(src), 'widget setting warns that widget code is untrusted');
+    assert.ok(/can navigate its own frame/.test(src), 'widget setting mentions the self-navigation limitation');
+    const readme = read('README.md');
+    const ver = JSON.parse(read('manifest.json')).version;
+    assert.ok(readme.indexOf('**Current version:** ' + ver) !== -1, 'README shows the manifest version');
+    console.log('ok  settings wording and README version');
+  }
+
   console.log('\nall smoke tests passed');
   process.exit(0);
 })().catch((e) => { console.error('FAIL:', e.stack || e.message); process.exit(1); });

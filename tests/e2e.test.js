@@ -227,7 +227,7 @@ function fence(lang, code, busy) {
   return `<div class="md-code-block"><div class="md-code-block-banner-wrap" style="display:flex;padding:8px 12px"><span>${lang}</span><div class="acts" style="margin-left:auto;display:flex;gap:16px"><div role="button"${dis}><svg width="12" height="12"></svg><span>Copy</span></div><div role="button"><svg width="12" height="12"></svg><span>Download</span></div></div></div><pre>${spans}</pre></div>`;
 }
 const CHART = JSON.stringify({ type: 'bar', title: 'Monthly API usage', subtitle: 'Calls in thousands', labels: ['Jan', 'Feb', 'Mar'], series: [{ name: 'Calls', values: [12, 19, 15] }] }, null, 1);
-const WIDGET = '<div class="v-card"><div class="v-title">Counter</div><button id="inc">Add</button> <span id="n" class="v-stat">0</span><div style="height:300px"></div></div>\n<script>var n=0;document.getElementById("inc").onclick=function(){n++;document.getElementById("n").textContent=n}</script>';
+const WIDGET = '<div class="v-card"><div class="v-title">Counter</div><button id="inc">Add</button> <span id="n" class="v-stat">0</span> <button id="self">Navigate frame</button><div style="height:300px"></div></div>\n<script>var n=0;document.getElementById("inc").onclick=function(){n++;document.getElementById("n").textContent=n};document.getElementById("self").onclick=function(){window.location.href="about:blank"}</script>';
 const BROKEN = '<div>x</div><script>throw new Error("boom")</script>';
 const visPage = (inner, bg) => `<body style="background:${bg || '#151517'};color:#eee;margin:0"><div style="width:700px;padding:20px">${inner}</div><div style="border-radius:20px;background:#2b2b2e;padding:16px;width:700px;margin:20px"><textarea style="width:100%"></textarea></div></body>`;
 
@@ -308,6 +308,11 @@ async function visuals() {
   });
   await p.waitForTimeout(100);
   assert.strictEqual(p.url(), 'https://chat.deepseek.com/a/chat/s/1', 'widget cannot navigate the top-level page');
+  const selfNavigation = frame.waitForURL('about:blank');
+  await fl.locator('#self').click();
+  await selfNavigation;
+  assert.strictEqual(frame.url(), 'about:blank', 'widget can navigate its own iframe');
+  assert.strictEqual(p.url(), 'https://chat.deepseek.com/a/chat/s/1', 'self-navigation leaves the chat page untouched');
   assert.ok([...hosts].every((h) => h === 'chat.deepseek.com' || h === ''), 'no external resource request was observed during normal rendering: ' + [...hosts].join(','));
   ok('widget blocks fetch, popups and top-level navigation while remaining isolated from the page');
 
@@ -339,6 +344,8 @@ async function visuals() {
   // turning it off
   await close(p);
   await settingsTab(p, 'Visuals');
+  const visualsCopy = await p.locator('.dck-setrow:has-text("Draw charts and widgets")').innerText();
+  assert.ok(/sandboxed frame/.test(visualsCopy) && /can navigate its own frame/.test(visualsCopy), 'Visuals setting explains the sandbox and self-navigation limitation');
   await toggle(p, 'Draw charts and widgets');
   await p.waitForTimeout(300);
   assert.strictEqual(await p.locator('.dck-vis').count(), 0, 'cards removed');
