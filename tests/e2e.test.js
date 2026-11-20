@@ -1009,10 +1009,107 @@ async function alwaysCollapse() {
   await ctx.close();
 }
 
+// ---------- A folded block always has a way to open it: Code block tools off, manual choices, toggling the settings
+async function collapseRecovery() {
+  const body = (n) => Array.from({ length: n }, (_, i) => 'line ' + (i + 1)).join('\n');
+  // 2, 10 and 30 lines with a header, then 30 lines with no header at all (nothing of ours can be put on it)
+  const html = `<body style="background:#111;color:#eee;width:560px">${blk('python', body(2))}${blk('python', body(10))}${blk('python', body(30))}<pre id="nohead30" style="margin:12px 0;padding:12px">${body(30)}</pre><div style="position:fixed;left:200px;right:200px;bottom:30px;height:90px;border-radius:20px;background:#2b2b2e"><textarea style="width:90%"></textarea></div></body>`;
+  const folded = (p) => p.evaluate(() => Array.from(document.querySelectorAll('pre')).map((pre) => pre.hasAttribute('data-dck-collapsed')));
+  // folded blocks that have no Expand button; must always be empty
+  const stuck = (p) => p.evaluate(() => Array.from(document.querySelectorAll('pre[data-dck-collapsed]')).filter((pre) => { const cb = pre.closest('.cb'); return !cb || !cb.querySelector('[data-dck-act=collapse]'); }).length);
+  const controls = (p) => p.evaluate(() => Array.from(document.querySelectorAll('.cb')).map((cb) => cb.querySelectorAll('[data-dck-act=collapse]').length));
+  // opens Settings -> Code blocks (without closing it if it is already open), flips one switch, closes the drawer again
+  const flip = async (p, row) => {
+    await p.click('#dck-fab');
+    await p.click('[role=tab]:has-text("Settings")');
+    const head = p.locator('.dck-acchead:has-text("Code blocks")');
+    if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
+    await toggle(p, row);
+    await p.waitForTimeout(250);
+    await close(p);
+    await p.waitForTimeout(150);
+  };
+  const click = (p, i) => p.locator('.cb').nth(i).locator('[data-dck-act=collapse]').click();
+  const start = async () => { const ctx = await launch(1000, 900); const p = await open(ctx, html); await p.waitForSelector('[data-dck-act]'); await p.waitForTimeout(300); return { ctx, p }; };
+
+  // 1. Always collapse, then Code block tools off, then on
+  {
+    const { ctx, p } = await start();
+    assert.deepStrictEqual(await folded(p), [false, false, true, false], 'start: the 30-line block is folded; the headerless block has nothing to expand it with, so it is not');
+    await flip(p, 'Always collapse');
+    assert.deepStrictEqual(await folded(p), [false, true, true, false], 'Always collapse folds every block with a control');
+    assert.strictEqual(await stuck(p), 0);
+    await flip(p, 'Code block tools');
+    assert.deepStrictEqual(await folded(p), [false, false, false, false], 'tools off: nothing stays folded');
+    assert.strictEqual(await p.locator('[data-dck-act]').count(), 0, 'and our buttons are gone');
+    assert.strictEqual(await stuck(p), 0, 'no folded block without an Expand button');
+    await p.waitForTimeout(500);
+    assert.deepStrictEqual(await folded(p), [false, false, false, false], 'new page activity does not fold them again while tools are off');
+    await flip(p, 'Code block tools');
+    assert.deepStrictEqual(await folded(p), [false, true, true, false], 'tools on: the Always collapse rule applies again');
+    assert.deepStrictEqual(await controls(p), [0, 1, 1], 'one Expand button per folded block, no duplicates');
+    assert.strictEqual(await stuck(p), 0);
+    ok('Always collapse + Code block tools off/on: nothing is left folded without a button, and the rule comes back');
+    assert.deepStrictEqual(p.errs, [], 'no page errors');
+    await ctx.close();
+  }
+
+  // 2. Collapse long blocks + Code block tools off/on, and what you did by hand
+  {
+    const { ctx, p } = await start();
+    await flip(p, 'Code block tools');
+    assert.deepStrictEqual(await folded(p), [false, false, false, false], 'tools off releases the auto-folded 30-line block');
+    assert.strictEqual(await stuck(p), 0);
+    await flip(p, 'Code block tools');
+    assert.deepStrictEqual(await folded(p), [false, false, true, false], 'tools on: the 20-line rule applies again');
+    assert.strictEqual(await stuck(p), 0);
+    // by hand: fold the 10-line block, open the 30-line one
+    await click(p, 1); await click(p, 2);
+    assert.deepStrictEqual(await folded(p), [false, true, false, false]);
+    await flip(p, 'Code block tools');
+    assert.deepStrictEqual(await folded(p), [false, false, false, false], 'tools off releases blocks you folded yourself as well');
+    assert.strictEqual(await stuck(p), 0);
+    await flip(p, 'Code block tools');
+    assert.deepStrictEqual(await folded(p), [false, true, false, false], 'tools on: your choices are back (10-line folded, 30-line left open), the rule does not override them');
+    assert.deepStrictEqual(await controls(p), [0, 1, 1]);
+    ok('Collapse long blocks + Code block tools off/on: manual folds and manual expansions both survive');
+    assert.deepStrictEqual(p.errs, [], 'no page errors');
+    await ctx.close();
+  }
+
+  // 3. Collapse long blocks off and on again folds the blocks again; manual choices stay as they are
+  {
+    const { ctx, p } = await start();
+    assert.deepStrictEqual(await folded(p), [false, false, true, false]);
+    await flip(p, 'Collapse long blocks');
+    assert.deepStrictEqual(await folded(p), [false, false, false, false], 'off: the folded block opens');
+    await flip(p, 'Collapse long blocks');
+    assert.deepStrictEqual(await folded(p), [false, false, true, false], 'on again: it folds again (it is not skipped as already handled)');
+    assert.strictEqual(await stuck(p), 0);
+    await click(p, 2);
+    assert.deepStrictEqual(await folded(p), [false, false, false, false], 'you open it: it stays open');
+    await p.waitForTimeout(400);
+    assert.deepStrictEqual(await folded(p), [false, false, false, false]);
+    await flip(p, 'Collapse long blocks'); await flip(p, 'Collapse long blocks');
+    assert.deepStrictEqual(await folded(p), [false, false, false, false], 'off and on again: a block you opened stays open');
+    await click(p, 1);
+    assert.deepStrictEqual(await folded(p), [false, true, false, false], 'you fold the 10-line block');
+    await flip(p, 'Collapse long blocks');
+    assert.deepStrictEqual(await folded(p), [false, true, false, false], 'turning the setting off leaves a block you folded alone');
+    assert.strictEqual(await stuck(p), 0);
+    await flip(p, 'Collapse long blocks');
+    assert.deepStrictEqual(await folded(p), [false, true, false, false]);
+    ok('Collapse long blocks off/on re-applies the rule; manual folds and expansions are kept');
+    assert.deepStrictEqual(p.errs, [], 'no page errors');
+    await ctx.close();
+  }
+}
+
 (async () => {
   try {
     await codeBlocks();
     await alwaysCollapse();
+    await collapseRecovery();
     await lineNumbers();
     await fab();
     await streamingCopy();

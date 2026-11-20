@@ -554,7 +554,6 @@
       if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
       if (settings.collapseThinking) scheduleThinkScan();
       if (settings.enabled || tt.timer) scheduleThinkTimerScan();
-      if (collapseOn()) scheduleCollapseScan();
       if (visOn() || vis.list.length) scheduleVisScan();
       if (settings.showInjected !== false) return;
       const nodes = [];
@@ -1049,12 +1048,11 @@
       // "Always collapse" takes over from "Collapse long blocks": while it is on, that switch and its line limit are greyed out.
       const alwaysRow = settingRow('Always collapse', 'Collapses every code block of more than ' + COLLAPSE_MIN_LINES + ' lines, whatever its length. Individual blocks can still be expanded. While on, Collapse long blocks does not apply.', !!settings.collapseAlways, (v) => {
         settings.collapseAlways = v;
-        commit(); reapplyCollapse(); syncCollapseRows();
+        commit(); syncAll(); syncCollapseRows();
       });
       const longRow = settingRow('Collapse long blocks', () => 'Automatically collapses code blocks exceeding ' + (settings.collapseLines || 20) + ' lines. Individual blocks can still be expanded.', !!settings.collapseLong, (v) => {
         settings.collapseLong = v;
-        if (v) scheduleCollapseScan(); else { document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false)); syncAll(); }
-        commit(); syncCollapseRows();
+        commit(); syncAll(); syncCollapseRows();
       });
       const linesIn = h('input', { type: 'number', min: COLLAPSE_MIN_LINES, step: 1, value: Math.max(COLLAPSE_MIN_LINES, settings.collapseLines || 20), 'aria-label': 'Lines before a block collapses', class: 'dck-linesin' });
       linesIn.addEventListener('change', () => {
@@ -1062,7 +1060,7 @@
         linesIn.value = n;
         if (n === settings.collapseLines) return;
         settings.collapseLines = n;
-        commit(); reapplyCollapse();
+        commit(); syncAll();
       });
       const linesRow = h('div', { class: 'dck-setrow' }, h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Lines before collapsing')), linesIn);
       function syncCollapseRows() {
@@ -1105,7 +1103,7 @@
         if (!data || typeof data !== 'object') throw new Error('not a backup');
         if (data.settings) settings = migrateSettings(data.settings);
         if (Array.isArray(data.memories)) memories = cleanMemories(data.memories);
-        commit(); render(); toast('Imported');
+        commit(); syncAll(); render(); toast('Imported');
       } catch (err) { toast('Invalid file'); }
       importInput.value = ''; // so choosing the same file again still counts as a change
     });
@@ -1217,7 +1215,7 @@
           type: 'button', class: 'dck-btn danger',
           onclick: () => {
             if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
-            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
+            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); syncAll(); render();
           },
         }, 'Reset all'));
     } else {
@@ -1344,7 +1342,9 @@
 
   // ---------- Code block tools (buttons in the code block header: collapse, ZIP basket) ----------
   const tools = { basket: [], zip: null };
-  const collapse = { touched: new WeakSet() };
+  // manual: block -> what the person chose with its Collapse/Expand button (true = collapsed). A manual choice outlasts any
+  // collapse setting for as long as the page is loaded; everything else follows the collapse settings (see applyCollapse).
+  const collapse = { manual: new WeakMap() };
 
   function lineCount(pre) { return (pre.textContent || '').replace(/\n$/, '').split('\n').length; }
 
@@ -1461,7 +1461,7 @@
     const list = [];
     const previewing = hasPreview(pre);
     if (mdOffered(pre)) list.push(['preview', previewing ? 'Source' : 'Preview', previewing ? 'code' : 'eye', () => { togglePreview(pre); syncAll(); }]);
-    if (!previewing && (folded || lineCount(pre) > 3)) list.push(['collapse', folded ? 'Expand (' + lineCount(pre) + ' lines)' : 'Collapse', folded ? 'expand' : 'shrink', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
+    if (!previewing && (folded || lineCount(pre) > 3)) list.push(['collapse', folded ? 'Expand (' + lineCount(pre) + ' lines)' : 'Collapse', folded ? 'expand' : 'shrink', () => { const next = !pre.hasAttribute('data-dck-collapsed'); collapse.manual.set(pre, next); setCollapsed(pre, next); syncAll(); }]);
     list.push(['zip', inBasket ? 'Added' : '+ ZIP', inBasket ? 'check' : 'archive', () => toggleBasket(pre)]);
     return list;
   }
@@ -1541,7 +1541,33 @@
     if (pre.style.getPropertyValue('--dck-digits') !== String(digits)) pre.style.setProperty('--dck-digits', String(digits));
   }
 
+  // Always collapse folds every block that has a collapse control (more than 3 lines); otherwise only blocks past the line limit.
+  const COLLAPSE_MIN_LINES = 3;
+  function collapseOn() { return !!(settings.collapseAlways || settings.collapseLong); }
+  function collapseLimit() { return settings.collapseAlways ? COLLAPSE_MIN_LINES : Math.max(COLLAPSE_MIN_LINES, settings.collapseLines || 20); }
+
+  // Whether the person can open a folded block again: it needs our Expand button, which lives in the site's header
+  // (so not with Code block tools off, and not on a block that has no header).
+  function canExpand(pre) { return settings.codeTools !== false && !!SITE.copyButton(pre); }
+
+  // Sets every block's folded state from one rule: a manual choice if there is one, otherwise the collapse settings,
+  // and never folded while the person could not open it again. Because the state is computed, not remembered, turning a
+  // setting (or Code block tools) off releases the blocks it folded and turning it back on folds them again.
+  function applyCollapse() {
+    const on = collapseOn();
+    const limit = collapseLimit();
+    SITE.codeBlocks().forEach((pre) => {
+      let want = false;
+      if (collapse.manual.has(pre)) want = collapse.manual.get(pre);
+      else if (on) want = lineCount(pre) > limit;
+      if (want && !canExpand(pre)) want = false;
+      if (want !== pre.hasAttribute('data-dck-collapsed')) setCollapsed(pre, want);
+    });
+  }
+
+  // The one pass over the page's code blocks: collapse state first, so the buttons then say the right thing.
   function syncAll() {
+    applyCollapse();
     SITE.codeBlocks().forEach((pre) => {
       syncLines(pre);
       syncPreview(pre);
@@ -1550,30 +1576,6 @@
   }
 
   const scheduleCodeScan = SITE.oncePerFrame(syncAll);
-
-  // Always collapse folds every block that has a collapse control (more than 3 lines); otherwise only blocks past the line limit.
-  const COLLAPSE_MIN_LINES = 3;
-  function collapseOn() { return !!(settings.collapseAlways || settings.collapseLong); }
-  function collapseLimit() { return settings.collapseAlways ? COLLAPSE_MIN_LINES : Math.max(COLLAPSE_MIN_LINES, settings.collapseLines || 20); }
-
-  // After a collapse setting changes: open everything Kit folded, forget which blocks were handled, and apply the new rule.
-  function reapplyCollapse() {
-    document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false));
-    collapse.touched = new WeakSet();
-    syncAll();
-    if (collapseOn()) scheduleCollapseScan();
-  }
-
-  const scheduleCollapseScan = SITE.oncePerFrame(() => {
-    if (!collapseOn()) return;
-    const limit = collapseLimit();
-    let changed = false;
-    SITE.codeBlocks().forEach((pre) => {
-      if (collapse.touched.has(pre)) return;
-      if (lineCount(pre) > limit) { collapse.touched.add(pre); setCollapsed(pre, true); changed = true; }
-    });
-    if (changed) syncAll();
-  });
 
   // ---------- Visuals: charts and widgets drawn inline from ```chart and ```viz code blocks ----------
   // The model is asked (see the built-in Visuals prompt) to put a chart spec or a small HTML widget in a code block
@@ -1969,7 +1971,6 @@
     scheduleThinkTimerScan();
     listenForOtherTabs();
     applyFold();
-    if (collapseOn()) scheduleCollapseScan();
     if (settings.showInjected === false) scheduleStrip([document.body]);
   }
 

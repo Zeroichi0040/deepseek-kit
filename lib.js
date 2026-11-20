@@ -157,7 +157,7 @@
   }
 
   function hasLegacyKeys(raw) {
-    return !!raw && ('systemPrompt' in raw || 'multiPrompt' in raw || 'mode' in raw || 'everyN' in raw);
+    return !!raw && ('systemPrompt' in raw || 'multiPrompt' in raw || 'mode' in raw || 'everyN' in raw || 'askEnabled' in raw);
   }
 
   function tokens(s) {

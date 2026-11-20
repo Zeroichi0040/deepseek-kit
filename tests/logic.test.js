@@ -341,6 +341,8 @@ console.log('ok  visuals prompt');
   assert.ok(c.promptEntries(s0).some((e) => e.id === 'ask'));
   assert.ok(!('askEnabled' in c.DEFAULTS), 'question forms are always drawn: no switch for it');
   assert.ok(!('askEnabled' in c.migrateSettings({ askEnabled: false })), 'a saved askEnabled is dropped');
+  assert.ok(c.hasLegacyKeys({ askEnabled: false }) && c.hasLegacyKeys({ askEnabled: true }), 'a profile whose only obsolete key is askEnabled needs migrating');
+  assert.ok(!c.hasLegacyKeys({ askAutoSend: false, askPrompt: true }), 'the question settings that remain are not legacy');
   assert.ok(c.buildPrefix({ ...s0, askEnabled: false }, [], 'x', 0).includes('Instructions (Questions):'), 'a leftover askEnabled no longer turns the prompt off');
   assert.strictEqual(c.DEFAULTS.askAutoSend, true, 'answers are sent straight away by default');
   assert.ok(c.ASK_PROMPT.length < 1400, 'stays short');

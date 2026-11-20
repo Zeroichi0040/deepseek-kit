@@ -360,6 +360,19 @@ async function boot(stored, memories) {
     console.log('ok  Settings information icons');
   }
 
+  // ---------- 3g. A profile whose only obsolete key is askEnabled is cleaned in storage at load ----------
+  {
+    const a = await boot({ askEnabled: false, showSummary: false });
+    assert.ok(a.saved.dck_settings, 'the migrated settings are written back without any other change');
+    assert.ok(!('askEnabled' in a.saved.dck_settings), 'askEnabled is gone from what was stored');
+    assert.strictEqual(a.saved.dck_settings.showSummary, false, 'the person\'s other settings are kept');
+    const b = await boot({ askEnabled: false });
+    assert.ok(b.saved.dck_settings && !('askEnabled' in b.saved.dck_settings), 'askEnabled alone is enough to trigger the write');
+    const c = await boot({ showSummary: false });
+    assert.ok(!c.saved.dck_settings, 'a profile with nothing obsolete is not rewritten at load');
+    console.log('ok  askEnabled migration is persisted');
+  }
+
   // ---------- 3f. Always collapse: greys out Collapse long blocks; the line limit is editable in the drawer ----------
   {
     const a = await boot({});
