@@ -577,7 +577,7 @@ async function boot(stored, memories) {
     a.btn('Close preview').click();
     assert.ok(!a.drawer.querySelector('.dck-preview'));
     a.btn('Insert now').click();
-    assert.ok(a.ta.value.startsWith('[Context from my notes]') && a.ta.value.endsWith('hello'));
+    assert.ok(a.ta.value.startsWith('[Additional instructions and context]') && a.ta.value.endsWith('hello'));
     console.log('ok  preview + insert now');
   }
 
