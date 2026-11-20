@@ -395,6 +395,9 @@ async function boot(stored, memories) {
     setLines('1');
     assert.strictEqual(a.saved.dck_settings.collapseLines, 3, 'the limit never goes below 3 (shorter blocks have no collapse control)');
     assert.strictEqual(lines().value, '3');
+    setLines('0');
+    assert.strictEqual(a.saved.dck_settings.collapseLines, 3, 'zero is clamped to the minimum rather than treated as invalid');
+    assert.strictEqual(lines().value, '3');
     setLines('abc');
     assert.strictEqual(a.saved.dck_settings.collapseLines, 20, 'junk falls back to the default');
     setLines('12');
