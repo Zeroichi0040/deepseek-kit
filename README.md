@@ -1,10 +1,9 @@
 # DeepSeek Kit
 
-A local-first toolkit for **DeepSeek Chat**. Add reusable prompts, lightweight memory, slash snippets, richer code blocks, interactive questions, and inline visuals to `chat.deepseek.com` — without turning your browser into a client for another service.
+A local-first toolkit for **DeepSeek Chat**. Add reusable prompts, lightweight memory, slash snippets, richer code blocks, interactive questions, and inline visuals to `chat.deepseek.com`.
 
 DeepSeek Kit is an independent, community-made browser extension. It is not affiliated with or endorsed by DeepSeek.
 
-> **Current version:** 0.19.2  
 > **Compatibility:** Chrome and Chromium-based browsers (including Edge and Brave), Chrome 105+
 
 ## What it adds
@@ -34,18 +33,6 @@ There is no build step.
 To update an existing installation, pull or download the latest files, then click the extension's **Reload** button on the extensions page. Reload the DeepSeek tab too.
 
 The Kit tab can be dragged to either side of the page. It remembers its position; **Settings → Messages → Reset** restores the default position.
-
-## Tests
-
-Install the development dependencies and the Chromium browser used by the end-to-end suite:
-
-```sh
-npm ci
-npx playwright install chromium
-npm test
-```
-
-`npm test` runs the unit tests and the real-Chromium end-to-end tests. It fails when Playwright or Chromium is missing rather than silently skipping browser coverage. Use `npm run test:unit` only when you intentionally want to run the unit tests without a browser.
 
 ## Using the Kit
 
@@ -214,13 +201,14 @@ Unknown variables are left unchanged.
 
 ## Storage and privacy
 
-DeepSeek Kit is designed to work locally:
+DeepSeek Kit stores its own settings and content locally:
 
-- It uses the browser's `chrome.storage.local` API for its settings, prompts, memories, snippets, and related state.
-- The extension does not make its own network requests.
-- It does not patch `fetch` or XHR.
+- It uses the browser's `chrome.storage.local` API for settings, prompts, memories, snippets, and related state.
+- The extension's core code does not initiate network requests or patch `fetch` or XHR.
 - It does not send your prompts, memories, snippets, or widget content to a Kit-operated server.
 - It requests the browser's `storage` permission; it does not request broad access to unrelated websites.
+
+**Widget security caveat:** `viz` widgets execute model-generated JavaScript in an isolated iframe. The sandbox blocks direct network APIs, external resource loads, forms, popups, and navigation out of the iframe. However, browsers allow the widget to navigate its own iframe to another URL. A widget cannot read the surrounding DeepSeek page, but it could send information already embedded in its own generated code by putting that information in the destination URL. Treat widget code as untrusted: inspect it before running it, and do not run widgets containing sensitive information.
 
 The extension runs on the DeepSeek Chat page and interacts with that page's message box and interface. **Visible mode leaves sending to you. Hidden mode can submit messages on your behalf.** As with any browser extension that modifies a third-party website, use it at your own discretion.
 
@@ -250,24 +238,17 @@ The extension is plain JavaScript and CSS. It has no runtime dependencies, bundl
 
 ### Run the tests
 
+Install the dependencies and Chromium, then run the full suite:
+
 ```sh
 npm ci
+npx playwright install chromium
 npm test
 ```
 
-The test suite covers pure logic, DeepSeek page finders, UI behavior, question forms, Markdown rendering, chart rendering, hardening, refresh behavior, and real-Chromium integration. The Chromium checks are skipped if Playwright or its browser is unavailable.
+`npm test` runs the unit tests and real-Chromium end-to-end tests. It fails when Playwright or Chromium is missing; browser coverage is never silently skipped. Use `npm run test:unit` when you intentionally want to run only the unit tests, or `npm run test:e2e` to run the browser integration tests directly.
 
-To install the Playwright Chromium browser for the integration tests:
-
-```sh
-npx playwright install chromium
-```
-
-You can also run the browser integration tests directly:
-
-```sh
-npm run test:e2e
-```
+The suite covers pure logic, DeepSeek page finders, UI behavior, question forms, Markdown rendering, chart rendering, hardening, refresh behavior, and real-Chromium integration.
 
 ### Project structure
 
