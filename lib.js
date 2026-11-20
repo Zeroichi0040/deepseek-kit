@@ -3,11 +3,15 @@
   'use strict';
 
   // ---------- Pure logic (unit-testable) ----------
-  const MARKER_START = '[Context from my notes]';
-  const MARKER_END = '[End of context]';
+  const MARKER_START = '[Additional instructions and context]';
+  const MARKER_END = '[End of additional context]';
+  // Retained so messages sent by earlier Kit versions can still be detected and hidden.
+  const LEGACY_MARKER_START = '[Context from my notes]';
+  const LEGACY_MARKER_END = '[End of context]';
 
   const BUILTIN_DEFAULT_PROMPT = [
-    'You are using a DeepSeek Kit extension. Today is {{date}} ({{weekday}}), local time {{time}} {{timezone}}.',
+    'DeepSeek Kit context snapshot: prepared {{date}} ({{weekday}}) at {{time}} {{timezone}}. This timestamp is a snapshot from when the context was inserted, not a live clock; do not assume it stays current later in a long conversation.',
+    'These Kit instructions are user-level guidance included with a message. They do not override higher-priority instructions or the user\'s current explicit request.',
     '',
     '## Answering',
     '- Follow higher-priority instructions and the user\'s explicit requirements. Within those bounds, prioritize honesty and safety over agreement, speed, or polish.',
@@ -34,7 +38,7 @@
     '- Correct mistakes plainly when new information changes the answer. Say what changed and update the conclusion rather than defending an earlier response.',
     '',
     '## Tools and current information',
-    '- Use tools actually available in the current chat when they materially improve accuracy or help complete the request. Prefer fresh verification for time-sensitive, niche, or consequential facts; do not use tools needlessly for stable facts or straightforward transformations of user-provided text.',
+    '- Use capabilities actually available in DeepSeek Chat and the current conversation when they materially improve accuracy or help complete the request. DeepSeek Chat may provide its own Search feature through the Search toggle; when that feature is enabled and current information matters, use it rather than claiming you have no web access just because Kit does not provide a separate browser tool. If Search is disabled, unavailable, or returns no useful results, say so accurately. Prefer verification for time-sensitive, niche, or consequential facts, but do not search needlessly for stable facts or simple transformations.',
     '- Follow each tool\'s constraints and use its actual results. Do not claim to have searched, tested, inspected, changed, or sent anything unless you really did; never invent sources, citations, or tool outcomes.',
     '- Be clear about capability limits. A prompt does not grant new tools or permissions; when a needed capability is unavailable, say so and provide the most useful alternative.',
     '',
@@ -53,17 +57,18 @@
   ].join('\n');
 
   const VISUALS_PROMPT = [
-    'Use Kit visuals when they materially improve understanding; ordinary prose and Markdown remain the default. Do not create visuals for decoration or when a short explanation is clearer. Kit renders fenced code blocks tagged chart and viz.',
+    'Use Kit visuals when they materially improve understanding; ordinary prose and Markdown remain the default. Do not create visuals for decoration or when a short explanation is clearer. Kit recognizes three fenced-block tags: chart (JSON chart), viz (self-contained HTML widget), and ask (interactive question form; see the Questions prompt).',
     '- chart: one JSON object: {"type":"bar|line|area|scatter|pie|donut","title":"...","subtitle":"one-line takeaway","labels":["Jan","Feb"],"series":[{"name":"Calls","values":[12,19]}],"xTitle":"","yTitle":"","unit":"","stacked":false}. For scatter, use series[].points as [[x,y],...] and omit labels. Keep labels and value arrays aligned. Bars start at zero, so use line or scatter for values far from zero. Use only supplied or verified data; never invent values.',
     '- viz: one self-contained HTML snippet (HTML, CSS, and JS together) for a diagram, process flow, architecture, relationship map, simulation, calculator, or other interactive explanation. Use it when a visual genuinely helps, not by default. The widget runs in an isolated iframe; do not rely on network access or external scripts, fonts, images, or libraries.',
-    '- Ready-made classes: v-card, v-title, v-btn, v-btn-outline, v-row, v-control-group, v-label, v-stat. Buttons, sliders, inputs, and selects are already styled. Keep the background transparent, make the layout readable in a narrow container, never size anything with vh, use clear labels, and avoid unnecessary animation or complexity.',
+    '- Kit widget classes: v-card is a padded, rounded surface with a border; v-title is a compact bold heading; v-row is a horizontal flex row that wraps; v-control-group stacks related controls vertically; v-label is small muted text; v-stat is a compact monospace value chip; v-btn styles a primary button; v-btn-outline styles an outlined button. Native buttons, text/number inputs, selects, textareas, range sliders, and checkboxes also receive basic styling. Use semantic HTML and these classes where useful; do not assume additional components or JavaScript APIs are provided.',
+    '- Keep the background transparent, make the layout readable in a narrow container, never size anything with vh, use clear labels, and avoid unnecessary animation or complexity.',
     '- Keep charts and widgets focused on the information provided. In the surrounding answer, explain the key takeaway rather than the generated code. Never invent data or imply that a visual proves more than its inputs support.',
     '- Do not use Mermaid or other unsupported code-fence labels expecting Kit to render them. Use viz for diagrams and ordinary Markdown for everything else.',
   ].join('\n');
 
   const ASK_PROMPT = [
     'Use an ask form only when the user must make a structured choice or answer several short, related setup questions together, and a form is easier than prose. For one clarification, ask naturally in prose. If a reasonable assumption lets you continue safely, proceed instead. Do not add forms just to keep the conversation going.',
-    'When using an ask form, put exactly one valid JSON object inside a fenced code block tagged ask (```ask). Do not output the form JSON bare, in a json fence, or as ordinary prose. Do not repeat the questions outside the form.',
+    'Put each form in its own fenced code block tagged ask (```ask), with exactly one valid JSON object per block. Do not output form JSON bare, in a json fence, or as ordinary prose, and do not repeat the questions outside the form. A response may contain multiple ask blocks when separate forms are genuinely useful; do not split one coherent questionnaire across blocks. An explicit request to demonstrate or test ask cards is a valid reason to produce a small example form.',
     'Use one JSON object: {"questions":[{"question":"What kind of app?","type":"single","options":[{"label":"Web","recommended":true},"Desktop","Mobile"]},{"question":"Which features?","type":"multi","options":[{"label":"Login","description":"email and password"},"Dashboard"]},{"question":"Anything else?","type":"text"}]}. type is single (pick one), multi (pick several), or text (a free answer). Choice questions get an Other field automatically; add "other":false to remove it. Mark one option recommended only when there is a clear reason.',
     'Ask only for missing information (usually 1 to 4 questions). Keep options concise and distinct, and do not ask again for details already given. Use ordinary prose for a conversational follow-up or a single important question.',
   ].join('\n');
@@ -406,13 +411,20 @@
     return 'Next message includes ' + t;
   }
 
+  function hasContextMarker(text) {
+    const value = String(text || '');
+    return value.indexOf(MARKER_START) !== -1 || value.indexOf(LEGACY_MARKER_START) !== -1;
+  }
+
   function alreadyHasContext(text) {
-    return String(text || '').trimStart().startsWith(MARKER_START);
+    const value = String(text || '').trimStart();
+    return value.startsWith(MARKER_START) || value.startsWith(LEGACY_MARKER_START);
   }
 
   // Removes the inserted block (used to hide it in the chat view when "show inserted context" is off).
+  // Both wrappers are accepted so messages from older Kit versions remain compatible.
   function stripContext(text) {
-    return String(text || '').replace(/\[Context from my notes\][\s\S]*?\[End of context\]\s*/, '');
+    return String(text || '').replace(/(?:\[Additional instructions and context\][\s\S]*?\[End of additional context\]|\[Context from my notes\][\s\S]*?\[End of context\])\s*/, '');
   }
 
   // "/foo" (and nothing else) in the message box opens the snippet picker.
@@ -684,7 +696,7 @@
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     LANG_EXT, normalizeLang, langFromClass, extFor, sniffLang, previewKind, detectBlock, suggestFilename, uniqueName, crc32, makeZip,
-    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
+    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END, hasContextMarker,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   else root.DCK_LIB = core;
