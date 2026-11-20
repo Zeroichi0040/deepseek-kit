@@ -602,7 +602,7 @@ async function boot(stored, memories) {
     a.type(a.ta, 'hello');
     assert.ok(a.key(a.ta, 'Enter').defaultPrevented);
     assert.strictEqual(seen.length, 1);
-    assert.ok(seen[0].startsWith('[Context from my notes]') && seen[0].endsWith('hello'));
+    assert.ok(seen[0].startsWith('[Additional instructions and context]') && seen[0].endsWith('hello'));
     a.type(a.ta, '');
     await sleep(700);
     const bubble = a.doc.createElement('div');
