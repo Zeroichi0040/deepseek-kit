@@ -69,7 +69,13 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          gh release create "${TAG}" "dist/DeepSeek-Kit-${VERSION}.zip" \
-            --verify-tag \
-            --title "DeepSeek Kit ${TAG}" \
-            --notes-file "release-notes/${TAG}.md"
+          ASSET="dist/DeepSeek-Kit-${VERSION}.zip"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            # A draft may already exist because the tag was created from the Releases page.
+            gh release upload "${TAG}" "${ASSET}" --clobber
+          else
+            gh release create "${TAG}" "${ASSET}" \
+              --verify-tag \
+              --title "DeepSeek Kit ${TAG}" \
+              --notes-file "release-notes/${TAG}.md"
+          fi
