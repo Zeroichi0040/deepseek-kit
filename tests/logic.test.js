@@ -343,7 +343,7 @@ console.log('ok  visuals prompt');
   assert.ok(c.buildPrefix(s0, [], 'x', 0).includes('Instructions (Questions):'), 'on by default');
   assert.ok(/ask/.test(c.ASK_PROMPT) && /single/.test(c.ASK_PROMPT) && /multi/.test(c.ASK_PROMPT));
   assert.ok(/one clarification/.test(c.ASK_PROMPT) && /naturally in prose/.test(c.ASK_PROMPT), 'single clarifications stay conversational');
-  assert.ok(/fenced code block tagged ask/.test(c.ASK_PROMPT) && /Do not output the form JSON bare/.test(c.ASK_PROMPT), 'ask forms require the renderer-recognized fenced ask format');
+  assert.ok(/fenced code block tagged ask/.test(c.ASK_PROMPT) && /Do not output form JSON bare/.test(c.ASK_PROMPT), 'ask forms require the renderer-recognized fenced ask format');
   assert.ok(/missing information/.test(c.ASK_PROMPT) && /do not ask again/.test(c.ASK_PROMPT), 'forms avoid redundant questions');
   assert.ok(!c.buildPrefix(s0, [], 'x', 1), 'first message only by default');
   assert.ok(!c.buildPrefix({ ...s0, askPrompt: false }, [], 'x', 0), 'its own switch');
@@ -414,7 +414,8 @@ console.log('all logic tests passed');
   assert.ok(['## Answering', '## Formatting', '## Tone'].every((h) => c.BUILTIN_DEFAULT_PROMPT.includes(h)), 'three sections');  assert.ok(['## Conversation', '## Reasoning and judgment', '## Tools and current information'].every((h) => c.BUILTIN_DEFAULT_PROMPT.includes(h)), 'conversation, reasoning, and tool guidance sections');
   assert.ok(/follow-up questions/.test(c.BUILTIN_DEFAULT_PROMPT) && /earlier turns/.test(c.BUILTIN_DEFAULT_PROMPT), 'supports continuity and useful follow-ups');
   assert.ok(/constructive thinking partner/.test(c.BUILTIN_DEFAULT_PROMPT) && /challenge conclusions/.test(c.BUILTIN_DEFAULT_PROMPT), 'encourages constructive disagreement');
-  assert.ok(/tools actually available/.test(c.BUILTIN_DEFAULT_PROMPT) && /never invent sources/.test(c.BUILTIN_DEFAULT_PROMPT), 'encourages grounded tool use');
+  assert.ok(/capabilities actually available/.test(c.BUILTIN_DEFAULT_PROMPT) && /Search toggle/.test(c.BUILTIN_DEFAULT_PROMPT) && /no web access/.test(c.BUILTIN_DEFAULT_PROMPT), 'recognizes native Search while avoiding unsupported claims');
+  assert.ok(/never invent sources/.test(c.BUILTIN_DEFAULT_PROMPT), 'discourages fabricated sources');
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.endsWith('https://github.com/Zeroichi0040/deepseek-kit'), 'the repository link closes the prompt (DeepSeek can open links when its web search is on)');
   // the Default prompt asks for a file-name comment on each file of a multi-file reply, and the ZIP reads exactly those forms
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('// file: src/app.js') && c.BUILTIN_DEFAULT_PROMPT.includes('# file: main.py'), 'prompt asks for file-name comments');
