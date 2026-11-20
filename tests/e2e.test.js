@@ -625,8 +625,8 @@ async function askForms() {
   await p.waitForSelector('.dck-ask .dck-ask-opt');
   const f4 = p.locator('.dck-vis[data-kind=ask]').first();
   await f4.locator('.dck-ask-opt', { hasText: 'Desktop application' }).click();
-  await f4.locator('[aria-label=\\"Next question\\"]').click();
-  await f4.locator('[aria-label=\\"Next question\\"]').click();
+  await f4.locator('[aria-label=\"Next question\"]').click();
+  await f4.locator('[aria-label=\"Next question\"]').click();
   await f4.locator('.dck-ask-submit').click();
   await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 6000 });
   await p.waitForFunction(() => document.getElementById('main').value === '', null, { timeout: 6000 });
