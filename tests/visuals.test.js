@@ -143,7 +143,7 @@ const spec = (o) => { const r = V.parseChartSpec(typeof o === 'string' ? o : JSO
   const theme = { dark: true, text: '#eee', muted: '#999', border: '#333', surface: '#222', accent: '#4d6bfe' };
   const d = V.buildWidgetDocument('<button id="b">Go</button><script>var x=1;</script>', theme, 'abc');
   assert.ok(d.indexOf('Content-Security-Policy') > 0 && d.indexOf("default-src 'none'") > 0);
-  ["base-uri 'none'", "connect-src 'none'", "frame-src 'none'", "object-src 'none'"].forEach((directive) => assert.ok(d.includes(directive), 'CSP includes ' + directive));
+  ["base-uri 'none'", "connect-src 'none'", "form-action 'none'", "frame-src 'none'", "object-src 'none'"].forEach((directive) => assert.ok(d.includes(directive), 'CSP includes ' + directive));
   assert.ok(d.indexOf('Content-Security-Policy') < d.indexOf('<body>'), 'CSP comes before any model code');
   assert.ok(/DCK_VIS_ERROR/.test(d) && /DCK_VIS_HEIGHT/.test(d) && /"abc"/.test(d));
   assert.ok(/<button id="b">Go<\/button>/.test(d));
