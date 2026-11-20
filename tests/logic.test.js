@@ -337,6 +337,7 @@ console.log('ok  visuals prompt');
   assert.ok(c.buildPrefix(s0, [], 'x', 0).includes('Instructions (Questions):'), 'on by default');
   assert.ok(/ask/.test(c.ASK_PROMPT) && /single/.test(c.ASK_PROMPT) && /multi/.test(c.ASK_PROMPT));
   assert.ok(/one clarification/.test(c.ASK_PROMPT) && /naturally in prose/.test(c.ASK_PROMPT), 'single clarifications stay conversational');
+  assert.ok(/fenced code block tagged ask/.test(c.ASK_PROMPT) && /Do not output the form JSON bare/.test(c.ASK_PROMPT), 'ask forms require the renderer-recognized fenced ask format');
   assert.ok(/missing information/.test(c.ASK_PROMPT) && /do not ask again/.test(c.ASK_PROMPT), 'forms avoid redundant questions');
   assert.ok(!c.buildPrefix(s0, [], 'x', 1), 'first message only by default');
   assert.ok(!c.buildPrefix({ ...s0, askPrompt: false }, [], 'x', 0), 'its own switch');
