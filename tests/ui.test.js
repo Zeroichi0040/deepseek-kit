@@ -109,7 +109,7 @@ async function boot(stored, memories) {
     ['Messages', 'Code blocks', 'Variables', 'Diagnostics', 'Backup', 'Reset all'].forEach((t) => assert.ok(a.text().includes(t), 'settings has ' + t));
     assert.ok(!a.text().includes('Next-message summary'), 'every section starts closed');
     acc('Messages').click();
-    ['Insert context on Enter', 'Next-message summary', 'Collapse reasoning', 'Chips in the toolbar'].forEach((t) => assert.ok(a.text().includes(t), 'messages has ' + t));
+    ['Insert context on Enter', 'Next-message summary', 'Collapse reasoning', 'Chips in the toolbar', 'Send answers straight away'].forEach((t) => assert.ok(a.text().includes(t), 'messages has ' + t));
     acc('Messages').click();
     assert.ok(!a.text().includes('{{date}}'), 'variables are collapsed at first');
     acc('Variables').click();
@@ -190,7 +190,7 @@ async function boot(stored, memories) {
     });
     const EXPECTED = [
       ['group', 'Chat Behavior'], ['acc', 'Messages'],
-      ['group', 'Response Display'], ['acc', 'Code blocks'], ['acc', 'Questions'], ['acc', 'Visuals'],
+      ['group', 'Response Display'], ['acc', 'Code blocks'], ['acc', 'Visuals'],
       ['group', 'Tools & Maintenance'], ['acc', 'Variables'], ['acc', 'Diagnostics'], ['acc', 'Backup'],
     ];
     const head = (t) => Array.from(a.drawer.querySelectorAll('.dck-acchead')).find((b) => b.querySelector('.dck-name').textContent === t);
@@ -226,7 +226,7 @@ async function boot(stored, memories) {
     head('Messages').click();
 
     // opening one accordion closes the previous one, across all three categories, and the layout holds
-    ['Messages', 'Code blocks', 'Questions', 'Visuals', 'Variables', 'Diagnostics', 'Backup'].forEach((t) => {
+    ['Messages', 'Code blocks', 'Visuals', 'Variables', 'Diagnostics', 'Backup'].forEach((t) => {
       head(t).click();
       assert.deepStrictEqual(openNames(), [t], 'only ' + t + ' is open');
       assert.strictEqual(expandedCount(), 1, 'one aria-expanded=true while ' + t + ' is open');
@@ -239,13 +239,16 @@ async function boot(stored, memories) {
     assert.strictEqual(openNames().length, 0, 'clicking the open section closes it');
     assert.strictEqual(expandedCount(), 0);
 
-    // the sections themselves still work: Questions and Visuals open and save
-    head('Questions').click();
-    assert.ok(a.text().includes('Draw question forms') && a.text().includes('Send answers straight away'), 'Questions content');
-    a.toggle('Draw question forms');
-    assert.strictEqual(a.saved.dck_settings.askEnabled, false);
+    // there is no Questions section: its one remaining switch lives under Messages, and the other two are gone
+    assert.ok(!head('Questions'), 'no Questions section');
+    head('Messages').click();
+    assert.ok(a.text().includes('Send answers straight away') && !a.text().includes('Draw question forms') && !a.text().includes('Ask the model for them'), 'Messages content');
+    a.toggle('Send answers straight away');
+    assert.strictEqual(a.saved.dck_settings.askAutoSend, false);
+    assert.ok(!('askEnabled' in a.saved.dck_settings), 'no askEnabled setting is stored');
+    // the sections themselves still work: Visuals opens and saves
     head('Visuals').click();
-    assert.ok(a.text().includes('Draw charts and widgets') && !a.text().includes('Draw question forms'), 'Visuals content, Questions closed');
+    assert.ok(a.text().includes('Draw charts and widgets') && !a.text().includes('Send answers straight away'), 'Visuals content, Messages closed');
     a.toggle('Draw charts and widgets');
     assert.strictEqual(a.saved.dck_settings.visualsEnabled, false);
     assert.deepStrictEqual(layout(), EXPECTED, 'layout survives saving a setting');
@@ -267,14 +270,12 @@ async function boot(stored, memories) {
         'Next-message summary': 'Shows which prompts and memories are scheduled to be included in your next message. This is not a summary of your conversation.',
         'Collapse reasoning': "Folds DeepSeek's reasoning content to its header while it is generating and after it finishes. Click the header to expand it.",
         'Chips in the toolbar': 'Displays which prompts and memories are due for your next message, along with whether context is Visible or Hidden, beside DeepThink and Search.',
+        'Send answers straight away': 'When enabled, submitting a question form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.',
       },
       'Code blocks': {
         'Code block tools': 'Adds Collapse/Expand and + ZIP controls to code block headers.',
+        'Always collapse': 'Collapses every code block of more than 3 lines, whatever its length. Individual blocks can still be expanded. While on, Collapse long blocks does not apply.',
         'Collapse long blocks': 'Automatically collapses code blocks exceeding 20 lines. Individual blocks can still be expanded.',
-      },
-      Questions: {
-        'Draw question forms': 'Converts supported ask code blocks into interactive forms. When disabled, they remain ordinary code blocks.',
-        'Send answers straight away': 'When enabled, submitting a form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.',
       },
       Visuals: {
         'Draw charts and widgets': 'Renders chart and viz code blocks as inline cards. Widgets execute generated code in an isolated iframe, but can navigate that frame. Treat generated widget code as untrusted.',
@@ -282,8 +283,7 @@ async function boot(stored, memories) {
     };
     const NO_INFO = {
       Messages: ['Continue lists with Shift+Enter'],
-      'Code blocks': ['Line numbers', 'Markdown preview'],
-      Questions: ['Ask the model for them'],
+      'Code blocks': ['Line numbers', 'Markdown preview', 'Lines before collapsing'],
       Visuals: ['Ask the model for visuals'],
     };
 
@@ -358,6 +358,75 @@ async function boot(stored, memories) {
     assert.ok(/prefers-color-scheme: light[\s\S]*--k-bg:[\s\S]*--k-soft:/.test(css), 'light theme redefines the variables the panel uses');
     assert.ok(/\.dck-infobtn:focus-visible/.test(css), 'icon has a focus style');
     console.log('ok  Settings information icons');
+  }
+
+  // ---------- 3g. A profile whose only obsolete key is askEnabled is cleaned in storage at load ----------
+  {
+    const a = await boot({ askEnabled: false, showSummary: false });
+    assert.ok(a.saved.dck_settings, 'the migrated settings are written back without any other change');
+    assert.ok(!('askEnabled' in a.saved.dck_settings), 'askEnabled is gone from what was stored');
+    assert.strictEqual(a.saved.dck_settings.showSummary, false, 'the person\'s other settings are kept');
+    const b = await boot({ askEnabled: false });
+    assert.ok(b.saved.dck_settings && !('askEnabled' in b.saved.dck_settings), 'askEnabled alone is enough to trigger the write');
+    const c = await boot({ showSummary: false });
+    assert.ok(!c.saved.dck_settings, 'a profile with nothing obsolete is not rewritten at load');
+    console.log('ok  askEnabled migration is persisted');
+  }
+
+  // ---------- 3f. Always collapse: greys out Collapse long blocks; the line limit is editable in the drawer ----------
+  {
+    const a = await boot({});
+    a.tab('Settings').click();
+    const head = (t) => Array.from(a.drawer.querySelectorAll('.dck-acchead')).find((b) => b.querySelector('.dck-name').textContent === t);
+    head('Code blocks').click();
+    const rowOf = (t) => Array.from(a.drawer.querySelectorAll('.dck-setrow')).find((r) => r.querySelector('.dck-name').textContent.startsWith(t));
+    const cb = (t) => rowOf(t).querySelector('input[type=checkbox]');
+    const lines = () => a.drawer.querySelector('input[aria-label="Lines before a block collapses"]');
+    const setLines = (v) => { lines().value = v; lines().dispatchEvent(new a.w.Event('change', { bubbles: true })); };
+    const order = Array.from(a.drawer.querySelectorAll('.dck-accbody .dck-setrow')).map((r) => r.querySelector('.dck-name').textContent);
+    assert.ok(order.indexOf('Always collapse') >= 0 && order.indexOf('Always collapse') < order.indexOf('Collapse long blocks') && order.indexOf('Collapse long blocks') < order.indexOf('Lines before collapsing'), 'order: Always collapse, Collapse long blocks, then its line limit');
+
+    // idle state: Collapse long blocks is on and usable, the limit shows 20 and can be edited
+    assert.ok(!cb('Collapse long blocks').disabled && !rowOf('Collapse long blocks').classList.contains('dck-disabled'), 'usable at first');
+    assert.ok(!lines().disabled && lines().value === '20', 'limit shows the default of 20');
+    setLines('35');
+    assert.strictEqual(a.saved.dck_settings.collapseLines, 35, 'the limit is saved');
+    assert.strictEqual(lines().value, '35');
+    setLines('1');
+    assert.strictEqual(a.saved.dck_settings.collapseLines, 3, 'the limit never goes below 3 (shorter blocks have no collapse control)');
+    assert.strictEqual(lines().value, '3');
+    setLines('0');
+    assert.strictEqual(a.saved.dck_settings.collapseLines, 3, 'zero is clamped to the minimum rather than treated as invalid');
+    assert.strictEqual(lines().value, '3');
+    setLines('abc');
+    assert.strictEqual(a.saved.dck_settings.collapseLines, 20, 'junk falls back to the default');
+    setLines('12');
+
+    // Always collapse on: Collapse long blocks and the limit grey out, without losing their values
+    a.toggle('Always collapse');
+    assert.strictEqual(a.saved.dck_settings.collapseAlways, true);
+    assert.ok(cb('Collapse long blocks').disabled && rowOf('Collapse long blocks').classList.contains('dck-disabled'), 'Collapse long blocks is greyed out');
+    assert.ok(lines().disabled && rowOf('Lines before collapsing').classList.contains('dck-disabled'), 'the limit is greyed out too');
+    assert.strictEqual(a.saved.dck_settings.collapseLong, true, 'its own setting is left alone');
+    assert.strictEqual(a.saved.dck_settings.collapseLines, 12, 'and so is the limit');
+    assert.ok(!cb('Always collapse').disabled, 'Always collapse itself stays usable');
+
+    // the state survives a re-render of the drawer
+    a.tab('Prompts').click(); a.tab('Settings').click();
+    assert.ok(cb('Collapse long blocks').disabled && lines().disabled, 'still greyed after re-render');
+
+    // Always collapse off: everything is usable again
+    a.toggle('Always collapse');
+    assert.strictEqual(a.saved.dck_settings.collapseAlways, false);
+    assert.ok(!cb('Collapse long blocks').disabled && !lines().disabled && !rowOf('Collapse long blocks').classList.contains('dck-disabled'), 'usable again');
+
+    // with Collapse long blocks itself off, the limit has nothing to do and greys out
+    a.toggle('Collapse long blocks');
+    assert.strictEqual(a.saved.dck_settings.collapseLong, false);
+    assert.ok(lines().disabled, 'the limit is idle while Collapse long blocks is off');
+    a.toggle('Collapse long blocks');
+    assert.ok(!lines().disabled, 'and live again when it is back on');
+    console.log('ok  Always collapse + editable line limit');
   }
 
   // ---------- 4. Prompts tab: edit, new, delete, default ----------

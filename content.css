@@ -165,7 +165,14 @@ body:has(#dck-drawer.open) #dck-fab.side-right { display: none; }
 .dck-status.on { color: #2e9d57; background: rgba(46, 157, 87, 0.14); }
 .dck-status.warn { color: #d98a00; background: rgba(217, 138, 0, 0.16); }
 .dck-chip.warn { color: #d98a00; }
-#dck-drawer input.dck-budgetin:not([type=checkbox]):not([type=file]) { width: 84px; flex: 0 0 auto; text-align: right; }
+#dck-drawer input.dck-budgetin:not([type=checkbox]):not([type=file]),
+#dck-drawer input.dck-linesin:not([type=checkbox]):not([type=file]) { width: 84px; flex: 0 0 auto; text-align: right; }
+/* a setting that does not apply right now (Always collapse is on, or the switch it belongs to is off); the info button stays usable */
+.dck-setrow.dck-disabled .dck-name > span, .dck-setrow.dck-disabled .dck-name { color: var(--k-muted); }
+.dck-setrow.dck-disabled .dck-name .dck-infobtn { color: inherit; }
+.dck-setrow.dck-disabled .dck-switch { opacity: .45; cursor: not-allowed; }
+.dck-setrow.dck-disabled .dck-switch input { cursor: not-allowed; }
+.dck-setrow.dck-disabled input.dck-linesin { opacity: .45; cursor: not-allowed; }
 .dck-editor textarea { width: 100%; resize: vertical; }
 
 /* collapsed code blocks */

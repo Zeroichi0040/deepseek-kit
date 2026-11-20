@@ -554,7 +554,6 @@
       if (settings.codeTools !== false || settings.lineNumbers) scheduleCodeScan();
       if (settings.collapseThinking) scheduleThinkScan();
       if (settings.enabled || tt.timer) scheduleThinkTimerScan();
-      if (settings.collapseLong) scheduleCollapseScan();
       if (visOn() || vis.list.length) scheduleVisScan();
       if (settings.showInjected !== false) return;
       const nodes = [];
@@ -920,7 +919,7 @@
     const vOn = chartsOn();
     add('Widget sandbox', !vOn ? null : (vis.sandbox === 'ok' ? true : vis.sandbox === 'blocked' ? false : null), !vOn ? 'visuals are off' : vis.sandbox === 'ok' ? 'isolated frames run scripts here' : vis.sandbox === 'blocked' ? 'blocked on this page - charts still work, widgets will not' : 'checking...');
     add('Visuals on page', null, vOn ? vis.list.filter((x) => x.kind !== 'ask').length + ' chart/viz block(s), ' + vis.list.filter((x) => x.kind !== 'ask' && x.rendered).length + ' drawn, ' + vis.list.filter((x) => x.kind !== 'ask' && x.error).length + ' with an error' : 'off');
-    add('Question forms', null, settings.askEnabled === false ? 'off' : vis.list.filter((x) => x.kind === 'ask').length + ' on this page, ' + vis.list.filter((x) => x.kind === 'ask' && x.error).length + ' with an error');
+    add('Question forms', null, vis.list.filter((x) => x.kind === 'ask').length + ' on this page, ' + vis.list.filter((x) => x.kind === 'ask' && x.error).length + ' with an error');
     add('Storage', storage.error ? false : null, storage.error ? 'last write failed: ' + storage.error : 'writes OK');
     add('Hidden-mode cleanup', null, hidden ? 'on, ' + diag.stripped + ' block(s) hidden this session' : 'off (context is Visible)');
     const toolsState = settings.codeTools === false ? 'tools off' : 'tools on';
@@ -1023,12 +1022,16 @@
   function renderSettings(body) {
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
     body.append(group('Chat Behavior'));
-    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, !!settings.listContinue]), (box) => {
+    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, !!settings.listContinue, !!settings.askAutoSend]), (box) => {
       box.append(settingRow('Continue lists with Shift+Enter', null, !!settings.listContinue, (v) => { settings.listContinue = v; commit(); }));
       box.append(settingRow('Insert context on Enter', 'When enabled, Kit automatically adds scheduled prompts and eligible memory to your message when you send it. When disabled, use Insert now to add context manually.', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
       box.append(settingRow('Next-message summary', 'Shows which prompts and memories are scheduled to be included in your next message. This is not a summary of your conversation.', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
       box.append(settingRow('Collapse reasoning', 'Folds DeepSeek\'s reasoning content to its header while it is generating and after it finishes. Click the header to expand it.', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); }));
       box.append(settingRow('Chips in the toolbar', 'Displays which prompts and memories are due for your next message, along with whether context is Visible or Hidden, beside DeepThink and Search.', settings.showChips !== false, (v) => { settings.showChips = v; commit(); liveSig = ''; refreshAll(true); }));
+      box.append(settingRow('Send answers straight away', 'When enabled, submitting a question form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.', !!settings.askAutoSend, (v) => {
+        settings.askAutoSend = v; commit();
+        vis.list.forEach((st) => { if (st.ask) st.ask.setSubmitLabel(askLabel()); });
+      }));
       box.append(h('div', { class: 'dck-setrow' },
         h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Kit button position'), h('div', { class: 'dck-sub' }, 'Drag the button to move it; it docks to the nearest side')),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { resetFab(); toast('Button position reset'); } }, 'Reset')));
@@ -1042,24 +1045,35 @@
       }));
       box.append(settingRow('Line numbers', null, !!settings.lineNumbers, (v) => { settings.lineNumbers = v; commit(); syncAll(); }));
       box.append(settingRow('Markdown preview', null, settings.mdPreview !== false, (v) => { settings.mdPreview = v; commit(); syncAll(); }));
-      box.append(settingRow('Collapse long blocks', () => 'Automatically collapses code blocks exceeding ' + (settings.collapseLines || 20) + ' lines. Individual blocks can still be expanded.', !!settings.collapseLong, (v) => {
+      // "Always collapse" takes over from "Collapse long blocks": while it is on, that switch and its line limit are greyed out.
+      const alwaysRow = settingRow('Always collapse', 'Collapses every code block of more than ' + COLLAPSE_MIN_LINES + ' lines, whatever its length. Individual blocks can still be expanded. While on, Collapse long blocks does not apply.', !!settings.collapseAlways, (v) => {
+        settings.collapseAlways = v;
+        commit(); syncAll(); syncCollapseRows();
+      });
+      const longRow = settingRow('Collapse long blocks', () => 'Automatically collapses code blocks exceeding ' + (settings.collapseLines || 20) + ' lines. Individual blocks can still be expanded.', !!settings.collapseLong, (v) => {
         settings.collapseLong = v;
-        if (v) scheduleCollapseScan(); else { document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false)); syncAll(); }
-        commit();
-      }));
-    }));
-
-    body.append(accordion('ask', 'Questions', settings.askEnabled === false ? 'Off' : (settings.askAutoSend ? 'Clickable questions, sent straight away' : 'Clickable questions, added to your message'), (box) => {
-      box.append(settingRow('Draw question forms', 'Converts supported ask code blocks into interactive forms. When disabled, they remain ordinary code blocks.', settings.askEnabled !== false, (v) => {
-        settings.askEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
-      }));
-      box.append(settingRow('Ask the model for them', null, settings.askPrompt !== false, (v) => {
-        settings.askPrompt = v; commit(); liveSig = ''; refreshAll(true);
-      }));
-      box.append(settingRow('Send answers straight away', 'When enabled, submitting a form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.', !!settings.askAutoSend, (v) => {
-        settings.askAutoSend = v; commit();
-        vis.list.forEach((st) => { if (st.ask) st.ask.setSubmitLabel(askLabel()); });
-      }));
+        commit(); syncAll(); syncCollapseRows();
+      });
+      const linesIn = h('input', { type: 'number', min: COLLAPSE_MIN_LINES, step: 1, value: Math.max(COLLAPSE_MIN_LINES, settings.collapseLines || 20), 'aria-label': 'Lines before a block collapses', class: 'dck-linesin' });
+      linesIn.addEventListener('change', () => {
+        const parsed = parseInt(linesIn.value, 10);
+        const n = Number.isFinite(parsed) ? Math.max(COLLAPSE_MIN_LINES, parsed) : 20;
+        linesIn.value = n;
+        if (n === settings.collapseLines) return;
+        settings.collapseLines = n;
+        commit(); syncAll();
+      });
+      const linesRow = h('div', { class: 'dck-setrow' }, h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Lines before collapsing')), linesIn);
+      function syncCollapseRows() {
+        const always = !!settings.collapseAlways;
+        const idle = always || !settings.collapseLong;
+        longRow.classList.toggle('dck-disabled', always);
+        longRow.querySelector('input[type=checkbox]').disabled = always;
+        linesRow.classList.toggle('dck-disabled', idle);
+        linesIn.disabled = idle;
+      }
+      syncCollapseRows();
+      box.append(alwaysRow, longRow, linesRow);
     }));
 
     body.append(accordion('visuals', 'Visuals', settings.visualsEnabled === false ? 'Off' : 'Charts and widgets drawn in the chat', (box) => {
@@ -1090,7 +1104,7 @@
         if (!data || typeof data !== 'object') throw new Error('not a backup');
         if (data.settings) settings = migrateSettings(data.settings);
         if (Array.isArray(data.memories)) memories = cleanMemories(data.memories);
-        commit(); render(); toast('Imported');
+        commit(); syncAll(); render(); toast('Imported');
       } catch (err) { toast('Invalid file'); }
       importInput.value = ''; // so choosing the same file again still counts as a change
     });
@@ -1202,7 +1216,7 @@
           type: 'button', class: 'dck-btn danger',
           onclick: () => {
             if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
-            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); render();
+            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); syncAll(); render();
           },
         }, 'Reset all'));
     } else {
@@ -1329,7 +1343,9 @@
 
   // ---------- Code block tools (buttons in the code block header: collapse, ZIP basket) ----------
   const tools = { basket: [], zip: null };
-  const collapse = { touched: new WeakSet() };
+  // manual: block -> what the person chose with its Collapse/Expand button (true = collapsed). A manual choice outlasts any
+  // collapse setting for as long as the page is loaded; everything else follows the collapse settings (see applyCollapse).
+  const collapse = { manual: new WeakMap() };
 
   function lineCount(pre) { return (pre.textContent || '').replace(/\n$/, '').split('\n').length; }
 
@@ -1446,7 +1462,7 @@
     const list = [];
     const previewing = hasPreview(pre);
     if (mdOffered(pre)) list.push(['preview', previewing ? 'Source' : 'Preview', previewing ? 'code' : 'eye', () => { togglePreview(pre); syncAll(); }]);
-    if (!previewing && (folded || lineCount(pre) > 3)) list.push(['collapse', folded ? 'Expand (' + lineCount(pre) + ' lines)' : 'Collapse', folded ? 'expand' : 'shrink', () => { collapse.touched.add(pre); setCollapsed(pre, !pre.hasAttribute('data-dck-collapsed')); syncAll(); }]);
+    if (!previewing && (folded || lineCount(pre) > 3)) list.push(['collapse', folded ? 'Expand (' + lineCount(pre) + ' lines)' : 'Collapse', folded ? 'expand' : 'shrink', () => { const next = !pre.hasAttribute('data-dck-collapsed'); collapse.manual.set(pre, next); setCollapsed(pre, next); syncAll(); }]);
     list.push(['zip', inBasket ? 'Added' : '+ ZIP', inBasket ? 'check' : 'archive', () => toggleBasket(pre)]);
     return list;
   }
@@ -1526,7 +1542,33 @@
     if (pre.style.getPropertyValue('--dck-digits') !== String(digits)) pre.style.setProperty('--dck-digits', String(digits));
   }
 
+  // Always collapse folds every block that has a collapse control (more than 3 lines); otherwise only blocks past the line limit.
+  const COLLAPSE_MIN_LINES = 3;
+  function collapseOn() { return !!(settings.collapseAlways || settings.collapseLong); }
+  function collapseLimit() { return settings.collapseAlways ? COLLAPSE_MIN_LINES : Math.max(COLLAPSE_MIN_LINES, settings.collapseLines || 20); }
+
+  // Whether the person can open a folded block again: it needs our Expand button, which lives in the site's header
+  // (so not with Code block tools off, and not on a block that has no header).
+  function canExpand(pre) { return settings.codeTools !== false && !!SITE.copyButton(pre); }
+
+  // Sets every block's folded state from one rule: a manual choice if there is one, otherwise the collapse settings,
+  // and never folded while the person could not open it again. Because the state is computed, not remembered, turning a
+  // setting (or Code block tools) off releases the blocks it folded and turning it back on folds them again.
+  function applyCollapse() {
+    const on = collapseOn();
+    const limit = collapseLimit();
+    SITE.codeBlocks().forEach((pre) => {
+      let want = false;
+      if (collapse.manual.has(pre)) want = collapse.manual.get(pre);
+      else if (on) want = lineCount(pre) > limit;
+      if (want && !canExpand(pre)) want = false;
+      if (want !== pre.hasAttribute('data-dck-collapsed')) setCollapsed(pre, want);
+    });
+  }
+
+  // The one pass over the page's code blocks: collapse state first, so the buttons then say the right thing.
   function syncAll() {
+    applyCollapse();
     SITE.codeBlocks().forEach((pre) => {
       syncLines(pre);
       syncPreview(pre);
@@ -1535,17 +1577,6 @@
   }
 
   const scheduleCodeScan = SITE.oncePerFrame(syncAll);
-
-  const scheduleCollapseScan = SITE.oncePerFrame(() => {
-    if (!settings.collapseLong) return;
-    const limit = Math.max(3, settings.collapseLines || 20);
-    let changed = false;
-    SITE.codeBlocks().forEach((pre) => {
-      if (collapse.touched.has(pre)) return;
-      if (lineCount(pre) > limit) { collapse.touched.add(pre); setCollapsed(pre, true); changed = true; }
-    });
-    if (changed) syncAll();
-  });
 
   // ---------- Visuals: charts and widgets drawn inline from ```chart and ```viz code blocks ----------
   // The model is asked (see the built-in Visuals prompt) to put a chart spec or a small HTML widget in a code block
@@ -1574,9 +1605,10 @@
   }
 
   // visOn: any of the card kinds is on. chartsOn: charts and widgets. kindOn: one kind.
-  function visOn() { return !!(settings.enabled && (settings.visualsEnabled !== false || settings.askEnabled !== false)); }
+  // Question forms are always drawn while Kit is on; only charts and widgets have a switch.
+  function visOn() { return !!settings.enabled; }
   function chartsOn() { return !!(settings.enabled && settings.visualsEnabled !== false); }
-  function kindOn(kind) { return kind === 'ask' ? settings.askEnabled !== false : settings.visualsEnabled !== false; }
+  function kindOn(kind) { return kind === 'ask' ? true : settings.visualsEnabled !== false; }
 
   function visError(st, message) {
     st.error = message;
@@ -1940,7 +1972,6 @@
     scheduleThinkTimerScan();
     listenForOtherTabs();
     applyFold();
-    if (settings.collapseLong) scheduleCollapseScan();
     if (settings.showInjected === false) scheduleStrip([document.body]);
   }
 
