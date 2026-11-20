@@ -112,7 +112,7 @@ assert.ok(withCtx.startsWith('[Additional instructions and context]'), 'new mess
 assert.ok(c.alreadyHasContext(withCtx + 'hello'));
 assert.ok(c.hasContextMarker(withCtx + 'hello'));
 assert.strictEqual(c.stripContext(withCtx + 'hello'), 'hello');
-const legacyContext = '[Context from my notes]\\nInstructions (Default):\\nlegacy\\n[End of context]\\n\\nhello';
+const legacyContext = '[Context from my notes]\nInstructions (Default):\nlegacy\n[End of context]\n\nhello';
 assert.ok(c.alreadyHasContext(legacyContext), 'older messages remain recognizable');
 assert.ok(c.hasContextMarker('prefix ' + legacyContext), 'legacy marker can be found in rendered message text');
 assert.strictEqual(c.stripContext(legacyContext), 'hello', 'older wrappers still strip cleanly');
