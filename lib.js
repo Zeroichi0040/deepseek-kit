@@ -7,7 +7,6 @@
   const MARKER_END = '[End of additional context]';
   // Retained so messages sent by earlier Kit versions can still be detected and hidden.
   const LEGACY_MARKER_START = '[Context from my notes]';
-  const LEGACY_MARKER_END = '[End of context]';
 
   const BUILTIN_DEFAULT_PROMPT = [
     'DeepSeek Kit context snapshot: prepared {{date}} ({{weekday}}) at {{time}} {{timezone}}. This timestamp is a snapshot from when the context was inserted, not a live clock; do not assume it stays current later in a long conversation.',
