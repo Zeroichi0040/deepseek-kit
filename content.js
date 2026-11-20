@@ -9,7 +9,7 @@
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, hasContextMarker, stripContext, slashQuery, continueList,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
-    memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
+    memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts,
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
