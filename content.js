@@ -51,7 +51,7 @@
   }
   let settings = migrateSettings({});
   let memories = [];
-  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: null, search: '', showAllVars: false, preview: null, diagAll: false, diagEvents: false };
+  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: null, helpOpen: null, search: '', showAllVars: false, preview: null, diagAll: false, diagEvents: false };
   let bypass = false; // true while we dispatch our own Enter
   let counts = {}; // messages sent per chat path, saved so a page refresh does not forget them
   let newChatCount = 0; // messages sent from the new-chat screen ("/") before the page moves to the chat's own URL
@@ -572,6 +572,7 @@
   const ICONS = {
     close: 'M18 6 6 18|M6 6l12 12',
     chev: 'M6 9l6 6 6-6',
+    info: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z|M12 16v-4|M12 8h.01',
     eye: 'M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z|M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
     code: 'M16 18l6-6-6-6|M8 6l-6 6 6 6',
     expand: 'M15 3h6v6|M9 21H3v-6|M21 3l-7 7|M3 21l7-7',
@@ -975,10 +976,35 @@
       }, 'Copy report')));
   }
 
-  function settingRow(title, sub, checked, onchange) {
-    return h('div', { class: 'dck-setrow' },
-      h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, title), h('div', { class: 'dck-sub' }, sub)),
-      sw(checked, onchange, title));
+  // A setting row. `help` is optional: a string (or a function returning one, for text that depends on a live value)
+  // adds an info button beside the name that opens the explanation inline, under the name. Only one panel is open at a time.
+  function settingRow(title, help, checked, onchange) {
+    const row = h('div', { class: 'dck-setrow' });
+    const name = h('div', { class: 'dck-name' }, h('span', {}, title));
+    const grow = h('div', { class: 'dck-grow' }, name);
+    if (help) {
+      const id = 'dck-help-' + title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const panel = h('div', { class: 'dck-help', id: id, role: 'note' });
+      panel.hidden = true;
+      const btn = h('button', { type: 'button', class: 'dck-infobtn', 'aria-label': 'About ' + title, 'aria-expanded': 'false', 'aria-controls': id }, icon('info', 14));
+      const show = (open) => {
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) panel.textContent = typeof help === 'function' ? help() : help;
+        panel.hidden = !open;
+        row.classList.toggle('helpopen', open);
+      };
+      btn.addEventListener('click', () => {
+        const open = ui.helpOpen !== id;
+        if (open && ui.drawer) ui.drawer.querySelectorAll('.dck-infobtn[aria-expanded="true"]').forEach((b) => { if (b !== btn) b.click(); });
+        ui.helpOpen = open ? id : null;
+        show(open);
+      });
+      name.append(btn);
+      grow.append(panel);
+      if (ui.helpOpen === id) show(true); // survives a re-render of the drawer
+    }
+    row.append(grow, sw(checked, onchange, title));
+    return row;
   }
 
   function accordion(id, title, sub, buildBody) {
@@ -986,7 +1012,7 @@
     const wrap = h('div', { class: 'dck-acc' + (open ? ' open' : '') },
       h('button', {
         type: 'button', class: 'dck-acchead', 'aria-expanded': open ? 'true' : 'false',
-        onclick: () => { ui.settingsOpen = open ? null : id; render(); },
+        onclick: () => { ui.settingsOpen = open ? null : id; ui.helpOpen = null; render(); },
       },
         h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, title), h('div', { class: 'dck-sub' }, sub)),
         icon('chev')));
@@ -998,11 +1024,11 @@
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
     body.append(group('Chat Behavior'));
     body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, !!settings.listContinue]), (box) => {
-      box.append(settingRow('Continue lists with Shift+Enter', 'In the message box, Shift+Enter on a "1.", "-" or ">" line starts the next item; on an empty item it ends the list', !!settings.listContinue, (v) => { settings.listContinue = v; commit(); }));
-      box.append(settingRow('Insert context on Enter', 'Off: use the Insert now button only', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
-      box.append(settingRow('Next-message summary', 'The strip under the header', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
-      box.append(settingRow('Collapse reasoning', 'Folds DeepThink blocks to their header while thinking and when finished, also after a refresh. Click a header to open it', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); }));
-      box.append(settingRow('Chips in the toolbar', 'Shows what will be attached, next to DeepThink and Search', settings.showChips !== false, (v) => { settings.showChips = v; commit(); liveSig = ''; refreshAll(true); }));
+      box.append(settingRow('Continue lists with Shift+Enter', null, !!settings.listContinue, (v) => { settings.listContinue = v; commit(); }));
+      box.append(settingRow('Insert context on Enter', 'When enabled, Kit automatically adds scheduled prompts and eligible memory to your message when you send it. When disabled, use Insert now to add context manually.', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
+      box.append(settingRow('Next-message summary', 'Shows which prompts and memories are scheduled to be included in your next message. This is not a summary of your conversation.', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
+      box.append(settingRow('Collapse reasoning', 'Folds DeepSeek\'s reasoning content to its header while it is generating and after it finishes. Click the header to expand it.', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); }));
+      box.append(settingRow('Chips in the toolbar', 'Displays which prompts and memories are due for your next message, along with whether context is Visible or Hidden, beside DeepThink and Search.', settings.showChips !== false, (v) => { settings.showChips = v; commit(); liveSig = ''; refreshAll(true); }));
       box.append(h('div', { class: 'dck-setrow' },
         h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Kit button position'), h('div', { class: 'dck-sub' }, 'Drag the button to move it; it docks to the nearest side')),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { resetFab(); toast('Button position reset'); } }, 'Reset')));
@@ -1010,13 +1036,13 @@
 
     body.append(group('Response Display'));
     body.append(accordion('code', 'Code blocks', settings.codeTools === false ? 'Off' : 'Collapse, ZIP, preview and line numbers', (box) => {
-      box.append(settingRow('Code block tools', 'Adds Collapse and + ZIP next to Copy and Download', settings.codeTools !== false, (v) => {
+      box.append(settingRow('Code block tools', 'Adds Collapse/Expand and + ZIP controls to code block headers.', settings.codeTools !== false, (v) => {
         settings.codeTools = v;
         commit(); syncAll();
       }));
-      box.append(settingRow('Line numbers', 'Number the lines of code blocks. Copying and downloading are unaffected', !!settings.lineNumbers, (v) => { settings.lineNumbers = v; commit(); syncAll(); }));
-      box.append(settingRow('Markdown preview', 'Adds a Preview button to markdown code blocks, to see them rendered', settings.mdPreview !== false, (v) => { settings.mdPreview = v; commit(); syncAll(); }));
-      box.append(settingRow('Collapse long blocks', 'Blocks over ' + (settings.collapseLines || 20) + ' lines start collapsed', !!settings.collapseLong, (v) => {
+      box.append(settingRow('Line numbers', null, !!settings.lineNumbers, (v) => { settings.lineNumbers = v; commit(); syncAll(); }));
+      box.append(settingRow('Markdown preview', null, settings.mdPreview !== false, (v) => { settings.mdPreview = v; commit(); syncAll(); }));
+      box.append(settingRow('Collapse long blocks', () => 'Automatically collapses code blocks exceeding ' + (settings.collapseLines || 20) + ' lines. Individual blocks can still be expanded.', !!settings.collapseLong, (v) => {
         settings.collapseLong = v;
         if (v) scheduleCollapseScan(); else { document.querySelectorAll('pre[data-dck-collapsed]').forEach((p) => setCollapsed(p, false)); syncAll(); }
         commit();
@@ -1024,23 +1050,23 @@
     }));
 
     body.append(accordion('ask', 'Questions', settings.askEnabled === false ? 'Off' : (settings.askAutoSend ? 'Clickable questions, sent straight away' : 'Clickable questions, added to your message'), (box) => {
-      box.append(settingRow('Draw question forms', 'Turns ask code blocks into forms you can click. Your answers go into the message box', settings.askEnabled !== false, (v) => {
+      box.append(settingRow('Draw question forms', 'Converts supported ask code blocks into interactive forms. When disabled, they remain ordinary code blocks.', settings.askEnabled !== false, (v) => {
         settings.askEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
       }));
-      box.append(settingRow('Ask the model for them', 'Adds the short built-in Questions prompt (edit it in the Prompts tab)', settings.askPrompt !== false, (v) => {
+      box.append(settingRow('Ask the model for them', null, settings.askPrompt !== false, (v) => {
         settings.askPrompt = v; commit(); liveSig = ''; refreshAll(true);
       }));
-      box.append(settingRow('Send answers straight away', 'Off: your answers go into the message box and you press Enter. On: they are sent right when you submit', !!settings.askAutoSend, (v) => {
+      box.append(settingRow('Send answers straight away', 'When enabled, submitting a form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.', !!settings.askAutoSend, (v) => {
         settings.askAutoSend = v; commit();
         vis.list.forEach((st) => { if (st.ask) st.ask.setSubmitLabel(askLabel()); });
       }));
     }));
 
     body.append(accordion('visuals', 'Visuals', settings.visualsEnabled === false ? 'Off' : 'Charts and widgets drawn in the chat', (box) => {
-      box.append(settingRow('Draw charts and widgets', 'Turns chart and viz code blocks into inline cards. Widgets run in a sandboxed frame; treat their code as untrusted because it can navigate its own frame', settings.visualsEnabled !== false, (v) => {
+      box.append(settingRow('Draw charts and widgets', 'Renders chart and viz code blocks as inline cards. Widgets execute generated code in an isolated iframe, but can navigate that frame. Treat generated widget code as untrusted.', settings.visualsEnabled !== false, (v) => {
         settings.visualsEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
       }));
-      box.append(settingRow('Ask the model for visuals', 'Adds the short built-in Visuals prompt (edit it in the Prompts tab)', settings.visualsPrompt !== false, (v) => {
+      box.append(settingRow('Ask the model for visuals', null, settings.visualsPrompt !== false, (v) => {
         settings.visualsPrompt = v; commit(); liveSig = ''; refreshAll(true);
       }));
     }));

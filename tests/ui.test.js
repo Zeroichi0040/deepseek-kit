@@ -252,6 +252,114 @@ async function boot(stored, memories) {
     console.log('ok  Settings categories');
   }
 
+  // ---------- 3e. Settings information icons: descriptions on demand, one panel at a time ----------
+  {
+    const a = await boot({});
+    a.tab('Settings').click();
+    const head = (t) => Array.from(a.drawer.querySelectorAll('.dck-acchead')).find((b) => b.querySelector('.dck-name').textContent === t);
+    const rowOf = (t) => Array.from(a.drawer.querySelectorAll('.dck-setrow')).find((r) => r.querySelector('.dck-name span, .dck-name').textContent.startsWith(t));
+    const info = (t) => rowOf(t).querySelector('.dck-infobtn');
+    const panel = (t) => rowOf(t).querySelector('.dck-help');
+    const openPanels = () => Array.from(a.drawer.querySelectorAll('.dck-help')).filter((el) => !el.hidden);
+    const SPEC = {
+      Messages: {
+        'Insert context on Enter': 'When enabled, Kit automatically adds scheduled prompts and eligible memory to your message when you send it. When disabled, use Insert now to add context manually.',
+        'Next-message summary': 'Shows which prompts and memories are scheduled to be included in your next message. This is not a summary of your conversation.',
+        'Collapse reasoning': "Folds DeepSeek's reasoning content to its header while it is generating and after it finishes. Click the header to expand it.",
+        'Chips in the toolbar': 'Displays which prompts and memories are due for your next message, along with whether context is Visible or Hidden, beside DeepThink and Search.',
+      },
+      'Code blocks': {
+        'Code block tools': 'Adds Collapse/Expand and + ZIP controls to code block headers.',
+        'Collapse long blocks': 'Automatically collapses code blocks exceeding 20 lines. Individual blocks can still be expanded.',
+      },
+      Questions: {
+        'Draw question forms': 'Converts supported ask code blocks into interactive forms. When disabled, they remain ordinary code blocks.',
+        'Send answers straight away': 'When enabled, submitting a form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.',
+      },
+      Visuals: {
+        'Draw charts and widgets': 'Renders chart and viz code blocks as inline cards. Widgets execute generated code in an isolated iframe, but can navigate that frame. Treat generated widget code as untrusted.',
+      },
+    };
+    const NO_INFO = {
+      Messages: ['Continue lists with Shift+Enter'],
+      'Code blocks': ['Line numbers', 'Markdown preview'],
+      Questions: ['Ask the model for them'],
+      Visuals: ['Ask the model for visuals'],
+    };
+
+    for (const section of Object.keys(SPEC)) {
+      head(section).click();
+      const rows = Array.from(a.drawer.querySelectorAll('.dck-accbody .dck-setrow'));
+      // 1 + 2: no permanent description on toggle rows; icons only on the specified settings
+      rows.forEach((r) => assert.strictEqual(r.querySelectorAll('.dck-sub').length, section === 'Messages' && r.textContent.includes('Kit button position') ? 1 : 0, 'no permanent description in ' + r.textContent));
+      assert.strictEqual(a.drawer.querySelectorAll('.dck-accbody .dck-infobtn').length, Object.keys(SPEC[section]).length, section + ': icon count');
+      NO_INFO[section].forEach((t) => assert.ok(rowOf(t) && !rowOf(t).querySelector('.dck-infobtn'), t + ' has no info icon'));
+      assert.strictEqual(openPanels().length, 0, 'every panel starts closed');
+      // 3: each icon shows its own text, as a proper accessible disclosure button
+      Object.entries(SPEC[section]).forEach(([t, text]) => {
+        const b = info(t);
+        assert.strictEqual(b.tagName, 'BUTTON');
+        assert.strictEqual(b.type, 'button');
+        assert.strictEqual(b.getAttribute('aria-label'), 'About ' + t);
+        assert.strictEqual(b.getAttribute('aria-expanded'), 'false');
+        assert.strictEqual(b.getAttribute('aria-controls'), panel(t).id);
+        assert.ok(a.doc.querySelectorAll('#' + panel(t).id).length === 1, 'panel id is unique');
+        assert.ok(!rowOf(t).querySelector('.dck-switch').contains(b), 'icon sits outside the switch label');
+        assert.ok(panel(t).hidden, 'panel takes no space while collapsed');
+        const before = JSON.stringify(a.saved);
+        const cb = rowOf(t).querySelector('input[type=checkbox]');
+        const checkedBefore = cb.checked;
+        b.click();
+        assert.strictEqual(b.getAttribute('aria-expanded'), 'true');
+        assert.ok(!panel(t).hidden, 'panel opens');
+        assert.strictEqual(panel(t).textContent, text, t + ' text');
+        assert.strictEqual(cb.checked, checkedBefore, 'icon click does not flip the switch');
+        assert.strictEqual(JSON.stringify(a.saved), before, 'opening help writes nothing to storage');
+        assert.strictEqual(openPanels().length, 1);
+        b.click();
+        assert.strictEqual(b.getAttribute('aria-expanded'), 'false');
+        assert.ok(panel(t).hidden, 'same icon closes it');
+        assert.strictEqual(JSON.stringify(a.saved), before, 'closing help writes nothing either');
+      });
+      head(section).click();
+    }
+
+    // 5: only one panel at a time (within and across sections)
+    head('Messages').click();
+    info('Insert context on Enter').click();
+    info('Collapse reasoning').click();
+    assert.strictEqual(openPanels().length, 1, 'opening a second closes the first');
+    assert.ok(panel('Collapse reasoning') && !panel('Collapse reasoning').hidden && panel('Insert context on Enter').hidden);
+    assert.strictEqual(info('Insert context on Enter').getAttribute('aria-expanded'), 'false');
+    // the open panel is kept when the drawer re-renders; switching section clears it
+    a.tab('Prompts').click(); a.tab('Settings').click();
+    head('Code blocks').click();
+    assert.strictEqual(openPanels().length, 0, 'switching section leaves nothing open');
+    info('Collapse long blocks').click();
+    // 4/8: switches work on their own, help state unaffected, and the dynamic threshold follows the setting
+    a.toggle('Collapse long blocks');
+    assert.strictEqual(a.saved.dck_settings.collapseLong, false);
+    assert.ok(!panel('Collapse long blocks').hidden, 'toggling the switch leaves the panel as it was');
+    const lnBefore = rowOf('Line numbers').querySelector('input').checked;
+    a.toggle('Line numbers');
+    assert.strictEqual(a.saved.dck_settings.lineNumbers, !lnBefore, 'a switch still flips its own setting');
+    head('Code blocks').click();
+
+    // 9: grouping untouched; the Kit button row keeps its short description
+    head('Messages').click();
+    assert.strictEqual(rowOf('Kit button position').querySelector('.dck-sub').textContent, 'Drag the button to move it; it docks to the nearest side');
+    assert.ok(!rowOf('Kit button position').querySelector('.dck-infobtn'));
+    head('Messages').click();
+
+    // 6/10: stylesheet defines readable, understated help panels from the theme variables, in both schemes
+    const css = read('content.css');
+    assert.ok(/\.dck-help\s*\{[^}]*color:\s*var\(--k-soft\)[^}]*background:\s*var\(--k-bg\)/.test(css) || /\.dck-help\s*\{[^}]*background:\s*var\(--k-bg\)[^}]*color:\s*var\(--k-soft\)/.test(css), 'help panel colours come from theme variables');
+    assert.ok(/\.dck-help\[hidden\]\s*\{\s*display:\s*none/.test(css), 'collapsed panels take no space');
+    assert.ok(/prefers-color-scheme: light[\s\S]*--k-bg:[\s\S]*--k-soft:/.test(css), 'light theme redefines the variables the panel uses');
+    assert.ok(/\.dck-infobtn:focus-visible/.test(css), 'icon has a focus style');
+    console.log('ok  Settings information icons');
+  }
+
   // ---------- 4. Prompts tab: edit, new, delete, default ----------
   {
     const a = await boot({ prompts: [{ id: 'p1', name: 'Concise tone', text: 'Be brief', enabled: true, schedule: 'every', everyN: 5 }] });
@@ -461,9 +569,9 @@ async function boot(stored, memories) {
   {
     // The widget iframe can still navigate itself, so the settings text must not promise that nothing leaves the page.
     assert.ok(!/Nothing leaves the page/.test(src), 'settings text does not overclaim isolation');
-    assert.ok(/sandboxed frame/.test(src), 'widget setting describes the sandbox');
-    assert.ok(/treat their code as untrusted/.test(src), 'widget setting warns that widget code is untrusted');
-    assert.ok(/can navigate its own frame/.test(src), 'widget setting mentions the self-navigation limitation');
+    assert.ok(/isolated iframe/.test(src), 'widget setting describes the sandbox');
+    assert.ok(/Treat generated widget code as untrusted/.test(src), 'widget setting warns that widget code is untrusted');
+    assert.ok(/can navigate that frame/.test(src), 'widget setting mentions the self-navigation limitation');
     const readme = read('README.md');
     const ver = JSON.parse(read('manifest.json')).version;
     assert.ok(readme.indexOf('**Current version:** ' + ver) !== -1, 'README shows the manifest version');

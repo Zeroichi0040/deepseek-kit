@@ -200,6 +200,13 @@ pre[data-dck-collapsed] {
 .dck-acc.open .dck-acchead svg { transform: rotate(180deg); }
 .dck-accbody { border-top: 1px solid var(--k-line); padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
 .dck-setrow { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+.dck-setrow.helpopen { align-items: flex-start; }
+.dck-infobtn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; margin: 0 0 0 -2px; border: 0; border-radius: 50%; background: transparent; color: var(--k-muted); opacity: .75; cursor: pointer; }
+.dck-infobtn:hover, .dck-infobtn[aria-expanded="true"] { color: var(--k-text); opacity: 1; }
+.dck-infobtn:focus-visible { outline: 2px solid var(--k-accent); outline-offset: 1px; opacity: 1; }
+@media (pointer: coarse) { .dck-infobtn { width: 28px; height: 28px; margin: -4px 0 -4px -4px; } }
+.dck-help { margin-top: 6px; padding: 6px 8px; border: 1px solid var(--k-line); border-radius: 6px; background: var(--k-bg); color: var(--k-soft); font-size: 12px; font-weight: 400; line-height: 1.4; overflow-wrap: anywhere; }
+.dck-help[hidden] { display: none; }
 .dck-setrow + .dck-setrow { border-top: 1px solid var(--k-line); }
 .dck-accbody .dck-diag { padding-top: 8px; }
 
