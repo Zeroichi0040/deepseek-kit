@@ -490,7 +490,7 @@ async function askForms() {
     { question: 'Which features?', type: 'multi', options: [{ label: 'Login', description: 'email and password' }, 'Dashboard'] },
     { question: 'Anything else?', type: 'text' },
   ] });
-  const page = (mode) => `<body style="background:#151517;color:#eee;margin:0"><div style="width:700px;padding:20px">${fence('ask', SPEC)}<p id="gap">between</p>${fence('ask', '{ this is not json')}</div><div id="box" style="border-radius:20px;background:#2b2b2e;padding:16px;width:700px;margin:20px"><textarea id="main" style="width:100%"></textarea><div role="button" aria-label="Send" id="sendbtn" style="width:30px;height:30px"><svg width="12" height="12"><rect width="12" height="12"/></svg></div></div><script>window.__sent=[];window.__enter=0;var m=document.getElementById("main");m.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){window.__enter++;if("${mode}"==="enter"){window.__sent.push(m.value);m.value="";}}});document.getElementById("sendbtn").addEventListener("click",function(){window.__sent.push(m.value);m.value="";});</script></body>`;
+  const page = (mode) => `<body style="background:#151517;color:#eee;margin:0"><div style="width:700px;padding:20px">${fence('ask', SPEC)}<p id="gap">between</p>${fence('ask', '{ this is not json')}</div><div id="box" style="border-radius:20px;background:#2b2b2e;padding:16px;width:700px;margin:20px"><textarea id="main" style="width:100%"></textarea><div role="button" aria-label="Send" id="sendbtn" style="width:30px;height:30px"><svg width="12" height="12"><rect width="12" height="12"/></svg></div></div><script>window.__sent=[];window.__enter=0;window.__clicks=0;var m=document.getElementById("main");m.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){window.__enter++;if("${mode}"==="enter"){window.__sent.push(m.value);m.value="";}else if("${mode}"==="slow-enter"){e.preventDefault();window.__sent.push(m.value);setTimeout(function(){m.value="";},1800);}}});document.getElementById("sendbtn").addEventListener("click",function(){window.__clicks++;window.__sent.push(m.value);m.value="";});</script></body>`;
   const ctx = await launch(1000, 1100);
   const p = await open(ctx, page('enter'));
   const hosts = new Set();
@@ -617,6 +617,24 @@ async function askForms() {
   await p.waitForTimeout(2500);
   assert.strictEqual(await p.evaluate(() => window.__sent.length), 1, 'and never a second time');
   ok('Send straight away: falls back to the send button once when Enter is ignored');
+
+  // Enter accepted by the site, but the composer is cleared after the old 1.5 s fallback window.
+  await ctx.unroute('https://chat.deepseek.com/**');
+  await ctx.route('https://chat.deepseek.com/**', (r) => r.fulfill({ contentType: 'text/html', body: page('slow-enter') }));
+  await p.reload();
+  await p.waitForSelector('.dck-ask .dck-ask-opt');
+  const f4 = p.locator('.dck-vis[data-kind=ask]').first();
+  await f4.locator('.dck-ask-opt', { hasText: 'Desktop application' }).click();
+  await f4.locator('[aria-label=\"Next question\"]').click();
+  await f4.locator('[aria-label=\"Next question\"]').click();
+  await f4.locator('.dck-ask-submit').click();
+  await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 6000 });
+  await p.waitForFunction(() => document.getElementById('main').value === '', null, { timeout: 6000 });
+  await p.waitForTimeout(300);
+  assert.strictEqual(await p.evaluate(() => window.__sent.length), 1, 'the accepted Enter was sent exactly once');
+  assert.strictEqual(await p.evaluate(() => window.__clicks), 0, 'no fallback click after Enter was accepted, even with a 1.8 s composer delay');
+  await p.waitForFunction(() => document.querySelector('.dck-ask-note').textContent === 'Answers sent');
+  ok('Send straight away: a handled Enter is never followed by a delayed fallback click');
 
   // the setting
   await settingsTab(p, 'Questions');

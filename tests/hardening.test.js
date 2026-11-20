@@ -37,12 +37,12 @@ const hidden = { showInjected: false, defaultEnabled: false, visualsPrompt: fals
     const a = await boot(hidden);
     let clicks = 0;
     a.doc.getElementById('send').addEventListener('click', () => clicks++);
-    a.ta.addEventListener('keydown', () => { setTimeout(() => a.type(a.ta, ''), 900); });
+    a.ta.addEventListener('keydown', (e) => { e.preventDefault(); setTimeout(() => a.type(a.ta, ''), 1800); });
     a.type(a.ta, 'hello');
     a.key(a.ta, 'Enter');
-    await sleep(2200);
-    assert.strictEqual(clicks, 0, 'no second send when the box cleared within the wait');
-    ok('slow-clearing box: Enter is trusted, no double send');
+    await sleep(2400);
+    assert.strictEqual(clicks, 0, 'a handled Enter must not trigger a fallback click after the old 1.5 s timeout');
+    ok('slow-clearing box: handled Enter is not sent again after 1.5 seconds');
   }
   // a send that never happens: one fallback click only, then a clear message to the user
   {

@@ -198,10 +198,22 @@
     return true;
   }
 
-  // One Enter press from you -> context attached and the message sent. The send is confirmed by the box emptying
-  // (we wait up to 1.5 s for the site to take the Enter); only if it did not, the send button is pressed once, and
-  // then we wait again. If neither worked we ask you to press Enter. A second send is never attempted.
+  // Enter on a textarea is handled by cancelling its native newline. Once the site claims the
+  // synthetic Enter, never click Send as a timeout fallback: its composer may be slow to clear.
+  // Only an unhandled Enter is eligible for one fallback click.
   const SEND_WAIT = 1500;
+  const SEND_ACK_WAIT = 5000;
+  function pressEnter(el, skipKit) {
+    const event = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true });
+    const wasBypassed = bypass;
+    if (skipKit) bypass = true;
+    try {
+      el.dispatchEvent(event);
+    } finally {
+      bypass = wasBypassed;
+    }
+    return event.defaultPrevented;
+  }
   function waitForSent(el, ms, done) {
     const t0 = Date.now();
     const tick = () => {
@@ -212,14 +224,14 @@
     setTimeout(tick, 100);
   }
   function triggerSend(el) {
-    bypass = true;
-    try {
-      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-    } finally {
-      bypass = false;
-    }
-    waitForSent(el, SEND_WAIT, (sent) => {
+    const enterHandled = pressEnter(el, true);
+    waitForSent(el, enterHandled ? SEND_ACK_WAIT : SEND_WAIT, (sent) => {
       if (sent) { delete el.dataset.dckCounted; logEvent('Hidden send: message went out on Enter'); return; }
+      if (enterHandled) {
+        logEvent('Hidden send was handled but not confirmed');
+        toast('Enter was accepted but the send was not confirmed - check the chat before trying again');
+        return;
+      }
       if (!clickSend(el)) { logEvent('Hidden send failed: no send button found'); toast('Could not send automatically - press Enter to send'); return; }
       logEvent('Hidden send: used the send button');
       waitForSent(el, SEND_WAIT, (sent2) => {
@@ -1643,14 +1655,17 @@
   // Presses Enter in the message box like you would, so the Kit's own Enter handling (count, due context) applies.
   // If the site did not take it, the send button is pressed once. done('sent' | 'review' | 'failed').
   function sendNow(el, done) {
-    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+    const enterHandled = pressEnter(el, false);
     const t0 = Date.now();
     let clicked = false;
     const tick = () => {
       if (!el.isConnected || !el.value.trim()) { done('sent'); return; }
       if (alreadyHasContext(el.value)) { done('review'); return; } // the Kit added due context first: you review it, then send
-      if (Date.now() - t0 >= SEND_WAIT * (clicked ? 2 : 1)) {
-        if (clicked || !clickSend(el)) { done('failed'); return; }
+      const deadline = clicked ? SEND_WAIT * 2 : (enterHandled ? SEND_ACK_WAIT : SEND_WAIT);
+      if (Date.now() - t0 >= deadline) {
+        if (clicked) { done('failed'); return; }
+        if (enterHandled) { done('unconfirmed'); return; }
+        if (!clickSend(el)) { done('failed'); return; }
         clicked = true;
       }
       setTimeout(tick, 100);
@@ -1705,6 +1720,12 @@
     sendNow(el, (result) => {
       if (result === 'sent') { askMarkSent(st.text, st.ask.answers()); logEvent('Answers sent'); }
       else if (result === 'review') { st.ask.lock(false); st.ask.note('Context added - review it, then press Enter to send'); askWatch(st); }
+      else if (result === 'unconfirmed') {
+        st.ask.lock(false);
+        st.ask.note('Enter was accepted but the send was not confirmed - check the chat before trying again');
+        toast('Send not confirmed - check the chat before retrying');
+        logEvent('Answers send not confirmed');
+      }
       else { st.ask.lock(false); st.ask.note('Could not send - your answers are in the message box'); toast('Could not send automatically - press Enter to send'); logEvent('Answers not sent'); }
     });
   }
