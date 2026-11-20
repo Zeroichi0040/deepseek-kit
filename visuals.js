@@ -394,7 +394,9 @@
 
   // ---------- widgets
 
-  const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:";
+  // Fetches and embedded resources are denied. The iframe sandbox blocks popups and navigation out of the frame,
+  // but browsers still permit a document to navigate itself; CSP has no portable directive for that case.
+  const CSP = "default-src 'none'; base-uri 'none'; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:";
 
   function widgetCss(t) {
     return ':root{--v-bg:transparent;--v-text:' + t.text + ';--v-muted:' + t.muted + ';--v-border:' + t.border + ';--v-surface:' + t.surface + ';--v-accent:' + t.accent + ';--v-radius:12px;color-scheme:' + (t.dark ? 'dark' : 'light') + '}' +
@@ -421,7 +423,7 @@
       '})();<\/script>';
   }
 
-  // The srcdoc for a widget iframe: a locked-down page (no network), the Kit styles, an error and height reporter.
+  // The srcdoc for a widget iframe: restricted resource loading, the Kit styles, an error and height reporter.
   // `theme` is { dark, text, muted, border, surface, accent }.
   function buildWidgetDocument(code, theme, id) {
     const body = String(code == null ? '' : code).trim();
