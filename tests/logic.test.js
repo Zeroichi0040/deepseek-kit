@@ -317,6 +317,8 @@ assert.strictEqual(c.migrateSettings({ collapseThinking: true }).collapseThinkin
   assert.ok(c.buildPrefix(s0, [], 'x', 0).includes('Instructions (Visuals):'), 'on by default');
   assert.ok(c.buildPrefix(s0, [], 'x', 0).includes('```') === false || true);
   assert.ok(/chart/.test(c.VISUALS_PROMPT) && /viz/.test(c.VISUALS_PROMPT));
+  assert.ok(/materially improve understanding/.test(c.VISUALS_PROMPT) && /Mermaid/.test(c.VISUALS_PROMPT), 'visuals are purposeful and use supported formats');
+  assert.ok(/external scripts/.test(c.VISUALS_PROMPT) && /never invent values/.test(c.VISUALS_PROMPT), 'widgets stay self-contained and charts use grounded data');
   assert.ok(!c.buildPrefix(s0, [], 'x', 1), 'schedule is first message only by default');
   assert.ok(!c.buildPrefix({ ...s0, visualsPrompt: false }, [], 'x', 0), 'its own switch');
   assert.ok(!c.buildPrefix({ ...s0, visualsEnabled: false }, [], 'x', 0), 'off when visuals are off');
@@ -334,6 +336,8 @@ console.log('ok  visuals prompt');
   const s0 = { enabled: true, memoryEnabled: false, defaultEnabled: false, visualsPrompt: false, prompts: [] };
   assert.ok(c.buildPrefix(s0, [], 'x', 0).includes('Instructions (Questions):'), 'on by default');
   assert.ok(/ask/.test(c.ASK_PROMPT) && /single/.test(c.ASK_PROMPT) && /multi/.test(c.ASK_PROMPT));
+  assert.ok(/one clarification/.test(c.ASK_PROMPT) && /naturally in prose/.test(c.ASK_PROMPT), 'single clarifications stay conversational');
+  assert.ok(/missing information/.test(c.ASK_PROMPT) && /do not ask again/.test(c.ASK_PROMPT), 'forms avoid redundant questions');
   assert.ok(!c.buildPrefix(s0, [], 'x', 1), 'first message only by default');
   assert.ok(!c.buildPrefix({ ...s0, askPrompt: false }, [], 'x', 0), 'its own switch');
   assert.ok(c.buildPrefix({ ...s0, askText: 'My own questions text' }, [], 'x', 0).includes('My own questions text'), 'custom text wins');
@@ -400,7 +404,10 @@ console.log('all logic tests passed');
   assert.ok(old.lineNumbers === false && old.collapseLong === false, 'saved settings are not flipped');
   // the default prompt
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('honesty and safety') && c.BUILTIN_DEFAULT_PROMPT.includes('{{date}}'));
-  assert.ok(['## Answering', '## Formatting', '## Tone'].every((h) => c.BUILTIN_DEFAULT_PROMPT.includes(h)), 'three sections');
+  assert.ok(['## Answering', '## Formatting', '## Tone'].every((h) => c.BUILTIN_DEFAULT_PROMPT.includes(h)), 'three sections');  assert.ok(['## Conversation', '## Reasoning and judgment', '## Tools and current information'].every((h) => c.BUILTIN_DEFAULT_PROMPT.includes(h)), 'conversation, reasoning, and tool guidance sections');
+  assert.ok(/follow-up questions/.test(c.BUILTIN_DEFAULT_PROMPT) && /earlier turns/.test(c.BUILTIN_DEFAULT_PROMPT), 'supports continuity and useful follow-ups');
+  assert.ok(/constructive thinking partner/.test(c.BUILTIN_DEFAULT_PROMPT) && /challenge conclusions/.test(c.BUILTIN_DEFAULT_PROMPT), 'encourages constructive disagreement');
+  assert.ok(/tools actually available/.test(c.BUILTIN_DEFAULT_PROMPT) && /never invent sources/.test(c.BUILTIN_DEFAULT_PROMPT), 'encourages grounded tool use');
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.endsWith('https://github.com/Zeroichi0040/deepseek-kit'), 'the repository link closes the prompt (DeepSeek can open links when its web search is on)');
   // the Default prompt asks for a file-name comment on each file of a multi-file reply, and the ZIP reads exactly those forms
   assert.ok(c.BUILTIN_DEFAULT_PROMPT.includes('// file: src/app.js') && c.BUILTIN_DEFAULT_PROMPT.includes('# file: main.py'), 'prompt asks for file-name comments');
