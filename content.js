@@ -1023,9 +1023,13 @@
   function renderSettings(body) {
     const onCount = (list) => list.filter(Boolean).length + ' of ' + list.length + ' on';
     body.append(group('Chat Behavior'));
-    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, settings.showSummary, settings.showChips, !!settings.collapseThinking, !!settings.listContinue]), (box) => {
+    body.append(accordion('messages', 'Messages', onCount([settings.autoInsertOnEnter, !!settings.askAutoSend, settings.showSummary, settings.showChips, !!settings.collapseThinking, !!settings.listContinue]), (box) => {
       box.append(settingRow('Continue lists with Shift+Enter', null, !!settings.listContinue, (v) => { settings.listContinue = v; commit(); }));
       box.append(settingRow('Insert context on Enter', 'When enabled, Kit automatically adds scheduled prompts and eligible memory to your message when you send it. When disabled, use Insert now to add context manually.', settings.autoInsertOnEnter, (v) => { settings.autoInsertOnEnter = v; commit(); }));
+      box.append(settingRow('Send answers straight away', 'When enabled, submitting a form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.', !!settings.askAutoSend, (v) => {
+        settings.askAutoSend = v; commit();
+        vis.list.forEach((st) => { if (st.ask) st.ask.setSubmitLabel(askLabel()); });
+      }));
       box.append(settingRow('Next-message summary', 'Shows which prompts and memories are scheduled to be included in your next message. This is not a summary of your conversation.', settings.showSummary, (v) => { settings.showSummary = v; commit(); }));
       box.append(settingRow('Collapse reasoning', 'Folds DeepSeek\'s reasoning content to its header while it is generating and after it finishes. Click the header to expand it.', !!settings.collapseThinking, (v) => { settings.collapseThinking = v; commit(); }));
       box.append(settingRow('Chips in the toolbar', 'Displays which prompts and memories are due for your next message, along with whether context is Visible or Hidden, beside DeepThink and Search.', settings.showChips !== false, (v) => { settings.showChips = v; commit(); liveSig = ''; refreshAll(true); }));
@@ -1049,25 +1053,15 @@
       }));
     }));
 
-    body.append(accordion('ask', 'Questions', settings.askEnabled === false ? 'Off' : (settings.askAutoSend ? 'Clickable questions, sent straight away' : 'Clickable questions, added to your message'), (box) => {
+    body.append(accordion('ask', 'Questions', settings.askEnabled === false ? 'Off' : 'Interactive question forms', (box) => {
       box.append(settingRow('Draw question forms', 'Converts supported ask code blocks into interactive forms. When disabled, they remain ordinary code blocks.', settings.askEnabled !== false, (v) => {
         settings.askEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
-      }));
-      box.append(settingRow('Ask the model for them', null, settings.askPrompt !== false, (v) => {
-        settings.askPrompt = v; commit(); liveSig = ''; refreshAll(true);
-      }));
-      box.append(settingRow('Send answers straight away', 'When enabled, submitting a form sends your answers immediately. When disabled, answers are inserted into the message box for you to review and send.', !!settings.askAutoSend, (v) => {
-        settings.askAutoSend = v; commit();
-        vis.list.forEach((st) => { if (st.ask) st.ask.setSubmitLabel(askLabel()); });
       }));
     }));
 
     body.append(accordion('visuals', 'Visuals', settings.visualsEnabled === false ? 'Off' : 'Charts and widgets drawn in the chat', (box) => {
       box.append(settingRow('Draw charts and widgets', 'Renders chart and viz code blocks as inline cards. Widgets execute generated code in an isolated iframe, but can navigate that frame. Treat generated widget code as untrusted.', settings.visualsEnabled !== false, (v) => {
         settings.visualsEnabled = v; commit(); syncVisuals(); liveSig = ''; refreshAll(true);
-      }));
-      box.append(settingRow('Ask the model for visuals', null, settings.visualsPrompt !== false, (v) => {
-        settings.visualsPrompt = v; commit(); liveSig = ''; refreshAll(true);
       }));
     }));
 
