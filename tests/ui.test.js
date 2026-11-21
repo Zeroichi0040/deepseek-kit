@@ -577,7 +577,7 @@ async function boot(stored, memories) {
     a.btn('Close preview').click();
     assert.ok(!a.drawer.querySelector('.dck-preview'));
     a.btn('Insert now').click();
-    assert.ok(a.ta.value.startsWith('[Context from my notes]') && a.ta.value.endsWith('hello'));
+    assert.ok(a.ta.value.startsWith('[DeepSeek Kit]') && a.ta.value.endsWith('hello'));
     console.log('ok  preview + insert now');
   }
 
@@ -602,7 +602,7 @@ async function boot(stored, memories) {
     a.type(a.ta, 'hello');
     assert.ok(a.key(a.ta, 'Enter').defaultPrevented);
     assert.strictEqual(seen.length, 1);
-    assert.ok(seen[0].startsWith('[Context from my notes]') && seen[0].endsWith('hello'));
+    assert.ok(seen[0].startsWith('[DeepSeek Kit]') && seen[0].endsWith('hello'));
     a.type(a.ta, '');
     await sleep(700);
     const bubble = a.doc.createElement('div');

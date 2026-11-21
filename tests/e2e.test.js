@@ -391,7 +391,7 @@ async function visuals() {
 
 // ---------- Hidden mode must not touch the site's hidden measuring copy of a box (its height comes from that text)
 async function mirror() {
-  const ctxText = '[Context from my notes]\nInstructions (Default):\nline\n[End of context]\n\nhello';
+  const ctxText = '[DeepSeek Kit]\nInstructions (Default):\nline\n[End of Instructions]\n\nhello';
   const html = `<body style="background:#151517;color:#eee;margin:0"><div id="bubble">${ctxText.replace(/\n/g, '<br>')}</div><div id="wrap"><textarea id="ta"></textarea><div class="ds-textarea__mirror" id="mir"></div></div><div id="wrap2"><textarea id="ta2"></textarea><div class="b13855df" id="mir2"></div></div></body>`;
   const ctx = await launch(1000, 800);
   const p = await open(ctx, html);
@@ -400,9 +400,9 @@ async function mirror() {
   await p.waitForTimeout(500);
   await p.evaluate((t) => { document.getElementById('mir').textContent = t; document.getElementById('mir2').textContent = t; document.getElementById('bubble').textContent = t; }, ctxText);
   await p.waitForTimeout(600);
-  assert.strictEqual(await p.evaluate(() => document.getElementById('mir').textContent.indexOf('[Context from my notes]') === 0), true, 'the measuring copy keeps its full text');
-  assert.strictEqual(await p.evaluate(() => document.getElementById('mir2').textContent.indexOf('[Context from my notes]') === 0), true, 'the message box copy (any class name) keeps its full text');
-  assert.strictEqual(await p.evaluate(() => document.getElementById('bubble').textContent.indexOf('[Context from my notes]') === -1), true, 'the chat bubble is still shortened');
+  assert.strictEqual(await p.evaluate(() => document.getElementById('mir').textContent.indexOf('[DeepSeek Kit]') === 0), true, 'the measuring copy keeps its full text');
+  assert.strictEqual(await p.evaluate(() => document.getElementById('mir2').textContent.indexOf('[DeepSeek Kit]') === 0), true, 'the message box copy (any class name) keeps its full text');
+  assert.strictEqual(await p.evaluate(() => document.getElementById('bubble').textContent.indexOf('[DeepSeek Kit]') === -1), true, 'the chat bubble is still shortened');
   ok('Hidden mode: bubbles are shortened, the site measuring copy of a box is left alone');
   await ctx.close();
 }
@@ -597,7 +597,7 @@ async function askForms() {
   await nf.locator('.dck-ask-submit').click();
   await p.waitForFunction(() => /Context added|Answers sent|Could not/.test(document.querySelector('.dck-ask-note').textContent), null, { timeout: 6000 });
   const rev = await p.evaluate(() => ({ note: document.querySelector('.dck-ask-note').textContent, box: document.getElementById('main').value, sent: window.__sent.length }));
-  assert.ok(/review it/.test(rev.note) && rev.box.indexOf('[Context from my notes]') >= 0 && rev.box.indexOf('Here are my answers') > 0 && rev.sent === 0, 'due context is added for review, not sent: ' + JSON.stringify(rev).slice(0, 300));
+  assert.ok(/review it/.test(rev.note) && rev.box.indexOf('[DeepSeek Kit]') >= 0 && rev.box.indexOf('Here are my answers') > 0 && rev.sent === 0, 'due context is added for review, not sent: ' + JSON.stringify(rev).slice(0, 300));
   ok('Send straight away: when context is due the Kit adds it and waits for you');
 
   // ... and with nothing due it goes out on Enter

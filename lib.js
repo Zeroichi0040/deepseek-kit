@@ -3,8 +3,8 @@
   'use strict';
 
   // ---------- Pure logic (unit-testable) ----------
-  const MARKER_START = '[Context from my notes]';
-  const MARKER_END = '[End of context]';
+  const MARKER_START = '[DeepSeek Kit]';
+  const MARKER_END = '[End of Instructions]';
 
   const BUILTIN_DEFAULT_PROMPT = [
     'You are using a DeepSeek Kit extension. Today is {{date}} ({{weekday}}), local time {{time}} {{timezone}}.',
@@ -389,7 +389,7 @@
 
   // Removes the inserted block (used to hide it in the chat view when "show inserted context" is off).
   function stripContext(text) {
-    return String(text || '').replace(/\[Context from my notes\][\s\S]*?\[End of context\]\s*/, '');
+    return String(text || '').replace(/\[DeepSeek Kit\][\s\S]*?\[End of Instructions\]\s*/, '');
   }
 
   // "/foo" (and nothing else) in the message box opens the snippet picker.
