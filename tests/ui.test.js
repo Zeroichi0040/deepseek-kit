@@ -505,6 +505,19 @@ async function boot(stored, memories) {
     a.btn('Save').click();
     const m0 = a.saved.dck_memories[0];
     assert.ok(m0.key === 'home city' && m0.value === 'Example City' && m0.importance === 'always' && m0.category === 'About me', JSON.stringify(m0));
+    // first-message option: offered when adding and editing, saved, labelled, and due in a fresh chat
+    assert.ok(Array.from(q('select[aria-label="New note: when to include"]').options).some((o) => o.value === 'first' && o.textContent === 'First message'), 'add form offers First message');
+    a.btn('Edit home city').click();
+    assert.ok(Array.from(q('select[aria-label="When to include"]').options).some((o) => o.value === 'first'), 'editor offers First message');
+    q('select[aria-label="When to include"]').value = 'first';
+    a.btn('Save').click();
+    assert.strictEqual(a.saved.dck_memories[0].importance, 'first');
+    assert.ok(a.text().includes('Included with the first message'), 'row label: ' + a.text());
+    assert.ok(a.text().includes('In next message'), 'a first note is due in a new chat: ' + a.text());
+    a.btn('Edit home city').click();
+    q('select[aria-label="When to include"]').value = 'always';
+    a.btn('Save').click();
+    assert.strictEqual(a.saved.dck_memories[0].importance, 'always');
     // budget
     const bud = q('input[aria-label="Memory token budget"]');
     bud.value = '300'; bud.dispatchEvent(new a.w.Event('change', { bubbles: true }));

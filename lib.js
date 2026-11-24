@@ -123,7 +123,7 @@
       ...m,
       key: String(m.key == null ? '' : m.key),
       value: String(m.value == null ? '' : m.value),
-      importance: m.importance === 'always' ? 'always' : 'called',
+      importance: m.importance === 'always' || m.importance === 'first' ? m.importance : 'called',
       category: String(m.category == null ? '' : m.category),
       enabled: m.enabled !== false,
     }));
@@ -197,22 +197,37 @@
   }
 
   // Decides, for every note, whether it goes into the next message and why not otherwise.
-  // status: 'off' (switched off), 'idle' ("when mentioned" and it was not), 'budget' (would not fit), 'included'.
-  // "Always" notes are considered before "when mentioned" ones, each in list order; a note that does not fit the
-  // token budget is skipped and smaller ones after it may still fit.
-  function memoryPlan(memories, userText, budget) {
+  // status: 'off' (switched off), 'idle' ("when mentioned" and it was not), 'later' ("first message" note after the
+  // first message), 'budget' (would not fit), 'included'.
+  // opts = { sentCount, force }: "first message" notes are only eligible when no message has been sent in this chat yet
+  // (sentCount 0) or when forced (the "Insert now" button). Without opts they are never eligible.
+  // "Always" and due "first message" notes are considered before "when mentioned" ones, each in list order; a note that
+  // does not fit the token budget is skipped and smaller ones after it may still fit.
+  function firstNoteDue(opts) {
+    return !!opts && (!!opts.force || opts.sentCount === 0);
+  }
+
+  function memoryPlan(memories, userText, budget, opts) {
     const list = memories || [];
     const text = String(userText || '').toLowerCase();
     const msg = tokens(text);
+    const firstDue = firstNoteDue(opts);
     const plan = list.map(() => 'idle');
     const cands = [];
+    const rank = (m) => (m.importance === 'always' || m.importance === 'first' ? 0 : 1);
     list.forEach((m, i) => {
       if (!m || !m.key || m.enabled === false) { plan[i] = 'off'; return; }
-      let match = m.importance === 'always';
-      if (!match) match = keyMatches(m.key, text, msg);
+      let match;
+      if (m.importance === 'first') {
+        match = firstDue;
+        if (!match) plan[i] = 'later';
+      } else {
+        match = m.importance === 'always';
+        if (!match) match = keyMatches(m.key, text, msg);
+      }
       if (match) cands.push(i);
     });
-    cands.sort((a, b) => (list[a].importance === 'always' ? 0 : 1) - (list[b].importance === 'always' ? 0 : 1) || a - b);
+    cands.sort((a, b) => rank(list[a]) - rank(list[b]) || a - b);
     const limit = Number(budget) > 0 ? Number(budget) : Infinity;
     const header = estimateTokens(MEMORY_HEADER);
     let used = 0;
@@ -225,19 +240,25 @@
   }
 
   // The notes that go into the next message, in list order.
-  function selectMemories(memories, userText, budget) {
-    const plan = memoryPlan(memories, userText, budget).status;
+  function selectMemories(memories, userText, budget, opts) {
+    const plan = memoryPlan(memories, userText, budget, opts).status;
     return (memories || []).filter((m, i) => plan[i] === 'included');
   }
 
   // Per-note status for the Memory tab. When memory as a whole is switched off every note shows 'paused'.
-  function memoryStatuses(settings, memories, userText) {
-    const plan = memoryPlan(memories, userText, settings.memoryBudget).status;
+  function memoryStatuses(settings, memories, userText, opts) {
+    const plan = memoryPlan(memories, userText, settings.memoryBudget, opts).status;
     return settings.memoryEnabled ? plan : plan.map((st) => (st === 'off' ? 'off' : 'paused'));
   }
 
-  function memoryTokens(settings, memories, userText) {
-    return settings.memoryEnabled ? memoryPlan(memories, userText, settings.memoryBudget).tokens : 0;
+  function memoryTokens(settings, memories, userText, opts) {
+    return settings.memoryEnabled ? memoryPlan(memories, userText, settings.memoryBudget, opts).tokens : 0;
+  }
+
+  // True when a "first message" note (enabled, with a key and a value) is waiting for the first message of a chat.
+  function firstNoteWaiting(settings, memories, sentCount) {
+    if (!settings.memoryEnabled || sentCount !== 0) return false;
+    return (memories || []).some((m) => m && m.importance === 'first' && m.enabled !== false && String(m.key || '').trim() && String(m.value || '').trim());
   }
 
   // Groups notes by category: General first, then alphabetical. Items keep their index in the full list.
@@ -323,9 +344,12 @@
     return list;
   }
 
-  function shouldInject(settings, sentCount) {
+  // `memories` is optional: when given, a "first message" note also makes the first message of a chat due, even when
+  // no prompt is.
+  function shouldInject(settings, sentCount, memories) {
     if (!settings.enabled) return false;
-    return promptEntries(settings).some((e) => e.enabled && (e.text || '').trim() && scheduleDue(e.schedule, e.everyN, sentCount));
+    if (promptEntries(settings).some((e) => e.enabled && (e.text || '').trim() && scheduleDue(e.schedule, e.everyN, sentCount))) return true;
+    return firstNoteWaiting(settings, memories, sentCount);
   }
 
   // Prompts that go out with this message. `force` ignores schedules (the "Insert now" button).
@@ -338,7 +362,7 @@
   function buildPrefix(settings, memories, userText, sentCount, force, ctx) {
     const parts = activePrompts(settings, sentCount || 0, !!force).map((p) => 'Instructions (' + p.name + '):\n' + p.text);
     if (settings.memoryEnabled) {
-      const sel = selectMemories(memories, userText, settings.memoryBudget);
+      const sel = selectMemories(memories, userText, settings.memoryBudget, { sentCount: sentCount || 0, force: !!force });
       if (sel.length) {
         parts.push(MEMORY_HEADER + sel.map(memoryLine).join('\n'));
       }
@@ -356,12 +380,12 @@
   function summarize(settings, memories, userText, sentCount) {
     const none = { names: [], memories: 0, skipped: 0, tokens: 0 };
     if (!settings.enabled) return Object.assign({ state: 'off' }, none);
-    if (!shouldInject(settings, sentCount)) return Object.assign({ state: 'idle' }, none);
+    if (!shouldInject(settings, sentCount, memories)) return Object.assign({ state: 'idle' }, none);
     const names = activePrompts(settings, sentCount, false).map((p) => p.name);
     let included = 0;
     let skipped = 0;
     if (settings.memoryEnabled) {
-      memoryPlan(memories, userText, settings.memoryBudget).status.forEach((st) => {
+      memoryPlan(memories, userText, settings.memoryBudget, { sentCount: sentCount }).status.forEach((st) => {
         if (st === 'included') included++;
         else if (st === 'budget') skipped++;
       });
@@ -661,7 +685,7 @@
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     LANG_EXT, normalizeLang, langFromClass, extFor, sniffLang, previewKind, detectBlock, suggestFilename, uniqueName, crc32, makeZip,
-    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
+    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens, firstNoteWaiting, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   else root.DCK_LIB = core;
