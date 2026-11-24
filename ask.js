@@ -5,14 +5,10 @@
 (function () {
   'use strict';
 
-  const MAX_CHARS = 64 * 1024;
-  const MAX_QUESTIONS = 10;
-  const MAX_OPTIONS = 12;
-  const MAX_LABEL = 200;
-  const MAX_QUESTION = 400;
-  const MAX_DESC = 300;
-
-  const clip = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
+  const MAX_CHARS = 256 * 1024;
+  // Bound the DOM cost of a single mounted page (each option creates several nodes).
+  const MAX_PAGE_OPTIONS = 1000;
+  const clean = (v) => typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';
 
   // Model output often has a fence around the JSON, trailing commas or a sentence before it.
   function looseJson(text) {
@@ -34,11 +30,11 @@
 
   function parseOption(o) {
     if (o == null) return null;
-    if (typeof o === 'string' || typeof o === 'number') { const label = clip(o, MAX_LABEL); return label ? { label } : null; }
+    if (typeof o === 'string' || typeof o === 'number') { const label = clean(o); return label ? { label } : null; }
     if (typeof o === 'object') {
-      const label = clip(o.label != null ? o.label : (o.text != null ? o.text : o.value), MAX_LABEL);
+      const label = clean(o.label != null ? o.label : (o.text != null ? o.text : o.value));
       if (!label) return null;
-      const description = clip(o.description != null ? o.description : o.hint, MAX_DESC);
+      const description = clean(o.description != null ? o.description : o.hint);
       const out = { label };
       if (description) out.description = description;
       if (o.recommended === true || o.recommended === 'true') out.recommended = true;
@@ -50,39 +46,39 @@
   function parseQuestion(q, index) {
     if (typeof q === 'string') q = { question: q, type: 'text' };
     if (!q || typeof q !== 'object') return { error: 'Question ' + (index + 1) + ' is not an object.' };
-    const text = clip(q.question != null ? q.question : (q.text != null ? q.text : (q.prompt != null ? q.prompt : q.title)), MAX_QUESTION);
+    const text = clean(q.question != null ? q.question : (q.text != null ? q.text : (q.prompt != null ? q.prompt : q.title)));
     if (!text) return { error: 'Question ' + (index + 1) + ' has no text.' };
     const rawOptions = Array.isArray(q.options) ? q.options : (Array.isArray(q.choices) ? q.choices : (Array.isArray(q.answers) ? q.answers : []));
-    const options = rawOptions.map(parseOption).filter(Boolean).slice(0, MAX_OPTIONS);
+    const options = rawOptions.map(parseOption).filter(Boolean);
     const t = String(q.type || '').toLowerCase();
     let type = 'single';
     if (t === 'text' || t === 'open' || t === 'free' || t === 'input') type = 'text';
     else if (t === 'multi' || t === 'multiple' || t === 'checkbox' || t === 'checkboxes' || q.multiple === true || q.multi === true) type = 'multi';
     if (!options.length) type = 'text';
+    if (type !== 'text' && options.length > MAX_PAGE_OPTIONS) return { error: 'Question ' + (index + 1) + ' exceeds the rendering budget (' + MAX_PAGE_OPTIONS + ' options on one page).' };
     // "recommended": true on an option, or the question names the option's label (or several, as a list). A name that
     // matches nothing is ignored. A single-choice question keeps only the first one.
-    const named = (Array.isArray(q.recommended) ? q.recommended : [q.recommended]).filter((x) => typeof x === 'string').map((x) => clip(x, MAX_LABEL).toLowerCase());
-    options.forEach((o) => { if (named.indexOf(o.label.toLowerCase()) >= 0) o.recommended = true; });
+    const named = new Set((Array.isArray(q.recommended) ? q.recommended : [q.recommended]).filter((x) => typeof x === 'string').map((x) => clean(x).toLowerCase()));
+    options.forEach((o) => { if (named.has(o.label.toLowerCase())) o.recommended = true; });
     if (type !== 'multi') { let seen = false; options.forEach((o) => { if (o.recommended) { if (seen) delete o.recommended; seen = true; } }); }
     // "other" is on unless the model turns it off; a string sets its label
     let other = q.other !== false && q.allowOther !== false && q.allow_other !== false;
-    let otherLabel = typeof q.other === 'string' ? clip(q.other, 60) : 'Other';
+    let otherLabel = typeof q.other === 'string' ? clean(q.other) : 'Other';
     if (type === 'text') other = false;
-    return { id: 'q' + (index + 1), text, type, options, other, otherLabel: otherLabel || 'Other', placeholder: clip(q.placeholder, 80) };
+    return { id: 'q' + (index + 1), text, type, options, other, otherLabel: otherLabel || 'Other', placeholder: clean(q.placeholder) };
   }
 
   function parseAskSpec(text) {
     const raw = String(text || '');
-    if (raw.length > MAX_CHARS) return { ok: false, error: 'The question block is too large.' };
+    if (raw.length > MAX_CHARS) return { ok: false, error: 'The question block exceeds the ' + MAX_CHARS + ' character safety limit.' };
     const data = looseJson(raw);
     if (data === undefined || data === null || typeof data !== 'object') return { ok: false, error: 'The question block is not valid JSON.' };
     let list;
     let title = '';
     if (Array.isArray(data)) list = data;
-    else if (Array.isArray(data.questions)) { list = data.questions; title = clip(data.title, MAX_QUESTION); }
+    else if (Array.isArray(data.questions)) { list = data.questions; title = clean(data.title); }
     else list = [data];
     if (!list.length) return { ok: false, error: 'There are no questions in it.' };
-    if (list.length > MAX_QUESTIONS) list = list.slice(0, MAX_QUESTIONS);
     const questions = [];
     for (let i = 0; i < list.length; i++) {
       const q = parseQuestion(list[i], i);
@@ -96,8 +92,8 @@
   function answerValue(q, a) {
     a = a || {};
     const picked = (a.picked || []).slice();
-    const other = clip(a.other, 500);
-    const free = String(a.text == null ? '' : a.text).trim().slice(0, 2000);
+    const other = String(a.other == null ? '' : a.other).trim();
+    const free = String(a.text == null ? '' : a.text).trim();
     if (q.type === 'text') return free;
     if (q.type === 'single') return other && a.useOther ? other : (picked[0] || '');
     const all = picked.slice();
@@ -133,7 +129,9 @@
     }
     const uid = 'ask' + Math.random().toString(36).slice(2, 8);
     const state = spec.questions.map(() => ({ picked: [], other: '', useOther: false, text: '' }));
-    const rows = [];
+    const page = el('div', 'dck-ask-page');
+    root.appendChild(page);
+    let mounted = -1;
     let locked = false;
     let sent = false;
     let changeFn = null;
@@ -167,40 +165,45 @@
 
     function showStep(n) {
       cur = Math.max(0, Math.min(total - 1, n));
+      if (mounted !== cur) mountQuestion(cur);
       if (!paged) return;
-      rows.forEach((r, i) => { r.hidden = i !== cur; });
       back.disabled = cur === 0;
       next.disabled = cur === total - 1;
       submit.hidden = cur !== total - 1;
       progress.textContent = (cur + 1) + ' of ' + total;
     }
-    function go(n) { if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; } showStep(n); }
+    function cancelAuto() { if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; } }
+    function go(n) { cancelAuto(); showStep(n); }
 
     function refresh() {
-      const text = compileAnswers(spec, state);
-      submit.disabled = locked || !text;
+      submit.disabled = locked || !state.some((s, i) => answerValue(spec.questions[i], s));
       clear.disabled = locked;
-      rows.forEach((r) => r.querySelectorAll('input, textarea').forEach((i) => { i.disabled = locked; }));
       showStep(cur);
-      if (changeFn) changeFn(text);
+      page.querySelectorAll('input, textarea').forEach((i) => { i.disabled = locked; });
+      if (changeFn) changeFn(compileAnswers(spec, state));
     }
 
-    spec.questions.forEach((q, qi) => {
+    function mountQuestion(qi) {
+      mounted = qi;
+      const q = spec.questions[qi];
+      page.textContent = '';
       const box = el('fieldset', 'dck-ask-q');
       const legend = el('legend', 'dck-ask-qtext', (spec.questions.length > 1 ? (qi + 1) + '. ' : '') + q.text);
       box.appendChild(legend);
       const st = state[qi];
       const name = uid + '-' + qi;
-      rows.push(box);
+
 
       if (q.type === 'text') {
         const ta = el('textarea', 'dck-ask-text');
         ta.rows = 2;
+        ta.value = st.text;
+        ta.disabled = locked;
         ta.placeholder = q.placeholder || 'Type your answer';
         ta.setAttribute('aria-label', q.text);
         ta.addEventListener('input', () => { st.text = ta.value; refresh(); });
         box.appendChild(ta);
-        root.appendChild(box);
+        page.appendChild(box);
         return;
       }
 
@@ -212,6 +215,8 @@
         inp.type = kind;
         inp.name = name;
         inp.value = o.label;
+        inp.checked = st.picked.includes(o.label) && (kind !== 'radio' || !st.useOther);
+        inp.disabled = locked;
         const body = el('span', 'dck-ask-optbody');
         const lrow = el('span', 'dck-ask-optrow');
         lrow.appendChild(el('span', 'dck-ask-optlabel', o.label));
@@ -240,11 +245,15 @@
         inp.type = kind;
         inp.name = name;
         inp.value = '__other__';
+        inp.checked = st.useOther;
+        inp.disabled = locked;
         const txt = el('input', 'dck-ask-othertext');
         txt.type = 'text';
+        txt.value = st.other;
+        txt.disabled = locked;
         txt.placeholder = q.otherLabel + '...';
         txt.setAttribute('aria-label', q.otherLabel + ' answer for: ' + q.text);
-        const syncOther = () => { st.useOther = inp.checked; st.other = txt.value; refresh(); };
+        const syncOther = () => { cancelAuto(); st.useOther = inp.checked; st.other = txt.value; refresh(); };
         inp.addEventListener('change', () => {
           if (kind === 'radio' && inp.checked) st.picked = [];
           syncOther();
@@ -262,8 +271,8 @@
         box.appendChild(lab);
         optRows.forEach((r) => { r.other = lab; });
       }
-      root.appendChild(box);
-    });
+      page.appendChild(box);
+    }
 
     if (paged) {
       const pager = el('div', 'dck-ask-pager');
@@ -296,8 +305,8 @@
       text: () => compileAnswers(spec, state),
       reset() {
         state.forEach((s) => { s.picked = []; s.other = ''; s.useOther = false; s.text = ''; });
-        root.querySelectorAll('input[type=radio], input[type=checkbox]').forEach((i) => { i.checked = false; });
-        root.querySelectorAll('input[type=text], textarea').forEach((i) => { i.value = ''; });
+        cancelAuto();
+        mounted = -1;
         note.textContent = '';
         cur = 0;
         sent = false; again.hidden = true; root.classList.remove('sent');
@@ -310,6 +319,7 @@
         again.hidden = !sent;
         root.classList.toggle('sent', sent);
         locked = sent;
+        if (locked) cancelAuto();
         root.classList.toggle('locked', locked);
         note.textContent = sent ? 'Answers sent' : '';
         refresh();
@@ -319,19 +329,15 @@
       setAnswers(list) {
         (list || []).forEach((a, i) => {
           const st = state[i];
-          const box = rows[i];
-          if (!st || !box || !a) return;
+          if (!st || !a) return;
           st.picked = Array.isArray(a.picked) ? a.picked.map(String) : [];
           st.other = String(a.other || ''); st.useOther = !!a.useOther; st.text = String(a.text || '');
-          box.querySelectorAll('input[type=radio], input[type=checkbox]').forEach((inp) => {
-            inp.checked = inp.value === '__other__' ? st.useOther : st.picked.indexOf(inp.value) >= 0;
-          });
-          const ot = box.querySelector('.dck-ask-othertext'); if (ot) ot.value = st.other;
-          const ta = box.querySelector('textarea'); if (ta) ta.value = st.text;
         });
+        cancelAuto();
+        mounted = -1;
         refresh();
       },
-      lock(v) { locked = !!v; root.classList.toggle('locked', locked); refresh(); },
+      lock(v) { locked = !!v; if (locked) cancelAuto(); root.classList.toggle('locked', locked); refresh(); },
       note(t) { note.textContent = t || ''; },
       setSubmitLabel(t) { submit.textContent = t; },
       onChange(fn) { changeFn = fn; },
@@ -340,7 +346,7 @@
     return api;
   }
 
-  const api = { parseAskSpec, compileAnswers, buildAsk, MAX_QUESTIONS, MAX_OPTIONS };
+  const api = { parseAskSpec, compileAnswers, buildAsk, MAX_CHARS, MAX_PAGE_OPTIONS };
   if (typeof globalThis !== 'undefined') globalThis.DCK_ASK = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

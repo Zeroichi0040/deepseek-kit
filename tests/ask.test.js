@@ -44,9 +44,18 @@ const Q = (extra) => ({ question: 'What kind of application?', options: ['Web ap
   assert.ok(/no text/.test(parse({ questions: [{ options: ['a'] }] }).error));
   assert.ok(!parse('x'.repeat(A.MAX_CHARS + 1)).ok, 'size limit');
   const many = parse({ questions: Array.from({ length: 40 }, (_, i) => Q({ question: 'Q' + i, options: Array.from({ length: 50 }, (_, k) => 'o' + k) })) });
-  assert.strictEqual(many.spec.questions.length, A.MAX_QUESTIONS);
-  assert.strictEqual(many.spec.questions[0].options.length, A.MAX_OPTIONS);
-  assert.ok(parse({ questions: [Q({ question: 'x'.repeat(5000) })] }).spec.questions[0].text.length <= 400);
+  assert.strictEqual(many.spec.questions.length, 40);
+  assert.strictEqual(many.spec.questions[0].options.length, 50);
+  const long = 'x'.repeat(5000);
+  const full = parse({ title: long, questions: [Q({ question: long, options: [{ label: long, description: long }], other: long, placeholder: long })] });
+  assert.strictEqual(full.spec.title, long);
+  for (const key of ['text', 'otherLabel', 'placeholder']) assert.strictEqual(full.spec.questions[0][key], long);
+  assert.strictEqual(full.spec.questions[0].options[0].label, long);
+  assert.strictEqual(full.spec.questions[0].options[0].description, long);
+  assert.ok(/rendering budget/.test(parse(Q({ options: Array.from({length: A.MAX_PAGE_OPTIONS + 1}, (_, i) => 'o' + i) })).error));
+  const near = JSON.stringify(Q()).padEnd(A.MAX_CHARS, ' ');
+  assert.ok(parse(near).ok);
+  assert.ok(!parse(near + ' ').ok);
   ok('bad input is rejected with a reason; sizes are limited');
 }
 // ---- answer text
@@ -78,25 +87,33 @@ const Q = (extra) => ({ question: 'What kind of application?', options: ['Web ap
   const click = (el) => { el.click(); };
   assert.strictEqual(submit.textContent, 'Add to message');
   assert.strictEqual(submit.disabled, true, 'nothing answered yet');
-  assert.strictEqual(f.el.querySelectorAll('fieldset').length, 3);
+  assert.strictEqual(f.el.querySelectorAll('fieldset').length, 1);
   assert.strictEqual(f.el.querySelectorAll('input[type=radio]').length, 3 + 1, 'single question: its options plus Other');
-  assert.strictEqual(f.el.querySelectorAll('input[type=checkbox]').length, 2 + 1, 'multi question: its options plus Other');
+  assert.strictEqual(f.el.querySelectorAll('input[type=checkbox]').length, 0);
+  const next = f.el.querySelector('[aria-label="Next question"]');
+  const back = f.el.querySelector('[aria-label="Previous question"]');
   const radios = Array.from(f.el.querySelectorAll('input[type=radio]'));
   click(radios[1]);
   assert.strictEqual(submit.disabled, false, 'one answer is enough to send');
   click(radios[0]);
   assert.strictEqual(f.answers()[0].picked.join('|'), 'Web application', 'single choice keeps one');
+  next.click();
   const boxes = Array.from(f.el.querySelectorAll('input[type=checkbox]'));
+  assert.strictEqual(boxes.length, 3);
   click(boxes[0]); click(boxes[1]);
   click(boxes[0]);
   assert.strictEqual(f.answers()[1].picked.join('|'), 'Dashboard', 'multi choice toggles');
   // custom answer: typing in the Other field selects it
+  back.click();
   const other = f.el.querySelectorAll('.dck-ask-othertext')[0];
   other.value = 'A CLI tool'; fire(other, 'input');
   assert.strictEqual(f.answers()[0].useOther, true, 'typing picks Other');
-  assert.strictEqual(radios[3].checked, true);
+  assert.strictEqual(f.el.querySelectorAll('input[type=radio]')[3].checked, true);
   assert.strictEqual(f.answers()[0].picked.length, 0, 'and clears the other choice for a single question');
   // free text
+  next.click();
+  assert.ok(f.el.querySelectorAll('input[type=checkbox]')[1].checked);
+  next.click();
   const ta = f.el.querySelector('textarea');
   ta.value = 'keep it simple'; fire(ta, 'input');
   assert.strictEqual(f.text().split('\n').slice(-1)[0], 'A3: keep it simple');
@@ -116,6 +133,7 @@ const Q = (extra) => ({ question: 'What kind of application?', options: ['Web ap
   assert.strictEqual(f.text(), '');
   assert.strictEqual(submit.disabled, true);
   assert.ok(Array.from(f.el.querySelectorAll('input[type=radio], input[type=checkbox]')).every((i) => !i.checked));
+  next.click(); next.click();
   assert.strictEqual(f.el.querySelector('textarea').value, '');
   f.setSubmitLabel('Send answers');
   assert.strictEqual(submit.textContent, 'Send answers');
@@ -154,55 +172,55 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const spec = parse({ questions: [Q(), Q({ question: 'Which features?', type: 'multi', options: ['Login', 'Dashboard'] }), { question: 'Notes?', type: 'text' }] }).spec;
     const f = A.buildAsk(doc, spec, {});
     doc.body.appendChild(f.el);
-    const q = () => Array.from(f.el.querySelectorAll('fieldset')).map((x) => !x.hidden).join();
+    const q = () => { assert.strictEqual(f.el.querySelectorAll('fieldset').length, 1); return f.step(); };
     const back = f.el.querySelector('[aria-label="Previous question"]');
     const next = f.el.querySelector('[aria-label="Next question"]');
     const submit = f.el.querySelector('.dck-ask-submit');
     const prog = () => f.el.querySelector('.dck-ask-progress').textContent;
     assert.ok(f.el.querySelector('.dck-ask-head .dck-ask-pager'), 'the arrows are in the header row');
     assert.strictEqual(f.el.querySelectorAll('.dck-ask-dot').length, 0, 'no dots any more');
-    assert.strictEqual(q(), 'true,false,false');
+    assert.strictEqual(q(), 0);
     assert.strictEqual(back.disabled, true);
     assert.strictEqual(submit.hidden, true, 'Submit appears only on the last step');
     assert.strictEqual(prog(), '1 of 3');
     next.click();
-    assert.strictEqual(q(), 'false,true,false'); assert.strictEqual(prog(), '2 of 3'); assert.strictEqual(back.disabled, false);
+    assert.strictEqual(q(), 1); assert.strictEqual(prog(), '2 of 3'); assert.strictEqual(back.disabled, false);
     next.click();
-    assert.strictEqual(q(), 'false,false,true'); assert.strictEqual(next.disabled, true, 'no Next on the last step'); assert.strictEqual(submit.hidden, false);
+    assert.strictEqual(q(), 2); assert.strictEqual(next.disabled, true, 'no Next on the last step'); assert.strictEqual(submit.hidden, false);
     back.click(); back.click();
-    assert.strictEqual(q(), 'true,false,false');
+    assert.strictEqual(q(), 0);
     ok('pager: arrows step through one question at a time; Submit only on the last');
 
     // auto-next: a single-choice pick moves on, nothing else does
     f.el.querySelectorAll('input[type=radio]')[0].click();
-    assert.strictEqual(q(), 'true,false,false', 'not at once: the pick shows first');
+    assert.strictEqual(q(), 0, 'not at once: the pick shows first');
     await sleep(380);
-    assert.strictEqual(q(), 'false,true,false', 'a single-choice pick moves to the next question');
+    assert.strictEqual(q(), 1, 'a single-choice pick moves to the next question');
     f.el.querySelectorAll('input[type=checkbox]')[0].click();
     await sleep(380);
-    assert.strictEqual(q(), 'false,true,false', 'a multi-choice pick stays put');
+    assert.strictEqual(q(), 1, 'a multi-choice pick stays put');
     back.click();
     const other = f.el.querySelectorAll('.dck-ask-othertext')[0];
     other.value = 'A CLI tool'; other.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
     await sleep(380);
-    assert.strictEqual(q(), 'true,false,false', 'typing in Other stays put');
+    assert.strictEqual(q(), 0, 'typing in Other stays put');
     f.el.querySelectorAll('input[type=radio]')[1].click();
     back.click(); next.click(); back.click(); // leaving before the timer fires cancels it
     await sleep(380);
-    assert.strictEqual(q(), 'true,false,false', 'using an arrow cancels a pending auto-advance');
+    assert.strictEqual(q(), 0, 'using an arrow cancels a pending auto-advance');
     next.click(); next.click();
     f.el.querySelector('textarea').value = 'x';
     // last question: no radio there, so check a form whose last question is single choice
     const spec2 = parse({ questions: [Q(), Q({ question: 'Second?' })] }).spec;
     const g = A.buildAsk(doc, spec2, {});
     doc.body.appendChild(g.el);
-    const gq = () => Array.from(g.el.querySelectorAll('fieldset')).map((x) => !x.hidden).join();
+    const gq = () => { assert.strictEqual(g.el.querySelectorAll('fieldset').length, 1); return g.step(); };
     g.el.querySelectorAll('fieldset')[0].querySelector('input[type=radio]').click();
     await sleep(380);
-    assert.strictEqual(gq(), 'false,true');
-    g.el.querySelectorAll('fieldset')[1].querySelector('input[type=radio]').click();
+    assert.strictEqual(gq(), 1);
+    g.el.querySelectorAll('fieldset')[0].querySelector('input[type=radio]').click();
     await sleep(380);
-    assert.strictEqual(gq(), 'false,true', 'the last question never moves on by itself');
+    assert.strictEqual(gq(), 1, 'the last question never moves on by itself');
     ok('auto-next: single choice only, cancellable, never from the last question');
 
     // sent: read-only, still pageable, "Answer again" undoes it
@@ -241,5 +259,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     assert.strictEqual(f.el.querySelectorAll('.dck-ask-optlabel')[1].textContent, 'B', 'the label itself is unchanged');
     ok('recommended: flag or label, one for single choice, badge shown, never preselected');
   }
+  // Large forms keep one page mounted, and restoring answers is independent of the DOM.
+  for (const size of [11, 50, 100, 500]) {
+    const spec = parse({ questions: Array.from({length: size}, (_, i) => Q({question: 'Question ' + i})) }).spec;
+    assert.strictEqual(spec.questions.length, size);
+    const f = A.buildAsk(doc, spec, {});
+    const answers = spec.questions.map(() => ({picked: ['Desktop application']}));
+    f.setAnswers(answers);
+    const next = f.el.querySelector('[aria-label="Next question"]');
+    const back = f.el.querySelector('[aria-label="Previous question"]');
+    for (let i = 0; i < size; i++) {
+      assert.strictEqual(f.el.querySelectorAll('fieldset').length, 1);
+      assert.ok(f.el.querySelectorAll('input[type=radio]')[1].checked);
+      if (i < size - 1) next.click();
+    }
+    assert.ok(f.text().includes('A' + size + ': Desktop application'));
+    assert.ok(next.disabled);
+    back.click(); next.click();
+    assert.strictEqual(f.step(), size - 1);
+  }
+  const wide = A.buildAsk(doc, parse(Q({options: Array.from({length: 300}, (_, i) => 'Option ' + i)})).spec, {});
+  assert.strictEqual(wide.el.querySelectorAll('input[type=radio]').length, 301);
+  const longAnswer = 'x'.repeat(5000);
+  assert.ok(A.compileAnswers(parse({question:'Notes?', type:'text'}).spec, [{text:longAnswer}]).endsWith(longAnswer));
   console.log('all ask tests passed');
 })().catch((e) => { console.error(e); process.exit(1); });

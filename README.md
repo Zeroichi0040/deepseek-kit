@@ -142,7 +142,7 @@ Supported question types:
 
 Choice questions include an **Other** field by default. A question can mark one option as recommended; the badge is informational and never preselects an answer.
 
-For multi-question forms, questions appear one at a time with a counter and navigation arrows. Selecting a single-choice answer advances to the next question. After submission, the form becomes read-only; choose **Answer again** to edit it.
+For multi-question forms, questions appear one at a time with a counter and navigation arrows. Only the active question is mounted; answers are retained across navigation. There is no fixed question count or text-length cap. Blocks above 262,144 characters or choice pages above 1,000 options are rejected with an explicit error rather than truncated. Selecting a single-choice answer advances to the next question. After submission, the form becomes read-only; choose **Answer again** to edit it.
 
 Answers are submitted straight away by default. To have them added to the message box for you to review and send yourself, turn off **Settings → Messages → Send answers straight away**. If first-message context is still due, Hidden mode attaches it and sends; in Visible mode Kit inserts that context first and lets you review it as usual.
 
