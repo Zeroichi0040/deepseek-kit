@@ -785,30 +785,44 @@
     const ranks = new Map(org('prompts').order.map((id, i) => [id, i]));
     return settings.prompts.slice().sort((a, b) => (ranks.get(a.id) ?? Infinity) - (ranks.get(b.id) ?? Infinity));
   }
-  function movePrompt(id, category, before) {
+  function movePrompt(id, category, target, after = false) {
     const item = settings.prompts.find(p => p.id === id);
-    if (!item || before === id || !categoryNames('prompts').includes(category)) return;
+    if (!item || target === id || !categoryNames('prompts').includes(category)) return;
     const order = orderedPrompts().map(p => p.id).filter(x => x !== id);
-    const index = before == null ? -1 : order.indexOf(before);
-    if (index < 0) order.push(id); else order.splice(index, 0, id);
+    const index = target == null ? -1 : order.indexOf(target);
+    if (index < 0) order.push(id); else order.splice(index + (after ? 1 : 0), 0, id);
     setCategory('prompts', item, category);
     org('prompts').order = order;
     expandCategory('prompts', category);
     commit(); render();
   }
-  function promptDrop(node, category, before) {
+  const DROP_CLASSES = ['dck-drop-before', 'dck-drop-after', 'dck-drop-append'];
+  function clearPromptDrop() {
+    if (ui.drawer) ui.drawer.querySelectorAll(DROP_CLASSES.map(c => '.' + c).join(',')).forEach(el => el.classList.remove(...DROP_CLASSES));
+  }
+  function promptDrop(node, category, target) {
+    const isAfter = e => {
+      const rect = node.getBoundingClientRect();
+      return e.clientY >= rect.top + rect.height / 2;
+    };
     node.addEventListener('dragover', e => {
-      if (!ui.dragPrompt || ui.dragPrompt === before) return;
-      e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move';
-      node.classList.add('dck-drop-target');
+      if (!ui.dragPrompt) return;
+      e.stopPropagation();
+      clearPromptDrop();
+      if (ui.dragPrompt === target) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      node.classList.add(target == null ? 'dck-drop-append' : isAfter(e) ? 'dck-drop-after' : 'dck-drop-before');
     });
-    node.addEventListener('dragleave', () => node.classList.remove('dck-drop-target'));
+    node.addEventListener('dragleave', e => {
+      if (!e.relatedTarget || !node.contains(e.relatedTarget)) node.classList.remove(...DROP_CLASSES);
+    });
     node.addEventListener('drop', e => {
-      node.classList.remove('dck-drop-target');
       if (!ui.dragPrompt) return;
       e.preventDefault(); e.stopPropagation();
+      clearPromptDrop();
       const id = ui.dragPrompt; ui.dragPrompt = null;
-      movePrompt(id, category, before);
+      movePrompt(id, category, target, target != null && isAfter(e));
     });
   }
   function draggablePrompt(p, category, peers) {
@@ -816,13 +830,13 @@
     const handle = h('button', { type: 'button', class: 'dck-drag-handle', draggable: true,
       'aria-label': 'Reorder ' + p.name + ' prompt', title: 'Drag to reorder or move; Alt+Up/Down to reorder',
       ondragstart: e => { ui.dragPrompt = p.id; e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; },
-      ondragend: () => { ui.dragPrompt = null; ui.drawer.querySelectorAll('.dck-drop-target').forEach(el => el.classList.remove('dck-drop-target')); },
+      ondragend: () => { ui.dragPrompt = null; clearPromptDrop(); },
       onkeydown: e => {
         if (!e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
         e.preventDefault();
         const i = peers.indexOf(p);
         if (e.key === 'ArrowUp' && i > 0) movePrompt(p.id, category, peers[i-1].id);
-        if (e.key === 'ArrowDown' && i < peers.length - 1) movePrompt(p.id, category, peers[i+2]?.id || null);
+        if (e.key === 'ArrowDown' && i < peers.length - 1) movePrompt(p.id, category, peers[i+1].id, true);
         Array.from(ui.drawer.querySelectorAll('.dck-drag-handle')).find(el => el.getAttribute('aria-label') === 'Reorder ' + p.name + ' prompt')?.focus();
       } }, '⠿');
     row.prepend(handle);

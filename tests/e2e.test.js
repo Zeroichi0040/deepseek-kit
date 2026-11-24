@@ -905,8 +905,25 @@ async function drawerOrganization() {
     await p.selectOption('[aria-label="Category"]', 'Writing');
     await dialog('New prompt').getByRole('button', { name: 'Save' }).click();
   }
-  await p.locator('[aria-label="Reorder Beta prompt"]').press('Alt+ArrowUp');
   const names = () => p.locator('[data-category="Writing"] .dck-name').allTextContents();
+  const handle = name => p.locator('[aria-label="Reorder ' + name + ' prompt"]');
+  const row = name => p.locator('[data-category="Writing"] .dck-rowcard').filter({ has: handle(name) });
+  const drag = async (from, to, after) => {
+    const target = row(to);
+    const box = await target.boundingBox();
+    await handle(from).dragTo(target, { targetPosition: { x: Math.floor(box.width / 2), y: after ? Math.floor(box.height * .75) : Math.floor(box.height * .25) } });
+    assert.strictEqual(await p.locator('.dck-drop-before, .dck-drop-after, .dck-drop-append').count(), 0, 'no stale insertion line');
+  };
+  assert.deepStrictEqual(await names(), ['Alpha', 'Beta']);
+  await drag('Alpha', 'Beta', true);
+  assert.deepStrictEqual(await names(), ['Beta', 'Alpha'], 'first to second, lower half');
+  await drag('Alpha', 'Beta', false);
+  assert.deepStrictEqual(await names(), ['Alpha', 'Beta'], 'second to first, upper half');
+  await handle('Alpha').press('Alt+ArrowDown');
+  assert.deepStrictEqual(await names(), ['Beta', 'Alpha'], 'keyboard down');
+  await handle('Alpha').press('Alt+ArrowUp');
+  assert.deepStrictEqual(await names(), ['Alpha', 'Beta'], 'keyboard up');
+  await drag('Alpha', 'Beta', true);
   assert.deepStrictEqual(await names(), ['Beta', 'Alpha']);
   await button('Writing category').click();
   assert.strictEqual(await p.locator('[aria-label="Edit Beta prompt"]').count(), 0);
@@ -916,8 +933,9 @@ async function drawerOrganization() {
   const prefix = await p.locator('.dck-preview .dck-pre').textContent();
   assert.ok(prefix.indexOf('Alpha content') >= 0 && prefix.indexOf('Alpha content') < prefix.indexOf('Beta content'), 'visual order must not alter injection order');
   await button('Close preview').click();
-  await p.locator('[aria-label="Reorder Beta prompt"]').dragTo(p.locator('[data-category="General"] .dck-category-head'));
-  assert.strictEqual(await p.locator('[data-category="General"] [aria-label="Edit Beta prompt"]').count(), 1);
+  await button('General category').click();
+  await handle('Beta').dragTo(p.locator('[data-category="General"] .dck-category-head'));
+  assert.strictEqual(await p.locator('[data-category="General"] [aria-label="Edit Beta prompt"]').count(), 1, 'drop into collapsed category expands it');
   await p.getByRole('tab', { name: /Memory/ }).click();
   await button('About Token budget').click();
   assert.ok(await p.getByText('Maximum estimated memory tokens added to one message. 0 means no limit.').isVisible());

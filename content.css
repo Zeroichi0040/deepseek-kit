@@ -381,7 +381,14 @@ html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-c
 #dck-drawer .dck-new-category { background:transparent; border:0; color:var(--k-muted); }
 #dck-drawer .dck-drag-handle { border:0; background:transparent; color:var(--k-muted); font-size:19px; cursor:grab; padding:2px; flex:none; line-height:1; }
 #dck-drawer .dck-drag-handle:active { cursor:grabbing; }
-.dck-drop-target { outline:2px solid var(--k-accent); outline-offset:-2px; }
+.dck-drop-before, .dck-drop-after, .dck-drop-append { position:relative; }
+.dck-drop-before::after, .dck-drop-after::after, .dck-drop-append::after {
+  content:''; position:absolute; left:4px; right:4px; height:3px; border-radius:2px;
+  background:var(--k-accent); pointer-events:none; z-index:1;
+}
+.dck-drop-before::after { top:-2px; }
+.dck-drop-after::after { bottom:-2px; }
+.dck-drop-append::after { bottom:0; }
 .dck-item-overlay .dck-editor { background:transparent; border:0; padding:0; gap:10px; }
 #dck-drawer .dck-item-overlay textarea { min-height:180px; }
 .dck-item-overlay .dck-actions { flex-wrap:wrap; }
