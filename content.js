@@ -747,7 +747,12 @@
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
       }
     });
-    requestAnimationFrame(() => { if (panel.isConnected) (panel.querySelector('input:not([style*="display:none"]), textarea') || panel.querySelector('button')).focus(); });
+    // Focus immediately after mounting, before the user can begin typing.
+    // Deferred focus can interrupt a later field's input and leave Save blocked by validation.
+    if (drawer.classList.contains('open')) {
+      const initial = panel.querySelector('input:not([style*="display:none"]), textarea') || panel.querySelector('button');
+      initial.focus({ preventScroll: true });
+    }
   }
   function categoryEditor(drawer) {
     const { tab, old } = ui.categoryEdit;
@@ -975,7 +980,11 @@
         h('button', {
           type: 'button', class: 'dck-btn primary',
           onclick: () => {
-            if (!key.value.trim() || !val.value.trim()) { toast('A note needs a key and a value'); return; }
+            if (!key.value.trim() || !val.value.trim()) {
+              toast('A note needs a key and a value');
+              (!key.value.trim() ? key : val).focus();
+              return;
+            }
             m.key = key.value.trim();
             m.value = val.value.trim();
             setCategory('memory', m, cat.value);

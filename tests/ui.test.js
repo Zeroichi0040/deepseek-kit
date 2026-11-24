@@ -493,13 +493,15 @@ async function boot(stored, memories) {
     a.btn('New note').click();
     a.btn('Save').click();
     assert.strictEqual((a.saved.dck_memories || []).length, 0, 'empty add is rejected');
+    assert.ok(q('.dck-item-overlay'), 'validation keeps the editor open');
     q('input[aria-label="Key"]').value = 'my city';
     q('textarea[aria-label="Value"]').value = 'Sample City';
     q('select[aria-label="Category"]').value = 'About me';
     assert.ok(Array.from(q('select[aria-label="When to include"]').options).some(o => o.value === 'first'), 'new editor offers First message');
     q('select[aria-label="When to include"]').value = 'called';
     a.btn('Save').click();
-    assert.strictEqual(JSON.stringify(a.saved.dck_memories), JSON.stringify([{ key: 'my city', value: 'Sample City', importance: 'called', category: 'About me', enabled: true }]));
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(a.saved.dck_memories)), [{ key: 'my city', value: 'Sample City', importance: 'called', category: 'About me', enabled: true }]);
+    assert.ok(!q('.dck-item-overlay'), 'saving closes the note editor');
     assert.ok(a.text().includes('my city') && a.text().includes('About me') && a.text().includes('Included when mentioned'));
     assert.ok(a.text().includes('Not mentioned'), 'status idle: ' + a.text());
     // live status follows the message box
