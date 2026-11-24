@@ -201,8 +201,12 @@
   // first message), 'budget' (would not fit), 'included'.
   // opts = { sentCount, force }: "first message" notes are only eligible when no message has been sent in this chat yet
   // (sentCount 0) or when forced (the "Insert now" button). Without opts they are never eligible.
-  // "Always" and due "first message" notes are considered before "when mentioned" ones, each in list order; a note that
-  // does not fit the token budget is skipped and smaller ones after it may still fit.
+  // Priority under a token budget, in three tiers: due "first message" notes, then "always" notes, then "when
+  // mentioned" ones. A first-message note has a single automatic chance to go out, an always note has one on every
+  // message. List order is kept inside each tier; a note that does not fit the budget is skipped and smaller ones after
+  // it may still fit.
+  // Eligible is not the same as sent: this plan says which notes would go into a context insertion. Whether one is
+  // scheduled for the next message at all is a separate question; see memoryUsage.
   function firstNoteDue(opts) {
     return !!opts && (!!opts.force || opts.sentCount === 0);
   }
@@ -214,7 +218,7 @@
     const firstDue = firstNoteDue(opts);
     const plan = list.map(() => 'idle');
     const cands = [];
-    const rank = (m) => (m.importance === 'always' || m.importance === 'first' ? 0 : 1);
+    const rank = (m) => (m.importance === 'first' ? 0 : m.importance === 'always' ? 1 : 2);
     list.forEach((m, i) => {
       if (!m || !m.key || m.enabled === false) { plan[i] = 'off'; return; }
       let match;
@@ -245,14 +249,34 @@
     return (memories || []).filter((m, i) => plan[i] === 'included');
   }
 
-  // Per-note status for the Memory tab. When memory as a whole is switched off every note shows 'paused'.
-  function memoryStatuses(settings, memories, userText, opts) {
-    const plan = memoryPlan(memories, userText, settings.memoryBudget, opts).status;
-    return settings.memoryEnabled ? plan : plan.map((st) => (st === 'off' ? 'off' : 'paused'));
+  // What the Memory tab shows for the next message.
+  // status per note: the memoryPlan statuses, except that 'included' becomes 'eligible' while no context insertion is
+  // scheduled (the note would go out with one, but nothing is due), and every note shows 'paused' (switched-off notes
+  // stay 'off') while memory, or the Kit as a whole, is switched off.
+  // tokens: what the next message will really carry. eligibleTokens: what the eligible notes would add to an insertion.
+  // They differ only while nothing is scheduled. `scheduled` says whether an insertion is due.
+  // opts = { sentCount, force } as for memoryPlan. Without a sentCount the schedule is not consulted and an insertion
+  // counts as scheduled; with force (Insert now) it always is.
+  function memoryUsage(settings, memories, userText, opts) {
+    const plan = memoryPlan(memories, userText, settings.memoryBudget, opts);
+    const live = !!settings.memoryEnabled && settings.enabled !== false;
+    const scheduled = !opts || !!opts.force || typeof opts.sentCount !== 'number' || shouldInject(settings, opts.sentCount, memories);
+    return {
+      status: plan.status.map((st) => (!live ? (st === 'off' ? 'off' : 'paused') : st === 'included' && !scheduled ? 'eligible' : st)),
+      scheduled: scheduled,
+      tokens: live && scheduled ? plan.tokens : 0,
+      eligibleTokens: live ? plan.tokens : 0,
+    };
   }
 
+  // Per-note status for the Memory tab (see memoryUsage).
+  function memoryStatuses(settings, memories, userText, opts) {
+    return memoryUsage(settings, memories, userText, opts).status;
+  }
+
+  // Tokens of memory the next message will really carry (see memoryUsage).
   function memoryTokens(settings, memories, userText, opts) {
-    return settings.memoryEnabled ? memoryPlan(memories, userText, settings.memoryBudget, opts).tokens : 0;
+    return memoryUsage(settings, memories, userText, opts).tokens;
   }
 
   // True when a "first message" note (enabled, with a key and a value) is waiting for the first message of a chat.
@@ -685,7 +709,7 @@
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     LANG_EXT, normalizeLang, langFromClass, extFor, sniffLang, previewKind, detectBlock, suggestFilename, uniqueName, crc32, makeZip,
-    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryStatuses, memoryTokens, firstNoteWaiting, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
+    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryUsage, memoryStatuses, memoryTokens, firstNoteWaiting, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   else root.DCK_LIB = core;

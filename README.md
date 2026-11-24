@@ -59,7 +59,8 @@ Create notes with a key, a value, and an optional category.
 - **First message** notes are included once, with the first message of a chat, like a prompt scheduled for the first message. They are sent even when no prompt is due, and **Insert now** includes them regardless of the chat position.
 - **When mentioned** notes are eligible when a word from their key appears in your message.
 - Disable individual notes without deleting them.
-- Set a token budget to limit how much memory can be included. Always notes and due First message notes are considered first; notes that do not fit are marked **Over budget**.
+- Set a token budget to limit how much memory can be included. Notes are considered in this order: First message notes that are due (they get only one automatic chance, so they come first), then Always notes, then When mentioned notes. Within each group they keep the order of your list, and what fits is sent in list order. Notes that do not fit are marked **Over budget**.
+- **In next message** means the note will really be sent. Memory only travels with a context insertion, so when nothing is due for the next message (no prompt is scheduled and no First message note is waiting), notes that would otherwise qualify read **Eligible, nothing due**, and the token line under the budget says that no memory is added and how many tokens are eligible. With the Kit switched off, notes read **Paused**.
 
 The token count shown in the Kit is an estimate based on characters, not an exact model tokenizer count.
 

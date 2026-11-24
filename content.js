@@ -8,8 +8,8 @@
     BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, ASK_PROMPT, askPromptText, cleanMemories, visualsPromptText, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
-    langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
-    memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
+    langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL,
+    memoryUsage, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
@@ -749,6 +749,7 @@
   // ---------- Memory tab ----------
   const STATUS_INFO = {
     included: { label: 'In next message', cls: 'on' },
+    eligible: { label: 'Eligible, nothing due', cls: '' },
     idle: { label: 'Not mentioned', cls: '' },
     later: { label: 'First message only', cls: '' },
     budget: { label: 'Over budget', cls: 'warn' },
@@ -765,16 +766,18 @@
   function updateMemoryStatus() {
     if (!ui.drawer || ui.tab !== 'memory') return;
     const text = memoryTexts();
-    const st = memoryStatuses(settings, memories, text, { sentCount: chatCount() });
+    const usage = memoryUsage(settings, memories, text, { sentCount: chatCount() });
     ui.drawer.querySelectorAll('.dck-status').forEach((n) => {
-      const info = STATUS_INFO[st[Number(n.getAttribute('data-mi'))]] || STATUS_INFO.idle;
+      const info = STATUS_INFO[usage.status[Number(n.getAttribute('data-mi'))]] || STATUS_INFO.idle;
       n.className = 'dck-status ' + info.cls;
       n.textContent = info.label;
     });
     const line = ui.drawer.querySelector('#dck-membudget');
     if (line) {
-      const used = memoryTokens(settings, memories, text, { sentCount: chatCount() });
-      line.textContent = settings.memoryBudget > 0 ? '~' + used + ' of ' + settings.memoryBudget + ' tokens in the next message' : '~' + used + ' tokens in the next message';
+      const of = settings.memoryBudget > 0 ? ' of ' + settings.memoryBudget : '';
+      line.textContent = usage.scheduled
+        ? '~' + usage.tokens + of + ' tokens in the next message'
+        : 'No memory goes into the next message (nothing is due). ~' + usage.eligibleTokens + of + ' tokens are eligible';
     }
   }
 
