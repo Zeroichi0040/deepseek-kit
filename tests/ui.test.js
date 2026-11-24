@@ -505,6 +505,19 @@ async function boot(stored, memories) {
     a.btn('Save').click();
     const m0 = a.saved.dck_memories[0];
     assert.ok(m0.key === 'home city' && m0.value === 'Example City' && m0.importance === 'always' && m0.category === 'About me', JSON.stringify(m0));
+    // first-message option: offered when adding and editing, saved, labelled, and due in a fresh chat
+    assert.ok(Array.from(q('select[aria-label="New note: when to include"]').options).some((o) => o.value === 'first' && o.textContent === 'First message'), 'add form offers First message');
+    a.btn('Edit home city').click();
+    assert.ok(Array.from(q('select[aria-label="When to include"]').options).some((o) => o.value === 'first'), 'editor offers First message');
+    q('select[aria-label="When to include"]').value = 'first';
+    a.btn('Save').click();
+    assert.strictEqual(a.saved.dck_memories[0].importance, 'first');
+    assert.ok(a.text().includes('Included with the first message'), 'row label: ' + a.text());
+    assert.ok(a.text().includes('In next message'), 'a first note is due in a new chat: ' + a.text());
+    a.btn('Edit home city').click();
+    q('select[aria-label="When to include"]').value = 'always';
+    a.btn('Save').click();
+    assert.strictEqual(a.saved.dck_memories[0].importance, 'always');
     // budget
     const bud = q('input[aria-label="Memory token budget"]');
     bud.value = '300'; bud.dispatchEvent(new a.w.Event('change', { bubbles: true }));
@@ -516,6 +529,43 @@ async function boot(stored, memories) {
     a.btn('Delete').click();
     assert.strictEqual(JSON.stringify(a.saved.dck_memories), '[]');
     console.log('ok  memory tab');
+  }
+
+  // ---------- 5b. Memory tab: eligible is not the same as in the next message ----------
+  {
+    // every built-in prompt off and no custom prompt: nothing is scheduled for the first message of a chat
+    const a = await boot({ defaultEnabled: false, visualsPrompt: false, askPrompt: false }, [
+      { key: 'my name', value: 'Ana', importance: 'always' },
+      { key: 'intro', value: 'Reply in Spanish', importance: 'first', enabled: false },
+    ]);
+    a.tab('Memory').click();
+    const q = (sel) => a.drawer.querySelector(sel);
+    const badge = (i) => q('.dck-status[data-mi="' + i + '"]').textContent;
+    const line = () => q('#dck-membudget').textContent;
+    assert.strictEqual(badge(0), 'Eligible, nothing due', 'always note with nothing due: ' + badge(0));
+    assert.strictEqual(badge(1), 'Off');
+    assert.ok(/^No memory goes into the next message \(nothing is due\)\. ~\d+ tokens are eligible$/.test(line()), line());
+    assert.ok(!a.text().includes('In next message'), 'nothing is in the next message');
+    // the same note shows as in the next message once a first-message note is switched on: the first message is now due
+    q('[aria-label="Enable intro"]').click();
+    await sleep(80);
+    assert.strictEqual(badge(0), 'In next message', 'badge: ' + badge(0));
+    assert.strictEqual(badge(1), 'In next message');
+    assert.ok(/^~\d+ tokens in the next message$/.test(line()), line());
+    // a token budget is shown against the scheduled amount
+    const bud = q('input[aria-label="Memory token budget"]');
+    bud.value = '300'; bud.dispatchEvent(new a.w.Event('change', { bubbles: true }));
+    assert.ok(/^~\d+ of 300 tokens in the next message$/.test(line()), line());
+    // switching the first-message note off again takes the first message out of the schedule
+    q('[aria-label="Enable intro"]').click();
+    await sleep(80);
+    assert.strictEqual(badge(0), 'Eligible, nothing due');
+    assert.ok(/^No memory goes into the next message \(nothing is due\)\. ~\d+ of 300 tokens are eligible$/.test(line()), line());
+    // the Kit switched off: nothing can go out, so the notes read as paused
+    a.toggle('Enable DeepSeek Kit');
+    await sleep(80);
+    assert.strictEqual(badge(0), 'Paused', 'Kit off: ' + badge(0));
+    console.log('ok  memory tab: eligible vs in next message');
   }
 
   // ---------- 6. Snippets tab + slash picker ----------

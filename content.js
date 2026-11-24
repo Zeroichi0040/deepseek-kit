@@ -8,8 +8,8 @@
     BUILTIN_DEFAULT_PROMPT, VISUALS_PROMPT, ASK_PROMPT, askPromptText, cleanMemories, visualsPromptText, VARIABLES, migrateSettings, hasLegacyKeys, tokens, applyVariables, shouldInject,
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
-    langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL, memoryStatuses,
-    memoryTokens, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
+    langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL,
+    memoryUsage, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
@@ -182,7 +182,7 @@
     if (!text.trim()) { if (force) toast('Type a message first'); return false; }
     if (alreadyHasContext(text)) { if (force) toast('Context is already in the message'); return false; }
     const count = chatCount();
-    if (!force && !shouldInject(settings, count)) return false;
+    if (!force && !shouldInject(settings, count, memories)) return false;
     const prefix = buildPrefix(settings, memories, text, count, force, ctxFor(count));
     if (!prefix) { if (force) toast('Nothing to insert - switch on a prompt or add a memory note'); return false; }
     setNativeValue(el, prefix + text);
@@ -485,7 +485,7 @@
         return;
       }
       const count = getCount(p);
-      if (!shouldInject(settings, count)) {
+      if (!shouldInject(settings, count, memories)) {
         setCount(p, count + 1);
         return;
       }
@@ -749,7 +749,9 @@
   // ---------- Memory tab ----------
   const STATUS_INFO = {
     included: { label: 'In next message', cls: 'on' },
+    eligible: { label: 'Eligible, nothing due', cls: '' },
     idle: { label: 'Not mentioned', cls: '' },
+    later: { label: 'First message only', cls: '' },
     budget: { label: 'Over budget', cls: 'warn' },
     off: { label: 'Off', cls: '' },
     paused: { label: 'Paused', cls: '' },
@@ -764,16 +766,18 @@
   function updateMemoryStatus() {
     if (!ui.drawer || ui.tab !== 'memory') return;
     const text = memoryTexts();
-    const st = memoryStatuses(settings, memories, text);
+    const usage = memoryUsage(settings, memories, text, { sentCount: chatCount() });
     ui.drawer.querySelectorAll('.dck-status').forEach((n) => {
-      const info = STATUS_INFO[st[Number(n.getAttribute('data-mi'))]] || STATUS_INFO.idle;
+      const info = STATUS_INFO[usage.status[Number(n.getAttribute('data-mi'))]] || STATUS_INFO.idle;
       n.className = 'dck-status ' + info.cls;
       n.textContent = info.label;
     });
     const line = ui.drawer.querySelector('#dck-membudget');
     if (line) {
-      const used = memoryTokens(settings, memories, text);
-      line.textContent = settings.memoryBudget > 0 ? '~' + used + ' of ' + settings.memoryBudget + ' tokens in the next message' : '~' + used + ' tokens in the next message';
+      const of = settings.memoryBudget > 0 ? ' of ' + settings.memoryBudget : '';
+      line.textContent = usage.scheduled
+        ? '~' + usage.tokens + of + ' tokens in the next message'
+        : 'No memory goes into the next message (nothing is due). ~' + usage.eligibleTokens + of + ' tokens are eligible';
     }
   }
 
@@ -784,7 +788,7 @@
       h('div', { class: 'dck-grow' },
         h('div', { class: 'dck-name' }, m.key, h('span', { class: 'dck-status ' + info.cls, 'data-mi': String(index) }, info.label)),
         h('div', { class: 'dck-sub clip' }, m.value),
-        h('div', { class: 'dck-sub' }, m.importance === 'always' ? 'Always included' : 'Included when mentioned')),
+        h('div', { class: 'dck-sub' }, m.importance === 'always' ? 'Always included' : m.importance === 'first' ? 'Included with the first message' : 'Included when mentioned')),
       iconBtn('edit', 'Edit ' + m.key, () => { ui.editingMemory = index; render(); }));
   }
 
@@ -794,7 +798,8 @@
     const cat = h('input', { value: String(m.category || ''), placeholder: 'Category (optional)', 'aria-label': 'Category', list: 'dck-cats' });
     const imp = h('select', { 'aria-label': 'When to include' },
       h('option', { value: 'always', selected: m.importance === 'always' }, 'Always'),
-      h('option', { value: 'called', selected: m.importance !== 'always' }, 'When mentioned'));
+      h('option', { value: 'first', selected: m.importance === 'first' }, 'First message'),
+      h('option', { value: 'called', selected: m.importance !== 'always' && m.importance !== 'first' }, 'When mentioned'));
     return h('div', { class: 'dck-card dck-editor active' },
       key, val, cat, imp,
       h('div', { class: 'dck-actions' },
@@ -844,6 +849,7 @@
     const cat = h('input', { placeholder: 'Category (optional)', 'aria-label': 'New note category', list: 'dck-cats' });
     const imp = h('select', { 'aria-label': 'New note: when to include' },
       h('option', { value: 'always' }, 'Always'),
+      h('option', { value: 'first' }, 'First message'),
       h('option', { value: 'called' }, 'When mentioned'));
     body.append(h('div', { class: 'dck-card dashed-card' },
       h('div', { class: 'dck-two' }, key, val),
@@ -1129,7 +1135,7 @@
     const el = getComposer();
     const text = el ? stripContext(el.value) : '';
     const count = chatCount();
-    const due = shouldInject(settings, count);
+    const due = shouldInject(settings, count, memories);
     return { due: due, text: buildPrefix(settings, memories, text, count, !due, ctxFor(count)) };
   }
 

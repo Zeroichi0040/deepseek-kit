@@ -197,6 +197,111 @@ assert.strictEqual(sum.memories, 3);
 assert.strictEqual(sum.skipped, 1);
 assert.strictEqual(c.describeSummary(sum), 'Next message includes A + 3 memories (1 over budget)');
 assert.strictEqual(c.summarize({ ...budgetSettings, memoryBudget: 0 }, notes, 'which editor', 0).skipped, 0);
+// "first message" notes: only with the first message of a chat (or when forced), ahead of "when mentioned" ones
+const firstNotes = [
+  { key: 'mentioned note', value: 'v', importance: 'called' },
+  { key: 'intro note', value: 'v', importance: 'first' },
+  { key: 'off note', value: 'v', importance: 'first', enabled: false },
+];
+assert.deepStrictEqual(c.memoryPlan(firstNotes, 'mentioned note', 0, { sentCount: 0 }).status, ['included', 'included', 'off'], 'due on the first message');
+assert.deepStrictEqual(c.memoryPlan(firstNotes, 'mentioned note', 0, { sentCount: 1 }).status, ['included', 'later', 'off'], 'not due after the first message');
+assert.deepStrictEqual(c.memoryPlan(firstNotes, 'hello', 0, { sentCount: 3, force: true }).status, ['idle', 'included', 'off'], 'forced (Insert now) ignores the schedule');
+assert.deepStrictEqual(c.memoryPlan(firstNotes, 'hello', 0).status, ['idle', 'later', 'off'], 'without a chat position a first note is not due');
+assert.deepStrictEqual(c.selectMemories(firstNotes, 'hello', 0, { sentCount: 0 }).map((m) => m.key), ['intro note']);
+assert.deepStrictEqual(c.selectMemories(firstNotes, 'hello', 0, { sentCount: 2 }).map((m) => m.key), []);
+assert.deepStrictEqual(c.memoryPlan(firstNotes, 'mentioned note', 13, { sentCount: 0 }).status, ['budget', 'included', 'off'], 'first beats mentioned');
+{
+  // Budget priority has three tiers: due first-message notes, then always notes, then mentioned ones. List order is kept
+  // inside each tier, and the notes that fit still go out in list order.
+  const hdr = c.estimateTokens('Things to remember about me:\n');
+  const cost = (k) => c.estimateTokens(c.memoryLine({ key: k, value: 'v' }) + '\n');
+  const tiers = [
+    { key: 'a1', value: 'v', importance: 'always' },
+    { key: 'f1', value: 'v', importance: 'first' },
+    { key: 'f2', value: 'v', importance: 'first' },
+    { key: 'a2', value: 'v', importance: 'always' },
+    { key: 'm1', value: 'v', importance: 'called' },
+  ];
+  const at0 = { sentCount: 0 };
+  const status = (budget, opts) => c.memoryPlan(tiers, 'm1', budget, opts).status;
+  assert.deepStrictEqual(status(hdr + cost('f1') + cost('f2'), at0), ['budget', 'included', 'included', 'budget', 'budget'], 'room for the two first-message notes only');
+  assert.deepStrictEqual(status(hdr + cost('f1'), at0), ['budget', 'included', 'budget', 'budget', 'budget'], 'room for one: the first first-message note in list order');
+  assert.deepStrictEqual(status(hdr + cost('f1') + cost('f2') + cost('a1'), at0), ['included', 'included', 'included', 'budget', 'budget'], 'then always notes, earliest first');
+  assert.deepStrictEqual(status(hdr + cost('f1') + cost('f2') + cost('a1') + cost('a2'), at0), ['included', 'included', 'included', 'included', 'budget'], 'mentioned notes come last');
+  assert.deepStrictEqual(status(0, at0), ['included', 'included', 'included', 'included', 'included'], 'no budget: everything');
+  assert.deepStrictEqual(c.selectMemories(tiers, 'm1', hdr + cost('f1') + cost('f2') + cost('a1'), at0).map((m) => m.key), ['a1', 'f1', 'f2'], 'what fits is sent in list order');
+  // after the first message the first-message notes are out of the competition and the always notes lead
+  assert.deepStrictEqual(status(hdr + cost('a1'), { sentCount: 1 }), ['included', 'later', 'later', 'budget', 'budget']);
+  assert.deepStrictEqual(status(hdr + cost('a1') + cost('a2'), { sentCount: 1 }), ['included', 'later', 'later', 'included', 'budget']);
+  // a first-message note later in the list beats an always note earlier in it
+  const two = [{ key: 'a1', value: 'v', importance: 'always' }, { key: 'f1', value: 'v', importance: 'first' }];
+  assert.deepStrictEqual(c.memoryPlan(two, 'x', hdr + cost('f1'), at0).status, ['budget', 'included']);
+  // Insert now (force) makes every first-message note due, and they keep the top priority
+  assert.deepStrictEqual(c.memoryPlan(two, 'x', hdr + cost('f1'), { sentCount: 5, force: true }).status, ['budget', 'included']);
+  // the same order shows in the text that is sent
+  const tierSettings = { enabled: true, memoryEnabled: true, memoryBudget: hdr + cost('f1') + cost('f2') + cost('a1'), defaultEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [] };
+  p = c.buildPrefix(tierSettings, tiers, 'm1', 0);
+  assert.ok(p.indexOf('- a1: v') < p.indexOf('- f1: v') && p.indexOf('- f1: v') < p.indexOf('- f2: v') && !p.includes('a2') && !p.includes('m1'), p);
+}
+{
+  // with no prompt due, a first-message note still makes the first message of a chat go out with context
+  const noPrompts = { enabled: true, memoryEnabled: true, memoryBudget: 0, defaultEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [] };
+  assert.ok(c.shouldInject(noPrompts, 0, firstNotes), 'a first-message note makes the first message due');
+  assert.ok(!c.shouldInject(noPrompts, 1, firstNotes), 'but not later messages');
+  assert.ok(!c.shouldInject(noPrompts, 0), 'without the notes list nothing is known to be waiting');
+  assert.ok(!c.shouldInject(noPrompts, 0, [{ key: 'k', value: 'v', importance: 'always' }]), 'an always note alone does not trigger an insert');
+  assert.ok(!c.shouldInject(noPrompts, 0, [{ key: 'k', value: '', importance: 'first' }]), 'an empty note does not');
+  assert.ok(!c.shouldInject(noPrompts, 0, [{ key: 'k', value: 'v', importance: 'first', enabled: false }]), 'a switched-off note does not');
+  assert.ok(!c.shouldInject({ ...noPrompts, memoryEnabled: false }, 0, firstNotes), 'memory off: nothing waits');
+  assert.ok(!c.shouldInject({ ...noPrompts, enabled: false }, 0, firstNotes), 'Kit off: nothing waits');
+  p = c.buildPrefix(noPrompts, firstNotes, 'hello', 0);
+  assert.ok(p.includes('intro note: v') && !p.includes('mentioned note') && !p.includes('off note'), p);
+  assert.strictEqual(c.buildPrefix(noPrompts, firstNotes, 'hello', 1), '', 'nothing on later messages');
+  assert.ok(c.buildPrefix(noPrompts, firstNotes, 'hello', 4, true).includes('intro note: v'), 'Insert now includes it');
+  sum = c.summarize(noPrompts, firstNotes, 'hello', 0);
+  assert.strictEqual(sum.state, 'ready'); assert.strictEqual(sum.memories, 1);
+  assert.strictEqual(c.describeSummary(sum), 'Next message includes 1 memory');
+  assert.strictEqual(c.summarize(noPrompts, firstNotes, 'hello', 1).state, 'idle');
+
+  // Memory tab: eligible is not the same as sent. A note that would go out with an insertion shows 'included' only while
+  // one is scheduled for the next message; otherwise it is 'eligible' and carries no tokens.
+  let u = c.memoryUsage(noPrompts, firstNotes, 'hello', { sentCount: 0 });
+  assert.deepStrictEqual(u.status, ['idle', 'included', 'off']);
+  assert.strictEqual(u.scheduled, true);
+  assert.ok(u.tokens > 0 && u.tokens === u.eligibleTokens, 'first message: what is eligible is what is sent');
+  u = c.memoryUsage(noPrompts, firstNotes, 'mentioned note', { sentCount: 1 });
+  assert.deepStrictEqual(u.status, ['eligible', 'later', 'off'], 'no prompt and no first note due: mentioned note only eligible');
+  assert.strictEqual(u.scheduled, false);
+  assert.strictEqual(u.tokens, 0, 'nothing is sent');
+  assert.ok(u.eligibleTokens > 0, 'but the eligible notes are counted separately');
+  assert.strictEqual(c.memoryTokens(noPrompts, firstNotes, 'mentioned note', { sentCount: 1 }), 0);
+  assert.deepStrictEqual(c.memoryStatuses(noPrompts, firstNotes, 'mentioned note', { sentCount: 1 }), ['eligible', 'later', 'off']);
+  // the same message with a prompt due is scheduled, so the note really goes out
+  const withPrompt = { ...noPrompts, prompts: [{ id: 'p', name: 'P', text: 't', enabled: true, schedule: 'always' }] };
+  u = c.memoryUsage(withPrompt, firstNotes, 'mentioned note', { sentCount: 1 });
+  assert.deepStrictEqual(u.status, ['included', 'later', 'off']);
+  assert.ok(u.scheduled && u.tokens > 0 && u.tokens === u.eligibleTokens);
+  assert.ok(c.buildPrefix(withPrompt, firstNotes, 'mentioned note', 1).includes('mentioned note: v'), 'and the prefix agrees with the badge');
+  assert.ok(!c.shouldInject(noPrompts, 1, firstNotes), 'while with nothing due the Enter handler adds nothing, as the badge says');
+  assert.ok(c.shouldInject(withPrompt, 1, firstNotes), 'and with a prompt due it does');
+  // a prompt on every N messages: scheduled only on its messages
+  const every = { ...noPrompts, prompts: [{ id: 'e', name: 'E', text: 't', enabled: true, schedule: 'every', everyN: 3 }] };
+  assert.deepStrictEqual(c.memoryStatuses(every, firstNotes, 'mentioned note', { sentCount: 2 }), ['eligible', 'later', 'off']);
+  assert.deepStrictEqual(c.memoryStatuses(every, firstNotes, 'mentioned note', { sentCount: 3 }), ['included', 'later', 'off']);
+  // Insert now is always scheduled and includes the first-message notes
+  u = c.memoryUsage(noPrompts, firstNotes, 'hello', { sentCount: 4, force: true });
+  assert.deepStrictEqual(u.status, ['idle', 'included', 'off']);
+  assert.ok(u.scheduled && u.tokens > 0);
+  // without a chat position the schedule is not consulted (the old behaviour)
+  assert.deepStrictEqual(c.memoryStatuses({ memoryEnabled: true, memoryBudget: 0 }, notes, 'hello'), ['included', 'idle', 'included', 'off', 'included']);
+  // memory or the Kit switched off: everything shows paused and nothing is counted
+  u = c.memoryUsage({ ...noPrompts, memoryEnabled: false }, firstNotes, 'hello', { sentCount: 0 });
+  assert.deepStrictEqual(u.status, ['paused', 'paused', 'off']); assert.strictEqual(u.tokens, 0); assert.strictEqual(u.eligibleTokens, 0);
+  u = c.memoryUsage({ ...noPrompts, enabled: false }, firstNotes, 'hello', { sentCount: 0 });
+  assert.deepStrictEqual(u.status, ['paused', 'paused', 'off']); assert.strictEqual(u.tokens, 0);
+  // a budget still marks what does not fit, scheduled or not
+  assert.deepStrictEqual(c.memoryStatuses({ ...noPrompts, memoryBudget: 1 }, firstNotes, 'mentioned note', { sentCount: 1 }), ['budget', 'later', 'off']);
+}
 // categories
 const groups = c.groupMemories(notes);
 assert.deepStrictEqual(groups.map((g) => g.category), ['General', 'Personal', 'work']);
@@ -378,6 +483,7 @@ console.log('all logic tests passed');
   assert.strictEqual(m.length, 2);
   assert.strictEqual(m[0].key, '5'); assert.strictEqual(m[0].value, ''); assert.strictEqual(m[0].importance, 'called'); assert.strictEqual(m[0].enabled, true);
   assert.strictEqual(m[1].importance, 'always');
+  assert.strictEqual(c.cleanMemories([{ key: 'a', value: 'b', importance: 'first' }])[0].importance, 'first', 'first-message notes survive cleaning');
   assert.deepStrictEqual(c.cleanMemories('nope'), []);
   assert.ok(!('polluted' in {}), 'no prototype pollution');
   c.cleanMemories(JSON.parse('[{"__proto__":{"polluted":1},"key":"a"}]'));

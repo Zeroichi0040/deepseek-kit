@@ -12,7 +12,7 @@ DeepSeek Kit is an independent, community-made browser extension. It is not affi
 | Area | What you get |
 | --- | --- |
 | **Prompts** | A built-in baseline prompt plus as many custom prompts as you want. Schedule each for the first message, every *N* messages, or every message. |
-| **Memory** | Small notes that are always included or included when a matching key is mentioned. Group notes by category and set a per-message token budget. |
+| **Memory** | Small notes that are always included, included with the first message of a chat, or included when a matching key is mentioned. Group notes by category and set a per-message token budget. |
 | **Snippets** | Reusable text with slash-command autocomplete. Type `/` in the composer to search, navigate, and insert a snippet. |
 | **Context controls** | See what will be added to your next message, preview it, or insert it immediately. Choose whether inserted context stays visible for review or is hidden and sent automatically. |
 | **Code blocks** | Collapse long blocks (or every block), show line numbers, preview Markdown, and collect multiple code blocks into a ZIP. |
@@ -56,9 +56,11 @@ Prompts that are due are combined in the same context block. **Insert now** igno
 Create notes with a key, a value, and an optional category.
 
 - **Always** notes are eligible for every context insertion.
+- **First message** notes are included once, with the first message of a chat, like a prompt scheduled for the first message. They are sent even when no prompt is due, and **Insert now** includes them regardless of the chat position.
 - **When mentioned** notes are eligible when a word from their key appears in your message.
 - Disable individual notes without deleting them.
-- Set a token budget to limit how much memory can be included. Always notes are considered first; notes that do not fit are marked **Over budget**.
+- Set a token budget to limit how much memory can be included. Notes are considered in this order: First message notes that are due (they get only one automatic chance, so they come first), then Always notes, then When mentioned notes. Within each group they keep the order of your list, and what fits is sent in list order. Notes that do not fit are marked **Over budget**.
+- **In next message** means the note will really be sent. Memory only travels with a context insertion, so when nothing is due for the next message (no prompt is scheduled and no First message note is waiting), notes that would otherwise qualify read **Eligible, nothing due**, and the token line under the budget says that no memory is added and how many tokens are eligible. With the Kit switched off, notes read **Paused**.
 
 The token count shown in the Kit is an estimate based on characters, not an exact model tokenizer count.
 

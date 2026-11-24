@@ -908,6 +908,148 @@ async function twoTabs() {
   await ctx.close();
 }
 
+// ---------- First message memory notes: what really goes out, with every prompt switched off
+// The mocked chat page behaves like the site for sending: Enter records the box's text in window.__sent and clears the box,
+// and a message sent from the new-chat screen moves the page to a chat address, as the real site does.
+async function firstMessageMemory() {
+  const ctx = await launch(1000, 900);
+  const MARK = '[DeepSeek Kit]';
+  const PAGE = '<body><textarea></textarea><script>'
+    + 'window.__sent = [];'
+    + 'const ta = document.querySelector("textarea");'
+    + 'ta.addEventListener("keydown", (e) => {'
+    + ' if (e.key !== "Enter" || e.shiftKey) return;'
+    + ' e.preventDefault();'
+    + ' if (!ta.value.trim()) return;'
+    + ' window.__sent.push(ta.value);'
+    + ' Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(ta, "");'
+    + ' ta.dispatchEvent(new Event("input", { bubbles: true }));'
+    + ' if (location.pathname === "/") history.pushState({}, "", "/a/chat/s/" + Date.now());'
+    + '});'
+    + '</script></body>';
+  const HOME = 'https://chat.deepseek.com/';
+  const sentCount = (p) => p.evaluate(() => window.__sent.length);
+  const strip = (p) => p.evaluate(() => document.getElementById('dck-strip').textContent);
+  const waitStrip = (p, re) => p.waitForFunction((src) => new RegExp(src).test(document.getElementById('dck-strip').textContent), re.source, { timeout: 4000 });
+  const tab = (p, name) => p.locator('[role=tab]:has-text("' + name + '")').click();
+  const setMode = async (p, visible) => {
+    await p.click('#dck-fab');
+    await p.click('#dck-drawer .dck-seg:has-text("' + (visible ? 'Visible' : 'Hidden') + '")');
+    await close(p);
+  };
+  // Types a message and presses Enter. In Visible mode a due context lands in the box first and a second Enter sends it.
+  // Returns the text the page received.
+  const send = async (p, text, visible, expectContext) => {
+    const before = await sentCount(p);
+    await p.locator('textarea').click();
+    await p.keyboard.type(text);
+    await p.keyboard.press('Enter');
+    if (visible) {
+      await p.waitForTimeout(250);
+      const box = await p.locator('textarea').inputValue();
+      if (expectContext) {
+        assert.ok(box.startsWith(MARK) && box.endsWith(text), 'Visible mode puts the context in the box for review: ' + box);
+        assert.strictEqual(await sentCount(p), before, 'Visible mode does not send until you press Enter again');
+        await p.keyboard.press('Enter');
+      } else {
+        assert.strictEqual(box, '', 'nothing is due, so the first Enter sends');
+      }
+    }
+    await p.waitForFunction((n) => window.__sent.length > n, before, { timeout: 6000 });
+    return (await p.evaluate(() => window.__sent))[before];
+  };
+  const withNotes = (t, label) => {
+    assert.ok(t.startsWith(MARK) && t.includes('[End of Instructions]'), label + ': wrapped context: ' + t);
+    assert.ok(t.includes('- intro note: Reply in Spanish') && t.includes('- my name: Ana'), label + ': both notes: ' + t);
+    assert.ok(!t.includes('Instructions (') , label + ': no prompt is part of it: ' + t);
+  };
+  const plain = (t, text, label) => assert.strictEqual(t, text, label + ': no context: ' + t);
+
+  // ----- set up: every built-in prompt off, so no prompt is ever due
+  const p0 = await open(ctx, PAGE, HOME);
+  await p0.click('#dck-fab');
+  for (const name of ['Default', 'Visuals', 'Questions']) await p0.locator('input[aria-label="Enable ' + name + ' prompt"]').evaluate((el) => el.click());
+  await close(p0);
+  await waitStrip(p0, /Nothing is due/);
+  plain(await send(p0, 'plain', false, false), 'plain', 'control, before any note exists');
+  ok('first-message memory: with every prompt off and no notes nothing is added (control)');
+
+  // ----- one First message note and one Always note
+  await p0.click('#dck-fab');
+  await tab(p0, 'Memory');
+  const addNote = async (key, value, when) => {
+    await p0.fill('[aria-label="New note key"]', key);
+    await p0.fill('[aria-label="New note value"]', value);
+    await p0.selectOption('[aria-label="New note: when to include"]', when);
+    await p0.locator('.dck-btn.primary:has-text("Add")').click();
+  };
+  await addNote('intro note', 'Reply in Spanish', 'first');
+  await addNote('my name', 'Ana', 'always');
+  await close(p0);
+  await p0.close();
+
+  for (const visible of [false, true]) {
+    const mode = visible ? 'Visible' : 'Hidden';
+    const p = await open(ctx, PAGE, HOME);
+    await setMode(p, visible);
+    await waitStrip(p, /2 memories/); // the new-chat screen: the first message is due although no prompt is
+
+    // First message, no prompt due: the notes go out
+    withNotes(await send(p, 'first question', visible, true), mode + ' first message');
+    ok('first-message memory (' + mode + '): the first message carries the notes with every prompt off');
+
+    // The page moves to the chat address; the count is carried over
+    await p.waitForFunction(() => location.pathname.indexOf('/a/chat/s/') === 0);
+    await p.waitForTimeout(800);
+    await waitStrip(p, /Nothing is due/);
+    plain(await send(p, 'second question', visible, false), 'second question', mode + ' second message');
+    ok('first-message memory (' + mode + '): the second message carries nothing, not even the Always note');
+
+    // Insert now overrides the schedule, in the middle of the chat
+    await p.locator('textarea').click();
+    await p.keyboard.type('third question');
+    await p.click('#dck-fab');
+    await p.click('#dck-drawer .dck-foot .dck-btn.primary:has-text("Insert now")');
+    const box = await p.locator('textarea').inputValue();
+    withNotes(box, mode + ' Insert now (box)');
+    assert.ok(box.endsWith('third question'), 'your text stays after the context');
+    await close(p);
+    await p.locator('textarea').press('Enter');
+    await p.waitForFunction(() => window.__sent.length >= 3, null, { timeout: 6000 });
+    const third = (await p.evaluate(() => window.__sent))[2];
+    withNotes(third, mode + ' Insert now (sent)');
+    assert.strictEqual(third.split(MARK).length - 1, 1, 'the context is in the message once');
+    ok('first-message memory (' + mode + '): Insert now adds the notes mid-chat, once, and Enter sends them');
+
+    // Back to a new chat: the first message is due again
+    await p.evaluate(() => history.pushState({}, '', '/'));
+    await p.waitForTimeout(800);
+    await waitStrip(p, /2 memories/);
+    withNotes(await send(p, 'new chat question', visible, true), mode + ' new chat');
+    ok('first-message memory (' + mode + '): a new chat gets the notes again');
+
+    // Reload the chat that new-chat message created: an existing chat is never "first message" again
+    await p.waitForFunction(() => location.pathname.indexOf('/a/chat/s/') === 0);
+    await p.waitForTimeout(800);
+    await p.reload();
+    await p.waitForSelector('#dck-fab');
+    await waitStrip(p, /Nothing is due/);
+    plain(await send(p, 'after reload', visible, false), 'after reload', mode + ' after reload');
+    ok('first-message memory (' + mode + '): reloading an existing chat does not send the notes again');
+    assert.deepStrictEqual(p.errs, [], 'no page errors');
+    await p.close();
+
+    // A chat this profile has no record of (opened from history) counts as started
+    const old = await open(ctx, PAGE, 'https://chat.deepseek.com/a/chat/s/never-seen-' + mode.toLowerCase());
+    await waitStrip(old, /Nothing is due/);
+    plain(await send(old, 'old chat', visible, false), 'old chat', mode + ' unknown existing chat');
+    ok('first-message memory (' + mode + '): an existing chat opened for the first time gets nothing');
+    assert.deepStrictEqual(old.errs, [], 'no page errors');
+    await old.close();
+  }
+  await ctx.close();
+}
+
 // ---------- a new profile has no snippets: the slash picker stays closed
 async function noStarters() {
   const ctx = await launch(1000, 900);
@@ -1122,6 +1264,7 @@ async function collapseRecovery() {
     await fold();
     await thinkTimer();
     await twoTabs();
+    await firstMessageMemory();
     await noStarters();
     await settingsInfo();
   } catch (e) {
