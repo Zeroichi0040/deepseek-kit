@@ -718,7 +718,7 @@
   function categorySection(tab, name, rows, opts = {}) {
     const open = opts.forceOpen || !org(tab).collapsed.includes(name);
     const head = h('div', { class: 'dck-category-head' },
-      h('button', { type: 'button', class: 'dck-category-toggle', 'aria-expanded': String(!!open), 'aria-label': name + ' category',
+      h('button', { type: 'button', class: 'dck-category-toggle', 'aria-expanded': String(!!open), 'aria-label': name + ' category', disabled: !!opts.forceOpen,
         onclick: () => {
           const list = org(tab).collapsed;
           org(tab).collapsed = list.includes(name) ? list.filter(n => n !== name) : [...list, name];
@@ -742,6 +742,7 @@
       if (e.key === 'Tab') {
         const controls = Array.from(panel.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])')).filter(el => el.getClientRects().length);
         const first = controls[0], last = controls[controls.length - 1];
+        if (!first || !last) return;
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
       }
@@ -976,7 +977,7 @@
 
   function renderMemory(body) {
     body.append(toggleCard('Use memory', null, settings.memoryEnabled, (v) => { settings.memoryEnabled = v; commit(); }));
-    const budget = h('input', { type: 'number', min: 0, step: 50, value: settings.memoryBudget || 0, 'aria-label': 'Token budget', class: 'dck-budgetin' });
+    const budget = h('input', { type: 'number', min: 0, step: 50, value: settings.memoryBudget || 0, 'aria-label': 'Memory token budget', class: 'dck-budgetin' });
     budget.addEventListener('change', () => {
       settings.memoryBudget = Math.max(0, parseInt(budget.value, 10) || 0);
       budget.value = settings.memoryBudget;
@@ -989,6 +990,7 @@
       const rows = memories.map((m, index) => ({m, index})).filter(x => itemCategory('memory', x.m) === name).map(x => memoryRow(x.m, x.index));
       body.append(categorySection('memory', name, rows, { protected: name === GENERAL }));
     }
+    if (!memories.length) body.append(h('div', { class: 'dck-hint' }, 'No notes yet.'));
     body.append(newButton('New note', () => { ui.editingMemory = NEW_ITEM; render(); }), categoryButton('memory'));
     updateMemoryStatus();
   }
@@ -2104,6 +2106,7 @@
     ui.drawer = drawer;
     const fab = h('button', { id: 'dck-fab', type: 'button', title: 'Open Kit (drag to move)', onclick: () => {
       if (fabDrag.moved) { fabDrag.moved = false; return; }
+      if (drawer.querySelector('.dck-item-overlay')) { drawer.classList.toggle('open'); return; }
       ui.preview = null; render(); drawer.classList.toggle('open');
     } }, 'Kit');
     document.body.append(fab, drawer);

@@ -912,6 +912,10 @@ async function drawerOrganization() {
   assert.strictEqual(await p.locator('[aria-label="Edit Beta prompt"]').count(), 0);
   await button('Writing category').click();
   assert.deepStrictEqual(await names(), ['Beta', 'Alpha']);
+  await button('Preview').click();
+  const prefix = await p.locator('.dck-preview .dck-pre').textContent();
+  assert.ok(prefix.indexOf('Alpha content') >= 0 && prefix.indexOf('Alpha content') < prefix.indexOf('Beta content'), 'visual order must not alter injection order');
+  await button('Close preview').click();
   await p.locator('[aria-label="Reorder Beta prompt"]').dragTo(p.locator('[data-category="General"] .dck-category-head'));
   assert.strictEqual(await p.locator('[data-category="General"] [aria-label="Edit Beta prompt"]').count(), 1);
   await p.getByRole('tab', { name: /Memory/ }).click();
@@ -933,6 +937,14 @@ async function drawerOrganization() {
   await button('Tools category').click();
   await p.fill('[aria-label="Search snippets"]', 'example');
   assert.ok(await button('Edit /example').isVisible());
+  await p.fill('[aria-label="Search snippets"]', '');
+  assert.strictEqual(await button('Edit /example').count(), 0, 'search preserves collapsed state');
+  await p.getByRole('tab', { name: /Prompts/ }).click();
+  await button('Manage Writing category').click();
+  p.once('dialog', d => d.accept());
+  await dialog('Manage category').getByRole('button', { name: 'Delete' }).click();
+  assert.strictEqual(await p.locator('[data-category="Writing"]').count(), 0);
+  assert.strictEqual(await p.locator('[data-category="General"] [aria-label="Edit Alpha prompt"]').count(), 1);
   await ctx.close();
   ok('drawer organization: categories, editors, reorder, drag, collapse and search');
 }
