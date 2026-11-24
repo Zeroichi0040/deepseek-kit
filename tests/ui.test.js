@@ -66,7 +66,7 @@ async function boot(stored, memories) {
     a.doc.getElementById('dck-fab').click();
     assert.ok(a.drawer.classList.contains('open'));
     const t = a.text();
-    ['DeepSeek Kit', 'Context in chat', 'Visible', 'Hidden', 'Prompts', 'Memory', 'Snippets', 'Settings', 'Built-in', 'Yours', 'Custom prompt', 'New prompt', 'Insert now', 'Preview'].forEach((s) => assert.ok(t.includes(s), 'drawer shows ' + s));
+    ['DeepSeek Kit', 'Context in chat', 'Visible', 'Hidden', 'Prompts', 'Memory', 'Snippets', 'Settings', 'Built-in', 'General', 'Custom prompt', 'New prompt', 'Insert now', 'Preview'].forEach((s) => assert.ok(t.includes(s), 'drawer shows ' + s));
     assert.ok(a.tab('Prompts').getAttribute('aria-selected') === 'true');
     assert.ok(!t.includes('Multi-system'), 'multi-prompt switch is gone');
     console.log('ok  migration + drawer shell');
@@ -451,9 +451,16 @@ async function boot(stored, memories) {
     a.btn('Save').click();
     assert.strictEqual(a.saved.dck_settings.prompts[0].name, 'Short');
     assert.strictEqual(a.saved.dck_settings.prompts[0].text, 'Be very brief');
-    // new prompt, then delete it
+    // Cancel must not create an entry; save creates one, and it can be deleted.
     a.btn('New prompt').click();
+    assert.strictEqual(a.saved.dck_settings.prompts.length, 1);
+    a.btn('Cancel').click();
+    assert.strictEqual(a.saved.dck_settings.prompts.length, 1);
+    a.btn('New prompt').click();
+    a.drawer.querySelector('input[aria-label="Prompt name"]').value = 'Temporary';
+    a.btn('Save').click();
     assert.strictEqual(a.saved.dck_settings.prompts.length, 2);
+    a.btn('Edit Temporary prompt').click();
     a.btn('Delete').click();
     assert.strictEqual(a.saved.dck_settings.prompts.length, 1);
     // built-in default: edit then reset
@@ -477,14 +484,24 @@ async function boot(stored, memories) {
     a.tab('Memory').click();
     assert.ok(a.text().includes('Use memory') && a.text().includes('No notes yet') && a.text().includes('Token budget'));
     const q = (sel) => a.drawer.querySelector(sel);
-    a.btn('Add').click();
+    assert.ok(!a.text().includes('Notes are added whenever context is inserted'));
+    a.btn('About Token budget').click();
+    assert.ok(a.text().includes('0 means no limit'));
+    a.btn('New category').click();
+    q('input[aria-label="Category name"]').value = 'About me';
+    a.btn('Save').click();
+    a.btn('New note').click();
+    a.btn('Save').click();
     assert.strictEqual((a.saved.dck_memories || []).length, 0, 'empty add is rejected');
-    q('input[aria-label="New note key"]').value = 'my city';
-    q('input[aria-label="New note value"]').value = 'Sample City';
-    q('input[aria-label="New note category"]').value = 'About me';
-    q('select[aria-label="New note: when to include"]').value = 'called';
-    a.btn('Add').click();
-    assert.strictEqual(JSON.stringify(a.saved.dck_memories), JSON.stringify([{ key: 'my city', value: 'Sample City', importance: 'called', category: 'About me', enabled: true }]));
+    assert.ok(q('.dck-item-overlay'), 'validation keeps the editor open');
+    q('input[aria-label="Key"]').value = 'my city';
+    q('textarea[aria-label="Value"]').value = 'Sample City';
+    q('select[aria-label="Category"]').value = 'About me';
+    assert.ok(Array.from(q('select[aria-label="When to include"]').options).some(o => o.value === 'first'), 'new editor offers First message');
+    q('select[aria-label="When to include"]').value = 'called';
+    a.btn('Save').click();
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(a.saved.dck_memories)), [{ key: 'my city', value: 'Sample City', importance: 'called', category: 'About me', enabled: true }]);
+    assert.ok(!q('.dck-item-overlay'), 'saving closes the note editor');
     assert.ok(a.text().includes('my city') && a.text().includes('About me') && a.text().includes('Included when mentioned'));
     assert.ok(a.text().includes('Not mentioned'), 'status idle: ' + a.text());
     // live status follows the message box
@@ -506,7 +523,6 @@ async function boot(stored, memories) {
     const m0 = a.saved.dck_memories[0];
     assert.ok(m0.key === 'home city' && m0.value === 'Example City' && m0.importance === 'always' && m0.category === 'About me', JSON.stringify(m0));
     // first-message option: offered when adding and editing, saved, labelled, and due in a fresh chat
-    assert.ok(Array.from(q('select[aria-label="New note: when to include"]').options).some((o) => o.value === 'first' && o.textContent === 'First message'), 'add form offers First message');
     a.btn('Edit home city').click();
     assert.ok(Array.from(q('select[aria-label="When to include"]').options).some((o) => o.value === 'first'), 'editor offers First message');
     q('select[aria-label="When to include"]').value = 'first';
@@ -582,7 +598,9 @@ async function boot(stored, memories) {
     a.drawer.querySelector('.dck-search').dispatchEvent(new a.w.Event('input', { bubbles: true }));
     // new snippet
     a.btn('New snippet').click();
-    assert.strictEqual(a.saved.dck_settings.snippets.length, 3);
+    a.btn('Cancel').click();
+    a.btn('New snippet').click();
+    assert.ok(!a.saved.dck_settings || a.saved.dck_settings.snippets.length === 2, 'creation is deferred until Save');
     const nm = a.drawer.querySelector('input[aria-label="Snippet name"]');
     const tx = a.drawer.querySelector('textarea[aria-label="Snippet text"]');
     nm.value = 'Commit Message'; tx.value = 'Write a commit message for: ';
@@ -594,6 +612,7 @@ async function boot(stored, memories) {
     Array.from(a.drawer.querySelectorAll('.dck-vchip')).find((b) => b.textContent === '{{selection}}').click();
     assert.strictEqual(tx.value, 'Write a commit message for: {{selection}}');
     a.btn('Save').click();
+    assert.strictEqual(a.saved.dck_settings.snippets.length, 3);
     const saved = a.saved.dck_settings.snippets[0];
     assert.strictEqual(saved.name, 'commit-message');
     assert.strictEqual(saved.text, 'Write a commit message for: {{selection}}');

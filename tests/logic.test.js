@@ -568,3 +568,17 @@ console.log('ok  list continuation');
   assert.deepStrictEqual([-5, NaN, undefined].map(f), ['0s', '0s', '0s']);
 }
 console.log('ok  reasoning timer format');
+
+// Drawer metadata round-trips and remains separate from context generation.
+{
+  const raw = { prompts: [{ id: 'a', name: 'Alpha', text: 'A' }, { id: 'b', name: 'Beta', text: 'B', category: 'Writing' }],
+    snippets: [{ id: 's', name: 'example', text: 'Example', category: 'Tools' }],
+    drawerOrganization: { prompts: { categories: ['Writing', 'Writing', null], collapsed: ['Built-in'], order: ['b', 'a'] }, memory: null } };
+  const saved = c.migrateSettings(raw);
+  assert.deepStrictEqual(saved.drawerOrganization.prompts, { categories: ['Writing'], collapsed: ['Built-in'], order: ['b', 'a'] });
+  assert.deepStrictEqual(saved.drawerOrganization.memory, { categories: [], collapsed: [], order: [] });
+  assert.strictEqual(saved.prompts[1].category, 'Writing');
+  assert.strictEqual(saved.snippets[0].category, 'Tools');
+  assert.deepStrictEqual(c.migrateSettings(JSON.parse(JSON.stringify(saved))), saved);
+  assert.deepStrictEqual(c.promptEntries(saved).filter(p => p.id === 'a' || p.id === 'b').map(p => p.id), ['a', 'b']);
+}

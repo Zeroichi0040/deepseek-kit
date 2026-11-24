@@ -883,6 +883,100 @@ async function thinkTimer() {
   assert.strictEqual(bad.length, 0, bad.length + ' timer check(s) failed');
 }
 
+
+// ---------- drawer organization ----------
+async function drawerOrganization() {
+  const ctx = await launch(1000, 900);
+  const p = await open(ctx, '<body><textarea></textarea></body>');
+  await p.click('#dck-fab');
+  const button = name => p.getByRole('button', { name, exact: true });
+  const dialog = name => p.getByRole('dialog', { name, exact: true });
+  await button('New category').click();
+  await p.fill('[aria-label="Category name"]', 'Writing');
+  await dialog('New category').getByRole('button', { name: 'Save' }).click();
+  await button('New prompt').click();
+  await p.fill('[aria-label="Prompt name"]', 'Abandoned');
+  await dialog('New prompt').getByRole('button', { name: 'Cancel' }).click();
+  assert.strictEqual(await p.locator('[aria-label="Edit Abandoned prompt"]').count(), 0);
+  for (const name of ['Alpha', 'Beta']) {
+    await button('New prompt').click();
+    await p.fill('[aria-label="Prompt name"]', name);
+    await p.fill('[aria-label="Prompt text"]', name + ' content');
+    await p.selectOption('[aria-label="Category"]', 'Writing');
+    await dialog('New prompt').getByRole('button', { name: 'Save' }).click();
+  }
+  const names = () => p.locator('[data-category="Writing"] .dck-name').allTextContents();
+  const handle = name => p.locator('[aria-label="Reorder ' + name + ' prompt"]');
+  const row = name => p.locator('[data-category="Writing"] .dck-rowcard').filter({ has: handle(name) });
+  const drag = async (from, to, after) => {
+    const target = row(to);
+    const box = await target.boundingBox();
+    await handle(from).dragTo(target, { targetPosition: { x: Math.floor(box.width / 2), y: after ? Math.floor(box.height * .75) : Math.floor(box.height * .25) } });
+    assert.strictEqual(await p.locator('.dck-drop-before, .dck-drop-after, .dck-drop-append').count(), 0, 'no stale insertion line');
+  };
+  assert.deepStrictEqual(await names(), ['Alpha', 'Beta']);
+  await drag('Alpha', 'Beta', true);
+  assert.deepStrictEqual(await names(), ['Beta', 'Alpha'], 'first to second, lower half');
+  await drag('Alpha', 'Beta', false);
+  assert.deepStrictEqual(await names(), ['Alpha', 'Beta'], 'second to first, upper half');
+  await handle('Alpha').press('Alt+ArrowDown');
+  assert.deepStrictEqual(await names(), ['Beta', 'Alpha'], 'keyboard down');
+  await handle('Alpha').press('Alt+ArrowUp');
+  assert.deepStrictEqual(await names(), ['Alpha', 'Beta'], 'keyboard up');
+  await drag('Alpha', 'Beta', true);
+  assert.deepStrictEqual(await names(), ['Beta', 'Alpha']);
+  await button('Writing category').click();
+  assert.strictEqual(await p.locator('[aria-label="Edit Beta prompt"]').count(), 0);
+  await button('Writing category').click();
+  assert.deepStrictEqual(await names(), ['Beta', 'Alpha']);
+  await button('Preview').click();
+  const prefix = await p.locator('.dck-preview .dck-pre').textContent();
+  assert.ok(prefix.indexOf('Alpha content') >= 0 && prefix.indexOf('Alpha content') < prefix.indexOf('Beta content'), 'visual order must not alter injection order');
+  await button('Close preview').click();
+  await button('General category').click();
+  await handle('Beta').dragTo(p.locator('[data-category="General"] .dck-category-head'));
+  assert.strictEqual(await p.locator('[data-category="General"] [aria-label="Edit Beta prompt"]').count(), 1, 'drop into collapsed category expands it');
+  await p.getByRole('tab', { name: /Memory/ }).click();
+  await button('About Token budget').click();
+  assert.ok(await p.getByText('Maximum estimated memory tokens added to one message. 0 means no limit.').isVisible());
+  await button('New note').click();
+  const noteEditor = dialog('New note');
+  const keyInput = noteEditor.getByRole('textbox', { name: 'Key', exact: true });
+  const valueInput = noteEditor.getByRole('textbox', { name: 'Value', exact: true });
+  await noteEditor.getByRole('button', { name: 'Save', exact: true }).click();
+  assert.ok(await noteEditor.isVisible(), 'empty note must not be saved');
+  await keyInput.fill('test');
+  await valueInput.fill('note');
+  assert.strictEqual(await keyInput.inputValue(), 'test', 'key survives focusing the value');
+  assert.strictEqual(await valueInput.inputValue(), 'note', 'value survives autofocus');
+  await noteEditor.getByRole('button', { name: 'Save', exact: true }).click();
+  await noteEditor.waitFor({ state: 'detached', timeout: 3000 });
+  assert.ok(await button('Edit test').isVisible(), 'saved note appears after the editor closes');
+  assert.strictEqual(await p.locator('#dck-drawer > [inert]').count(), 0, 'drawer is interactive again');
+  await p.getByRole('tab', { name: /Snippets/ }).click();
+  await button('New category').click();
+  await p.fill('[aria-label="Category name"]', 'Tools');
+  await dialog('New category').getByRole('button', { name: 'Save' }).click();
+  await button('New snippet').click();
+  await p.fill('[aria-label="Snippet name"]', 'example');
+  await p.fill('[aria-label="Snippet text"]', 'content');
+  await p.selectOption('[aria-label="Category"]', 'Tools');
+  await dialog('New snippet').getByRole('button', { name: 'Save' }).click();
+  await button('Tools category').click();
+  await p.fill('[aria-label="Search snippets"]', 'example');
+  assert.ok(await button('Edit /example').isVisible());
+  await p.fill('[aria-label="Search snippets"]', '');
+  assert.strictEqual(await button('Edit /example').count(), 0, 'search preserves collapsed state');
+  await p.getByRole('tab', { name: /Prompts/ }).click();
+  await button('Manage Writing category').click();
+  p.once('dialog', d => d.accept());
+  await dialog('Manage category').getByRole('button', { name: 'Delete' }).click();
+  assert.strictEqual(await p.locator('[data-category="Writing"]').count(), 0);
+  assert.strictEqual(await p.locator('[data-category="General"] [aria-label="Edit Alpha prompt"]').count(), 1);
+  await ctx.close();
+  ok('drawer organization: categories, editors, reorder, drag, collapse and search');
+}
+
 // ---------- two tabs: a save in one tab must not be overwritten by a tab that was opened earlier
 async function twoTabs() {
   const ctx = await launch(1000, 900);
@@ -892,9 +986,10 @@ async function twoTabs() {
   const A = await open(ctx, PAGE);
   await A.click('#dck-fab');
   await memTab(A).click();
-  await A.fill('[aria-label="New note key"]', 'my city');
-  await A.fill('[aria-label="New note value"]', 'Sample City');
-  await A.locator('.dck-btn.primary:has-text("Add")').click();
+  await A.getByRole('button', { name: 'New note', exact: true }).click();
+  await A.fill('[aria-label="Key"]', 'my city');
+  await A.fill('[aria-label="Value"]', 'Sample City');
+  await A.getByRole('dialog', { name: 'New note' }).getByRole('button', { name: 'Save' }).click();
   await B.waitForFunction(() => { const t = Array.from(document.querySelectorAll('[role=tab]')).find((x) => x.textContent.indexOf('Memory') === 0); return !!t && /1$/.test(t.textContent); }, null, { timeout: 3000 });
   ok('a note added in one tab shows up in the other without a reload');
   const sw = 'input[aria-label="Enable DeepSeek Kit"]';
@@ -978,10 +1073,11 @@ async function firstMessageMemory() {
   await p0.click('#dck-fab');
   await tab(p0, 'Memory');
   const addNote = async (key, value, when) => {
-    await p0.fill('[aria-label="New note key"]', key);
-    await p0.fill('[aria-label="New note value"]', value);
-    await p0.selectOption('[aria-label="New note: when to include"]', when);
-    await p0.locator('.dck-btn.primary:has-text("Add")').click();
+    await p0.getByRole('button', { name: 'New note', exact: true }).click();
+    await p0.fill('[aria-label="Key"]', key);
+    await p0.fill('[aria-label="Value"]', value);
+    await p0.selectOption('[aria-label="When to include"]', when);
+    await p0.getByRole('dialog', { name: 'New note' }).getByRole('button', { name: 'Save' }).click();
   };
   await addNote('intro note', 'Reply in Spanish', 'first');
   await addNote('my name', 'Ana', 'always');
@@ -1265,6 +1361,7 @@ async function collapseRecovery() {
     await thinkTimer();
     await twoTabs();
     await firstMessageMemory();
+    await drawerOrganization();
     await noStarters();
     await settingsInfo();
   } catch (e) {

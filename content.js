@@ -51,7 +51,7 @@
   }
   let settings = migrateSettings({});
   let memories = [];
-  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, settingsOpen: null, helpOpen: null, search: '', showAllVars: false, preview: null, diagAll: false, diagEvents: false };
+  const ui = { drawer: null, strip: null, tab: 'prompts', editingId: null, editingSnippetId: null, editingMemory: null, categoryEdit: null, dragPrompt: null, settingsOpen: null, helpOpen: null, search: '', showAllVars: false, preview: null, diagAll: false, diagEvents: false };
   let bypass = false; // true while we dispatch our own Enter
   let counts = {}; // messages sent per chat path, saved so a page refresh does not forget them
   let newChatCount = 0; // messages sent from the new-chat screen ("/") before the page moves to the chat's own URL
@@ -111,8 +111,8 @@
         const m = changes.dck_memories;
         if (s && s.newValue) settings = migrateSettings(s.newValue);
         if (m && Array.isArray(m.newValue)) memories = cleanMemories(m.newValue);
-        const editing = ui.editingId !== null || ui.editingSnippetId !== null || ui.editingMemory !== null;
-        ui.editingId = null; ui.editingSnippetId = null; ui.editingMemory = null;
+        const editing = ui.editingId !== null || ui.editingSnippetId !== null || ui.editingMemory !== null || ui.categoryEdit !== null;
+        ui.editingId = null; ui.editingSnippetId = null; ui.editingMemory = null; ui.categoryEdit = null; ui.dragPrompt = null;
         applyFold();
         render();
         syncAll();
@@ -636,7 +636,7 @@
 
   function toggleCard(title, sub, checked, onchange) {
     return h('div', { class: 'dck-card dck-rowcard' },
-      h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, title), h('div', { class: 'dck-sub' }, sub)),
+      h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, title), sub ? h('div', { class: 'dck-sub' }, sub) : null),
       sw(checked, onchange, title));
   }
 
@@ -675,6 +675,180 @@
     return wrap;
   }
 
+  // ---------- Shared drawer organization ----------
+  const GENERAL = 'General';
+  const BUILTIN_SECTION = 'Built-in';
+  const NEW_ITEM = Symbol('new item');
+  const org = (tab) => settings.drawerOrganization[tab];
+  const itemsFor = (tab) => tab === 'memory' ? memories : settings[tab];
+  const categoryName = (value) => {
+    const name = String(value || '').trim().replace(/\s+/g, ' ');
+    return !name || name.toLowerCase() === 'general' ? GENERAL : name;
+  };
+  function categoryNames(tab) {
+    const names = [GENERAL];
+    for (const raw of [...org(tab).categories, ...itemsFor(tab).map(x => x.category)]) {
+      const name = categoryName(raw);
+      if (tab === 'prompts' && name.toLowerCase() === 'built-in') continue;
+      if (!names.some(n => n.toLowerCase() === name.toLowerCase())) names.push(name);
+    }
+    return names;
+  }
+  function itemCategory(tab, item) {
+    const name = categoryName(item.category);
+    return categoryNames(tab).find(n => n.toLowerCase() === name.toLowerCase()) || GENERAL;
+  }
+  function setCategory(tab, item, name) {
+    item.category = name === GENERAL ? '' : name;
+  }
+  function categorySelect(tab, item) {
+    const selected = itemCategory(tab, item);
+    return h('select', { 'aria-label': 'Category' },
+      categoryNames(tab).map(name => h('option', { value: name, selected: name === selected }, name)));
+  }
+  function expandCategory(tab, name) {
+    org(tab).collapsed = org(tab).collapsed.filter(n => n !== name);
+  }
+  function newButton(label, action) {
+    return h('button', { type: 'button', class: 'dck-btn dashed', onclick: action }, icon('plus'), label);
+  }
+  function categoryButton(tab) {
+    return h('button', { type: 'button', class: 'dck-btn dck-new-category', onclick: () => { ui.categoryEdit = { tab, old: null }; render(); } }, icon('plus', 14), 'New category');
+  }
+  function categorySection(tab, name, rows, opts = {}) {
+    const open = opts.forceOpen || !org(tab).collapsed.includes(name);
+    const head = h('div', { class: 'dck-category-head' },
+      h('button', { type: 'button', class: 'dck-category-toggle', 'aria-expanded': String(!!open), 'aria-label': name + ' category', disabled: !!opts.forceOpen,
+        onclick: () => {
+          const list = org(tab).collapsed;
+          org(tab).collapsed = list.includes(name) ? list.filter(n => n !== name) : [...list, name];
+          commit(); render();
+        } }, icon('chev', 14), h('span', { class: 'dck-grow' }, name), h('span', { class: 'dck-faint' }, String(rows.length))),
+      opts.protected ? null : iconBtn('edit', 'Manage ' + name + ' category', () => { ui.categoryEdit = { tab, old: name }; render(); }));
+    if (tab === 'prompts' && name !== BUILTIN_SECTION) promptDrop(head, name, null);
+    const section = h('section', { class: 'dck-category', 'data-category': name }, head);
+    if (open) section.append(h('div', { class: 'dck-category-body' }, rows.length ? rows : h('div', { class: 'dck-hint' }, 'No items')));
+    return section;
+  }
+  function overlay(drawer, title, content, close) {
+    const panel = h('div', { class: 'dck-preview dck-item-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+      h('div', { class: 'dck-head' }, h('span', { class: 'dck-title' }, title), iconBtn('close', 'Close editor', close)),
+      h('div', { class: 'dck-previewbody' }, content));
+    const siblings = Array.from(drawer.children);
+    siblings.forEach(el => { el.inert = true; });
+    drawer.append(panel);
+    panel.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      if (e.key === 'Tab') {
+        const controls = Array.from(panel.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])')).filter(el => el.getClientRects().length);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (!first || !last) return;
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    });
+    // Focus immediately after mounting, before the user can begin typing.
+    // Deferred focus can interrupt a later field's input and leave Save blocked by validation.
+    if (drawer.classList.contains('open')) {
+      const initial = panel.querySelector('input:not([style*="display:none"]), textarea') || panel.querySelector('button');
+      initial.focus({ preventScroll: true });
+    }
+  }
+  function categoryEditor(drawer) {
+    const { tab, old } = ui.categoryEdit;
+    const close = () => { ui.categoryEdit = null; render(); };
+    const input = h('input', { value: old || '', placeholder: 'Category name', 'aria-label': 'Category name' });
+    const save = () => {
+      const name = categoryName(input.value);
+      if (name === GENERAL || (tab === 'prompts' && name.toLowerCase() === 'built-in') ||
+        categoryNames(tab).some(n => n !== old && n.toLowerCase() === name.toLowerCase())) { toast('Choose a unique category name'); return; }
+      const data = org(tab);
+      if (old) {
+        itemsFor(tab).forEach(x => { if (itemCategory(tab, x) === old) setCategory(tab, x, name); });
+        data.categories = data.categories.filter(n => categoryName(n).toLowerCase() !== old.toLowerCase());
+        data.collapsed = data.collapsed.map(n => n === old ? name : n);
+      }
+      data.categories.push(name);
+      ui.categoryEdit = null; commit(); render();
+    };
+    const remove = () => {
+      if (!window.confirm('Delete this category? Its items will move to General.')) return;
+      itemsFor(tab).forEach(x => { if (itemCategory(tab, x) === old) setCategory(tab, x, GENERAL); });
+      const data = org(tab);
+      data.categories = data.categories.filter(n => categoryName(n).toLowerCase() !== old.toLowerCase());
+      data.collapsed = data.collapsed.filter(n => n !== old);
+      expandCategory(tab, GENERAL);
+      ui.categoryEdit = null; commit(); render();
+    };
+    overlay(drawer, old ? 'Manage category' : 'New category', h('div', { class: 'dck-editor' }, input,
+      h('div', { class: 'dck-actions' },
+        h('button', { type: 'button', class: 'dck-btn primary', onclick: save }, 'Save'),
+        h('button', { type: 'button', class: 'dck-btn', onclick: close }, 'Cancel'),
+        old ? h('button', { type: 'button', class: 'dck-btn danger push', onclick: remove }, 'Delete') : null)), close);
+  }
+  function orderedPrompts() {
+    const ranks = new Map(org('prompts').order.map((id, i) => [id, i]));
+    return settings.prompts.slice().sort((a, b) => (ranks.get(a.id) ?? Infinity) - (ranks.get(b.id) ?? Infinity));
+  }
+  function movePrompt(id, category, target, after = false) {
+    const item = settings.prompts.find(p => p.id === id);
+    if (!item || target === id || !categoryNames('prompts').includes(category)) return;
+    const order = orderedPrompts().map(p => p.id).filter(x => x !== id);
+    const index = target == null ? -1 : order.indexOf(target);
+    if (index < 0) order.push(id); else order.splice(index + (after ? 1 : 0), 0, id);
+    setCategory('prompts', item, category);
+    org('prompts').order = order;
+    expandCategory('prompts', category);
+    commit(); render();
+  }
+  const DROP_CLASSES = ['dck-drop-before', 'dck-drop-after', 'dck-drop-append'];
+  function clearPromptDrop() {
+    if (ui.drawer) ui.drawer.querySelectorAll(DROP_CLASSES.map(c => '.' + c).join(',')).forEach(el => el.classList.remove(...DROP_CLASSES));
+  }
+  function promptDrop(node, category, target) {
+    const isAfter = e => {
+      const rect = node.getBoundingClientRect();
+      return e.clientY >= rect.top + rect.height / 2;
+    };
+    node.addEventListener('dragover', e => {
+      if (!ui.dragPrompt) return;
+      e.stopPropagation();
+      clearPromptDrop();
+      if (ui.dragPrompt === target) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      node.classList.add(target == null ? 'dck-drop-append' : isAfter(e) ? 'dck-drop-after' : 'dck-drop-before');
+    });
+    node.addEventListener('dragleave', e => {
+      if (!e.relatedTarget || !node.contains(e.relatedTarget)) node.classList.remove(...DROP_CLASSES);
+    });
+    node.addEventListener('drop', e => {
+      if (!ui.dragPrompt) return;
+      e.preventDefault(); e.stopPropagation();
+      clearPromptDrop();
+      const id = ui.dragPrompt; ui.dragPrompt = null;
+      movePrompt(id, category, target, target != null && isAfter(e));
+    });
+  }
+  function draggablePrompt(p, category, peers) {
+    const row = promptRow(p, false);
+    const handle = h('button', { type: 'button', class: 'dck-drag-handle', draggable: true,
+      'aria-label': 'Reorder ' + p.name + ' prompt', title: 'Drag to reorder or move; Alt+Up/Down to reorder',
+      ondragstart: e => { ui.dragPrompt = p.id; e.dataTransfer.setData('text/plain', p.id); e.dataTransfer.effectAllowed = 'move'; },
+      ondragend: () => { ui.dragPrompt = null; clearPromptDrop(); },
+      onkeydown: e => {
+        if (!e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
+        e.preventDefault();
+        const i = peers.indexOf(p);
+        if (e.key === 'ArrowUp' && i > 0) movePrompt(p.id, category, peers[i-1].id);
+        if (e.key === 'ArrowDown' && i < peers.length - 1) movePrompt(p.id, category, peers[i+1].id, true);
+        Array.from(ui.drawer.querySelectorAll('.dck-drag-handle')).find(el => el.getAttribute('aria-label') === 'Reorder ' + p.name + ' prompt')?.focus();
+      } }, '⠿');
+    row.prepend(handle);
+    promptDrop(row, category, p.id);
+    return row;
+  }
+
   // ---------- Prompts tab ----------
   // The two prompts that ship with the Kit. Each keeps its switch, text override and schedule in its own settings keys.
   const BUILTINS = {
@@ -699,15 +873,16 @@
       iconBtn('edit', 'Edit ' + name + ' prompt', () => { ui.editingId = b ? builtin : p.id; render(); }));
   }
 
-  function promptEditor(p, builtin) {
+  function promptEditor(p, builtin, creating = false) {
     const b = builtin ? BUILTINS[builtin] : null;
     const name = h('input', { value: b ? '' : (p.name || ''), placeholder: 'Name', 'aria-label': 'Prompt name', style: b ? 'display:none' : '' });
     const text = h('textarea', { value: b ? b.current() : p.text, placeholder: 'Prompt text', 'aria-label': 'Prompt text' });
     let sched = b ? (settings[b.sched] || 'first') : (p.schedule || 'first');
     const everyN = h('input', { type: 'number', min: 1, value: b ? (settings[b.every] || 5) : (p.everyN || 5), 'aria-label': 'Every N messages', style: sched === 'every' ? '' : 'display:none' });
     const sel = scheduleSelect(sched, (v) => { sched = v; everyN.style.display = v === 'every' ? '' : 'none'; });
+    const cat = b ? null : categorySelect('prompts', p);
     return h('div', { class: 'dck-card dck-editor' },
-      name, text, varChips(text), sel, everyN,
+      name, text, varChips(text), sel, everyN, cat,
       h('div', { class: 'dck-actions' },
         h('button', {
           type: 'button', class: 'dck-btn primary',
@@ -722,6 +897,9 @@
               p.text = text.value;
               p.schedule = sched;
               p.everyN = n;
+              setCategory('prompts', p, cat.value);
+              expandCategory('prompts', cat.value);
+              if (creating) settings.prompts.push(p);
             }
             ui.editingId = null; commit(); render();
           },
@@ -729,21 +907,17 @@
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { ui.editingId = null; render(); } }, 'Cancel'),
         b
           ? h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings[b.text] = ''; ui.editingId = null; commit(); render(); } }, 'Reset to built-in')
-          : h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings.prompts = settings.prompts.filter((x) => x.id !== p.id); ui.editingId = null; commit(); render(); } }, 'Delete')));
+          : creating ? null : h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings.prompts = settings.prompts.filter((x) => x.id !== p.id); org('prompts').order = org('prompts').order.filter(id => id !== p.id); ui.editingId = null; commit(); render(); } }, 'Delete')));
   }
 
   function renderPrompts(body) {
-    body.append(group('Built-in'));
-    Object.keys(BUILTINS).forEach((id) => body.append(ui.editingId === id ? promptEditor(null, id) : promptRow(null, id)));
-    body.append(group('Yours'));
-    settings.prompts.forEach((p) => body.append(ui.editingId === p.id ? promptEditor(p, false) : promptRow(p, false)));
-    body.append(h('button', {
-      type: 'button', class: 'dck-btn dashed',
-      onclick: () => {
-        const p = { id: newId(), name: 'New prompt', text: '', enabled: true, schedule: 'first', everyN: 5 };
-        settings.prompts.push(p); ui.editingId = p.id; commit(); render();
-      },
-    }, icon('plus'), 'New prompt'));
+    body.append(categorySection('prompts', BUILTIN_SECTION, Object.keys(BUILTINS).map(id => promptRow(null, id)), { protected: true }));
+    const ordered = orderedPrompts();
+    for (const name of categoryNames('prompts')) {
+      const peers = ordered.filter(p => itemCategory('prompts', p) === name);
+      body.append(categorySection('prompts', name, peers.map(p => draggablePrompt(p, name, peers)), { protected: name === GENERAL }));
+    }
+    body.append(newButton('New prompt', () => { ui.editingId = NEW_ITEM; render(); }), categoryButton('prompts'));
   }
 
   // ---------- Memory tab ----------
@@ -792,10 +966,10 @@
       iconBtn('edit', 'Edit ' + m.key, () => { ui.editingMemory = index; render(); }));
   }
 
-  function memoryEditor(m, index) {
+  function memoryEditor(m, index, creating = false) {
     const key = h('input', { value: m.key, placeholder: 'Key', 'aria-label': 'Key' });
     const val = h('textarea', { value: m.value, placeholder: 'Value', 'aria-label': 'Value', rows: 3 });
-    const cat = h('input', { value: String(m.category || ''), placeholder: 'Category (optional)', 'aria-label': 'Category', list: 'dck-cats' });
+    const cat = categorySelect('memory', m);
     const imp = h('select', { 'aria-label': 'When to include' },
       h('option', { value: 'always', selected: m.importance === 'always' }, 'Always'),
       h('option', { value: 'first', selected: m.importance === 'first' }, 'First message'),
@@ -806,83 +980,65 @@
         h('button', {
           type: 'button', class: 'dck-btn primary',
           onclick: () => {
-            if (!key.value.trim() || !val.value.trim()) { toast('A note needs a key and a value'); return; }
+            if (!key.value.trim() || !val.value.trim()) {
+              toast('A note needs a key and a value');
+              (!key.value.trim() ? key : val).focus();
+              return;
+            }
             m.key = key.value.trim();
             m.value = val.value.trim();
-            m.category = cleanCategory(cat.value, memories.filter((x) => x !== m));
+            setCategory('memory', m, cat.value);
+            expandCategory('memory', cat.value);
             m.importance = imp.value;
+            if (creating) memories.push(m);
             ui.editingMemory = null; commit(); render();
           },
         }, 'Save'),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { ui.editingMemory = null; render(); } }, 'Cancel'),
-        h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { memories.splice(index, 1); ui.editingMemory = null; commit(); render(); } }, 'Delete')));
+        creating ? null : h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { memories.splice(index, 1); ui.editingMemory = null; commit(); render(); } }, 'Delete')));
   }
 
   function renderMemory(body) {
-    body.append(toggleCard('Use memory', 'Notes are added whenever context is inserted', settings.memoryEnabled, (v) => { settings.memoryEnabled = v; commit(); }));
-
+    body.append(toggleCard('Use memory', null, settings.memoryEnabled, (v) => { settings.memoryEnabled = v; commit(); }));
     const budget = h('input', { type: 'number', min: 0, step: 50, value: settings.memoryBudget || 0, 'aria-label': 'Memory token budget', class: 'dck-budgetin' });
     budget.addEventListener('change', () => {
       settings.memoryBudget = Math.max(0, parseInt(budget.value, 10) || 0);
       budget.value = settings.memoryBudget;
       commit();
     });
-    body.append(h('div', { class: 'dck-card' },
-      h('div', { class: 'dck-rowcard' },
-        h('div', { class: 'dck-grow' }, h('div', { class: 'dck-name' }, 'Token budget'), h('div', { class: 'dck-sub' }, 'Most memory added to one message. 0 = no limit')),
-        budget),
-      h('div', { class: 'dck-sub', id: 'dck-membudget' }, '')));
-
-    const cats = Array.from(new Set(memories.map((m) => String((m && m.category) || '').trim()).filter(Boolean)));
-    body.append(h('datalist', { id: 'dck-cats' }, cats.map((c) => h('option', { value: c }))));
-
-    if (!memories.length) body.append(group('Notes'), h('div', { class: 'dck-hint' }, 'No notes yet. Add one below.'));
-    const groups = groupMemories(memories);
-    const labelled = groups.length > 1 || (groups[0] && groups[0].category !== MEMORY_GENERAL);
-    groups.forEach((g) => {
-      body.append(group(labelled ? g.category : 'Notes'));
-      g.items.forEach((it) => body.append(ui.editingMemory === it.index ? memoryEditor(it.m, it.index) : memoryRow(it.m, it.index)));
-    });
-
-    const key = h('input', { placeholder: 'Key, e.g. my city', 'aria-label': 'New note key' });
-    const val = h('input', { placeholder: 'Value', 'aria-label': 'New note value' });
-    const cat = h('input', { placeholder: 'Category (optional)', 'aria-label': 'New note category', list: 'dck-cats' });
-    const imp = h('select', { 'aria-label': 'New note: when to include' },
-      h('option', { value: 'always' }, 'Always'),
-      h('option', { value: 'first' }, 'First message'),
-      h('option', { value: 'called' }, 'When mentioned'));
-    body.append(h('div', { class: 'dck-card dashed-card' },
-      h('div', { class: 'dck-two' }, key, val),
-      cat,
-      h('div', { class: 'dck-two' }, imp, h('button', {
-        type: 'button', class: 'dck-btn primary',
-        onclick: () => {
-          if (!key.value.trim() || !val.value.trim()) { toast('Add a key and a value'); return; }
-          memories.push({ key: key.value.trim(), value: val.value.trim(), importance: imp.value, category: cleanCategory(cat.value, memories), enabled: true });
-          commit(); render();
-        },
-      }, icon('plus', 14), 'Add'))));
+    const budgetRow = settingRow('Token budget', 'Maximum estimated memory tokens added to one message. 0 means no limit.', false, () => {});
+    budgetRow.lastElementChild.replaceWith(budget);
+    body.append(h('div', { class: 'dck-card' }, budgetRow, h('div', { class: 'dck-sub', id: 'dck-membudget' }, '')));
+    for (const name of categoryNames('memory')) {
+      const rows = memories.map((m, index) => ({m, index})).filter(x => itemCategory('memory', x.m) === name).map(x => memoryRow(x.m, x.index));
+      body.append(categorySection('memory', name, rows, { protected: name === GENERAL }));
+    }
+    if (!memories.length) body.append(h('div', { class: 'dck-hint' }, 'No notes yet.'));
+    body.append(newButton('New note', () => { ui.editingMemory = NEW_ITEM; render(); }), categoryButton('memory'));
     updateMemoryStatus();
   }
 
   // ---------- Snippets tab ----------
-  function snippetEditor(s) {
+  function snippetEditor(s, creating = false) {
     const name = h('input', { value: s.name, placeholder: 'name (used after the /)', 'aria-label': 'Snippet name' });
     const text = h('textarea', { value: s.text, placeholder: 'Snippet text', 'aria-label': 'Snippet text' });
+    const cat = categorySelect('snippets', s);
     return h('div', { class: 'dck-card dck-editor active' },
       h('div', { class: 'dck-slashname' }, h('span', {}, '/'), name),
-      text, varChips(text),
+      text, varChips(text), cat,
       h('div', { class: 'dck-actions' },
         h('button', {
           type: 'button', class: 'dck-btn primary',
           onclick: () => {
             const nm = cleanSnippetName(name.value);
             if (!nm) { toast('Give the snippet a name'); return; }
-            s.name = nm; s.text = text.value; ui.editingSnippetId = null; commit(); render();
+            s.name = nm; s.text = text.value; setCategory('snippets', s, cat.value); expandCategory('snippets', cat.value);
+            if (creating) settings.snippets.unshift(s);
+            ui.search = ''; ui.editingSnippetId = null; commit(); render();
           },
         }, 'Save'),
         h('button', { type: 'button', class: 'dck-btn', onclick: () => { ui.editingSnippetId = null; render(); } }, 'Cancel'),
-        h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings.snippets = settings.snippets.filter((x) => x.id !== s.id); ui.editingSnippetId = null; commit(); render(); } }, 'Delete')));
+        creating ? null : h('button', { type: 'button', class: 'dck-btn danger push', onclick: () => { settings.snippets = settings.snippets.filter((x) => x.id !== s.id); ui.editingSnippetId = null; commit(); render(); } }, 'Delete')));
   }
 
   function renderSnippets(body) {
@@ -895,20 +1051,19 @@
     });
     body.append(h('div', { class: 'dck-searchwrap' }, h('span', { class: 'dck-searchicon' }, icon('search')), search));
 
-    const editing = settings.snippets.find((s) => s.id === ui.editingSnippetId);
-    if (editing) body.append(snippetEditor(editing));
-
-    const list = searchSnippets(settings.snippets, ui.search).filter((s) => s.id !== ui.editingSnippetId);
-    list.forEach((s) => {
-      body.append(h('div', { class: 'dck-card dck-rowcard' },
-        h('div', { class: 'dck-grow' },
-          h('div', { class: 'dck-name' }, '/' + s.name),
-          h('div', { class: 'dck-sub clip' }, s.text.replace(/\s+/g, ' ').slice(0, 90))),
-        iconBtn('edit', 'Edit /' + s.name, () => { ui.editingSnippetId = s.id; render(); })));
-    });
-    if (!list.length && !editing) {
-      body.append(h('div', { class: 'dck-hint' }, settings.snippets.length ? 'No snippets match your search.' : 'No snippets yet. Type / in the message box to pick one once you add some.'));
+    const list = searchSnippets(settings.snippets, ui.search);
+    const searching = !!ui.search.trim();
+    for (const name of categoryNames('snippets')) {
+      const rows = list.filter(s => itemCategory('snippets', s) === name).map(s =>
+        h('div', { class: 'dck-card dck-rowcard' },
+          h('div', { class: 'dck-grow' },
+            h('div', { class: 'dck-name' }, '/' + s.name),
+            h('div', { class: 'dck-sub clip' }, s.text.replace(/\s+/g, ' ').slice(0, 90))),
+          iconBtn('edit', 'Edit /' + s.name, () => { ui.editingSnippetId = s.id; render(); })));
+      if (!searching || rows.length) body.append(categorySection('snippets', name, rows, { protected: name === GENERAL, forceOpen: searching }));
     }
+    if (searching && !list.length) body.append(h('div', { class: 'dck-hint' }, 'No snippets match your search.'));
+    body.append(newButton('New snippet', () => { ui.editingSnippetId = NEW_ITEM; render(); }), categoryButton('snippets'));
   }
 
   // ---------- Settings tab ----------
@@ -1195,7 +1350,7 @@
     drawer.append(h('div', { class: 'dck-tabs', role: 'tablist', 'aria-label': 'Sections' },
       tabs.map((t) => h('button', {
         type: 'button', role: 'tab', class: 'dck-tab' + (ui.tab === t.id ? ' on' : ''), 'aria-selected': String(ui.tab === t.id),
-        onclick: () => { ui.tab = t.id; ui.editingId = null; ui.editingSnippetId = null; ui.editingMemory = null; render(); },
+        onclick: () => { ui.tab = t.id; ui.editingId = null; ui.editingSnippetId = null; ui.editingMemory = null; ui.categoryEdit = null; ui.dragPrompt = null; render(); },
       }, t.label, t.count ? h('span', { class: 'dck-badge' }, String(t.count)) : null))));
 
     const body = h('div', { class: 'dck-body', role: 'tabpanel' });
@@ -1208,13 +1363,7 @@
 
     let foot;
     if (ui.tab === 'snippets') {
-      foot = h('div', { class: 'dck-foot' }, h('button', {
-        type: 'button', class: 'dck-btn primary grow',
-        onclick: () => {
-          const s = { id: newId(), name: 'snippet' + (settings.snippets.length + 1), text: '' };
-          settings.snippets.unshift(s); ui.search = ''; ui.editingSnippetId = s.id; commit(); render();
-        },
-      }, icon('plus'), 'New snippet'));
+      foot = h('div', { class: 'dck-foot' }, h('span', { class: 'dck-faint' }, 'Type / in chat to use a snippet.'));
     } else if (ui.tab === 'settings') {
       foot = h('div', { class: 'dck-foot between' },
         h('span', { class: 'dck-faint' }, 'v' + kitVersion() + ' - your data stays on this device'),
@@ -1233,6 +1382,21 @@
     drawer.append(foot);
 
     if (ui.preview) renderPreview(drawer);
+    else if (ui.categoryEdit) categoryEditor(drawer);
+    else if (ui.tab === 'prompts' && ui.editingId !== null) {
+      const creating = ui.editingId === NEW_ITEM;
+      const builtin = !creating && Object.prototype.hasOwnProperty.call(BUILTINS, ui.editingId) ? ui.editingId : null;
+      const p = creating ? { id: newId(), name: '', text: '', enabled: true, schedule: 'first', everyN: 5 } : settings.prompts.find(p => p.id === ui.editingId);
+      if (p || builtin) overlay(drawer, creating ? 'New prompt' : 'Edit prompt', promptEditor(p, builtin, creating), () => { ui.editingId = null; render(); });
+    } else if (ui.tab === 'memory' && ui.editingMemory !== null) {
+      const creating = ui.editingMemory === NEW_ITEM;
+      const m = creating ? { key: '', value: '', importance: 'called', enabled: true } : memories[ui.editingMemory];
+      if (m) overlay(drawer, creating ? 'New note' : 'Edit note', memoryEditor(m, ui.editingMemory, creating), () => { ui.editingMemory = null; render(); });
+    } else if (ui.tab === 'snippets' && ui.editingSnippetId !== null) {
+      const creating = ui.editingSnippetId === NEW_ITEM;
+      const item = creating ? { id: newId(), name: '', text: '' } : settings.snippets.find(x => x.id === ui.editingSnippetId);
+      if (item) overlay(drawer, creating ? 'New snippet' : 'Edit snippet', snippetEditor(item, creating), () => { ui.editingSnippetId = null; render(); });
+    }
     refreshAll(true);
   }
 
@@ -1965,6 +2129,7 @@
     ui.drawer = drawer;
     const fab = h('button', { id: 'dck-fab', type: 'button', title: 'Open Kit (drag to move)', onclick: () => {
       if (fabDrag.moved) { fabDrag.moved = false; return; }
+      if (drawer.querySelector('.dck-item-overlay')) { drawer.classList.toggle('open'); return; }
       ui.preview = null; render(); drawer.classList.toggle('open');
     } }, 'Kit');
     document.body.append(fab, drawer);

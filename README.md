@@ -4,7 +4,7 @@ A local-first toolkit for **DeepSeek Chat**. Add reusable prompts, lightweight m
 
 DeepSeek Kit is an independent, community-made browser extension. It is not affiliated with or endorsed by DeepSeek.
 
-> **Current version:** 0.20.0  
+> **Current version:** 0.21.0  
 > **Compatibility:** Chrome and Chromium-based browsers (including Edge and Brave), Chrome 105+
 
 ## What it adds
@@ -43,7 +43,7 @@ Open the **Kit** tab to access four main areas:
 
 The built-in **Default** prompt gives DeepSeek general response guidance. You can disable it, edit it, change its schedule, or restore the original text.
 
-Add custom prompts under **Yours**. Each prompt has its own enabled switch and schedule:
+Use **New prompt** to add custom prompts under **General** or a custom category. Drag the handle before or after another prompt, or onto a category header, to organize the list without changing injection order. Each prompt has its own enabled switch and schedule:
 
 - **First message** — once at the start of a chat.
 - **Every N messages** — at the interval you choose.
@@ -53,7 +53,7 @@ Prompts that are due are combined in the same context block. **Insert now** igno
 
 ### Memory
 
-Create notes with a key, a value, and an optional category.
+Use **New note** to open the note editor and enter a key, value, and category. Categories can be created, renamed, collapsed, or deleted without deleting their notes.
 
 - **Always** notes are eligible for every context insertion.
 - **First message** notes are included once, with the first message of a chat, like a prompt scheduled for the first message. They are sent even when no prompt is due, and **Insert now** includes them regardless of the chat position.
@@ -65,6 +65,8 @@ Create notes with a key, a value, and an optional category.
 The token count shown in the Kit is an estimate based on characters, not an exact model tokenizer count.
 
 ### Snippets
+
+Use **New snippet** to open the editor. Organize snippets into collapsible custom categories; searching still finds snippets in collapsed categories.
 
 Snippets are reusable pieces of text. Type `/` in the DeepSeek message box to open the picker. Keep typing to filter, use **Up/Down** to move, and press **Enter** or **Tab** to insert. **Esc** closes the picker.
 

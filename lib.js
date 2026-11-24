@@ -129,6 +129,18 @@
     }));
   }
 
+  // Drawer-only metadata: never used by context generation or snippet matching.
+  function cleanDrawerOrganization(raw) {
+    const src = isObj(raw) ? raw : {};
+    const out = {};
+    for (const tab of ['prompts', 'memory', 'snippets']) {
+      const entry = isObj(src[tab]) ? src[tab] : {};
+      const strings = (v) => Array.isArray(v) ? [...new Set(v.filter(x => typeof x === 'string' && x.trim()))] : [];
+      out[tab] = { categories: strings(entry.categories), collapsed: strings(entry.collapsed), order: strings(entry.order) };
+    }
+    return out;
+  }
+
   function migrateSettings(raw) {
     const s = { ...DEFAULTS, ...(isObj(raw) ? raw : {}) };
     s.prompts = Array.isArray(s.prompts) ? s.prompts.slice() : [];
@@ -153,6 +165,7 @@
     delete s.askEnabled; // question forms are always drawn now; the built-in Questions prompt is the only switch
     s.prompts = cleanPrompts(s.prompts);
     s.snippets = cleanSnippets(s.snippets);
+    s.drawerOrganization = cleanDrawerOrganization(s.drawerOrganization);
     return s;
   }
 

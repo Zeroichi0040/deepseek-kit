@@ -367,3 +367,28 @@ html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-c
 
 /* Live reasoning timer: a clock after the Thinking label, same size and colour as the label. */
 .dck-think-timer { margin: 0 8px; font-size: inherit; line-height: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Shared organization and dedicated editors */
+.dck-category { border: 1px solid var(--k-line); border-radius: 10px; background: var(--k-card); flex: none; overflow: hidden; }
+.dck-category-head { display:flex; align-items:center; padding-right: 6px; }
+#dck-drawer .dck-category-toggle { flex:1; min-width:0; display:flex; gap:8px; align-items:center; text-align:left; padding:10px; border:0; background:transparent; color:var(--k-text); cursor:pointer; font-weight:600; }
+.dck-category-toggle .dck-grow { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dck-category-toggle svg { flex:none; transform:rotate(-90deg); }
+.dck-category-toggle[aria-expanded="true"] svg { transform:none; }
+.dck-category-body { display:flex; flex-direction:column; padding:0 6px 6px; gap:4px; }
+.dck-category-body > .dck-card { padding:8px; border:0; border-radius:6px; background:var(--k-bg); gap:8px; }
+.dck-category-body > .dck-hint { padding:8px; }
+#dck-drawer .dck-new-category { background:transparent; border:0; color:var(--k-muted); }
+#dck-drawer .dck-drag-handle { border:0; background:transparent; color:var(--k-muted); font-size:19px; cursor:grab; padding:2px; flex:none; line-height:1; }
+#dck-drawer .dck-drag-handle:active { cursor:grabbing; }
+.dck-drop-before, .dck-drop-after, .dck-drop-append { position:relative; }
+.dck-drop-before::after, .dck-drop-after::after, .dck-drop-append::after {
+  content:''; position:absolute; left:4px; right:4px; height:3px; border-radius:2px;
+  background:var(--k-accent); pointer-events:none; z-index:1;
+}
+.dck-drop-before::after { top:-2px; }
+.dck-drop-after::after { bottom:-2px; }
+.dck-drop-append::after { bottom:0; }
+.dck-item-overlay .dck-editor { background:transparent; border:0; padding:0; gap:10px; }
+#dck-drawer .dck-item-overlay textarea { min-height:180px; }
+.dck-item-overlay .dck-actions { flex-wrap:wrap; }
