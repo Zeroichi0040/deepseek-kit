@@ -367,3 +367,7 @@ html[data-dck-fold] [style*="--collapsible-area-title-height"]:has(> .ds-think-c
 
 /* Live reasoning timer: a clock after the Thinking label, same size and colour as the label. */
 .dck-think-timer { margin: 0 8px; font-size: inherit; line-height: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Large question forms: keep long model text inside the card. */
+.dck-ask-page { min-width: 0; }
+.dck-ask-title, .dck-ask-qtext, .dck-ask-optlabel, .dck-ask-optdesc { overflow-wrap: anywhere; white-space: pre-wrap; }
