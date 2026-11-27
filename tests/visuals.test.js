@@ -155,5 +155,31 @@ const spec = (o) => { const r = V.parseChartSpec(typeof o === 'string' ? o : JSO
   const tricky = V.buildWidgetDocument('x', theme, 'a"</script><script>alert(1)');
   assert.ok(!/<\/script><script>alert\(1\)/.test(tricky), 'the id cannot break out of the script');
   ok('widget document: CSP first, reporter present, id escaped');
+
+  // The CSP must survive whatever the model writes: parse the result like a browser would and look for it.
+  const hostile = [
+    '<!-- <html> --><script>new Image().src="https://example.com/x"</script>',
+    '<script>var s="<html>";</script><p>x</p>',
+    '<!-- <head> --><p>x</p>',
+    '<html><!-- <head> --><body><p>x</p></body></html>',
+    '<!-- never closed <html>',
+    '<style>/* <html> */</style><p>x</p>',
+  ];
+  hostile.forEach((code) => {
+    const out = V.buildWidgetDocument(code, theme, 'h');
+    assert.ok(out.startsWith('<!DOCTYPE html><html><head><meta charset'), 'wrapper first for: ' + code);
+    assert.ok(out.indexOf('Content-Security-Policy') < out.indexOf(code), 'CSP precedes the model code for: ' + code);
+    const parsed = new dom.window.DOMParser().parseFromString(out, 'text/html');
+    const metas = Array.from(parsed.head.querySelectorAll('meta[http-equiv="Content-Security-Policy"]'));
+    assert.strictEqual(metas.length, 1, 'exactly one CSP meta in <head> for: ' + code);
+    assert.ok(metas[0].getAttribute('content').includes("connect-src 'none'"), 'CSP content intact for: ' + code);
+  });
+  // A complete document from the model still ends up with one head and one body, and keeps its own content.
+  const page = V.buildWidgetDocument('<!DOCTYPE html><html lang="en"><head><title>T</title><style>p{color:red}</style></head><body class="x"><p id="p">hi</p></body></html>', theme, 'p');
+  const pd = new dom.window.DOMParser().parseFromString(page, 'text/html');
+  assert.strictEqual(pd.querySelectorAll('head').length, 1);
+  assert.strictEqual(pd.querySelectorAll('body').length, 1);
+  assert.ok(pd.getElementById('p') && pd.body.classList.contains('x') && pd.documentElement.getAttribute('lang') === 'en', 'model document content and attributes are kept');
+  ok('widget document: CSP cannot be displaced by hostile code');
 }
 console.log('\nall visuals tests passed');
