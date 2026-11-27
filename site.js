@@ -63,6 +63,13 @@
     return best;
   }
 
+  // Chat message containers, not composer mirrors or Kit-generated UI. A new matching message is
+  // supporting evidence for a send across the new-chat URL transition.
+  function chatMessages(doc) {
+    const d = doc || document;
+    return Array.from(d.querySelectorAll('.ds-message')).filter((m) => !m.closest(OURS) && !m.querySelector('textarea'));
+  }
+
   const NOT_SEND = /attach|upload|file|mic|voice|record|search|think|reason|model|stop|cancel|clear|emoji/i;
   const IS_SEND = /send|submit|\u53d1\u9001/i;
   const nameOf = (b) => [b.getAttribute('aria-label'), b.getAttribute('title'), b.getAttribute('data-testid'), b.getAttribute('name'), b.id].filter(Boolean).join(' ');
@@ -230,7 +237,7 @@
   }
 
   const api = {
-    BLOCK_SEL, oncePerFrame, textNodes, findByText, firstText, composer, sendButton, composerBox, toolbarPills,
+    BLOCK_SEL, oncePerFrame, textNodes, findByText, firstText, composer, chatMessages, sendButton, composerBox, toolbarPills,
     copyButton, codeBlocks, blockBox, blockLang, blockBusy, reasoningBlocks, blockOfHeader, blockKey, blockIsOpen, blockLabel, blockLive, blockThoughtLength, probe,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
