@@ -416,35 +416,65 @@
   // and it is a different message now), or when 5 s pass without a clear.
   const sends = new Set();
   let sendTimer = 0;
-  function finishSend(r, sent) {
-    sends.delete(r);
-    if (sent) countSend(r.path);
+  // Compare the visible message rather than the inserted context (Hidden mode may have stripped it already).
+  const messageText = (text) => stripContext(text).replace(/\s+/g, ' ').trim();
+  const newChatPath = (path) => /^\/a\/chat\/s\/[^/]+\/?$/.test(path);
+  function finishSend(r, sent, destination) {
+    if (!sends.delete(r) || !sent) return;
+    if (destination) addCount(destination, 1, true);
+    else countSend(r.path);
   }
-  // A record belongs to the chat it was made in. If the page has moved on, whatever happens to the box now (the site
-  // redrawing it for another chat, you opening an old chat from the new-chat screen) is not that message leaving.
+  // A home send may create its chat before its composer clears, or even before our first poll.
+  // Hold that attempt briefly for a newly rendered matching message; never infer a send from navigation alone.
+  // A second route change or a known conversation cancels the attempt.
+  function checkTransition(r, path) {
+    if (r.path !== '/' || !newChatPath(path) || (r.destination && r.destination !== path)) {
+      finishSend(r, false);
+      return;
+    }
+    if (!r.destination) {
+      if (Object.prototype.hasOwnProperty.call(counts, path)) { finishSend(r, false); return; }
+      r.destination = path;
+    }
+    const expected = messageText(r.text);
+    if (expected && SITE.chatMessages().some((m) => !r.messages.has(m) && messageText(m.textContent || '') === expected)) {
+      finishSend(r, true, path);
+    }
+  }
   function checkSends() {
     const now = Date.now();
     Array.from(sends).forEach((r) => {
-      if (location.pathname !== r.path) finishSend(r, false);
+      const path = location.pathname;
+      if (now - r.t0 >= SEND_ACK_WAIT) { finishSend(r, false); logEvent('Message not counted: send not confirmed'); }
+      else if (path !== r.path || r.destination) checkTransition(r, path);
       else if (boxCleared(r.el)) finishSend(r, true);
-      else if (now - r.t0 >= SEND_ACK_WAIT) { finishSend(r, false); logEvent('Message not counted: the box did not clear after Enter'); }
     });
     if (!sends.size) { clearInterval(sendTimer); sendTimer = 0; }
   }
   function watchSend(el) {
     const text = el.value;
+    const path = location.pathname;
     for (const r of Array.from(sends)) {
       if (r.el !== el) continue;
+      if (r.path !== path || r.destination) {
+        checkTransition(r, path);
+        finishSend(r, false); // a new explicit send supersedes an unresolved transition
+        continue;
+      }
       if (r.text === text) return; // the same send, triggered twice (Enter and a click, or Enter pressed again)
       finishSend(r, true); // the box holds something else now with no edit from you: the site cleared it and it was refilled
     }
-    sends.add({ el: el, path: location.pathname, text: text, t0: Date.now() });
+    sends.add({ el, path, text, t0: Date.now(), messages: new Set(path === '/' ? SITE.chatMessages() : []) });
     if (!sendTimer) sendTimer = setInterval(checkSends, 100);
   }
   // You are editing the box: a send that already went out (box cleared) counts, one still waiting is dropped.
   function editedBox(el) {
     Array.from(sends).forEach((r) => {
-      if (r.el === el) finishSend(r, location.pathname === r.path && boxCleared(el));
+      if (r.el !== el) return;
+      if (location.pathname !== r.path || r.destination) {
+        checkTransition(r, location.pathname);
+        finishSend(r, false);
+      } else finishSend(r, boxCleared(el));
     });
   }
   // "/" is the new-chat screen: its messages are held in newChatCount until the page moves to the chat's own address.
@@ -705,6 +735,7 @@
 
   // The message in `el` is about to be sent by Enter or by a click on the send button (e is that event).
   function onSendIntent(e, el) {
+    checkSends(); // reconcile a preceding send before evaluating the next schedule
     const p = location.pathname;
     if (alreadyHasContext(el.value)) {
       // Context is already in the box: this one sends.
