@@ -9,7 +9,7 @@
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL,
-    memoryUsage, groupMemories, cleanCategory, resolveCount, pruneCounts, MARKER_START,
+    memoryUsage, groupMemories, cleanCategory, resolveCount, mergeCounts, pruneCounts, MARKER_START,
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
@@ -64,8 +64,26 @@
     if (path === '/') { newChatCount = n; return; }
     delete counts[path]; // re-insert so the most recent chats stay at the end
     counts[path] = n;
+    persistCounts(path);
+  }
+  // The counters are shared by every open tab, so a write never replaces what is stored with this tab's copy: the stored
+  // copy is read first and merged in (a chat's count only grows, see mergeCounts), then written back.
+  function persistCounts(touched) {
     counts = pruneCounts(counts, 300);
-    storeSet({ dck_counts: counts });
+    try {
+      store.get(['dck_counts'], (r) => {
+        const e = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+        if (e) { storageFailed(e.message); return; }
+        counts = pruneCounts(mergeCounts(r && r.dck_counts, counts, touched), 300);
+        storeSet({ dck_counts: counts });
+      });
+    } catch (e) { storageFailed(e && e.message); }
+  }
+  // A change to the stored counters made by another tab (or echoed back from this one). An empty object is how
+  // "Reset all" writes them, and nothing else ever stores one, so it means forget everything.
+  function adoptCounts(stored) {
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return;
+    counts = Object.keys(stored).length ? mergeCounts(stored, counts) : {};
   }
 
   function kitVersion() {
@@ -106,7 +124,9 @@
     try {
       if (!chrome.storage.onChanged) return;
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== 'local' || !changes.dck_rev || myRevs.indexOf(changes.dck_rev.newValue) >= 0) return;
+        if (area !== 'local') return;
+        if (changes.dck_counts) adoptCounts(changes.dck_counts.newValue);
+        if (!changes.dck_rev || myRevs.indexOf(changes.dck_rev.newValue) >= 0) return;
         const s = changes.dck_settings;
         const m = changes.dck_memories;
         if (s && s.newValue) settings = migrateSettings(s.newValue);
@@ -190,7 +210,10 @@
     return true;
   }
 
-  // ---------- Sending (used only by "hide inserted context" mode) ----------
+  // ---------- Sending ----------
+  // The one place that knows how a message is sent and how to tell that it went out. "Sent" always means the same
+  // thing: the message box is empty again (or the site replaced it). Hidden mode and question forms both use
+  // sendWithConfirmation; the message counter (watchSend) uses the same test, so a count and a send never disagree.
   function clickSend(el) {
     const b = SITE.sendButton(el);
     if (!b) return false;
@@ -214,31 +237,84 @@
     }
     return event.defaultPrevented;
   }
-  function waitForSent(el, ms, done) {
-    const t0 = Date.now();
-    const tick = () => {
-      if (!el.isConnected || !alreadyHasContext(el.value)) { done(true); return; }
-      if (Date.now() - t0 >= ms) { done(false); return; }
+
+  const boxCleared = (el) => !el.isConnected || !el.value.trim();
+
+  // Polls check() every 100 ms; resolves with its first truthy value, or null once `ms` have passed.
+  function waitFor(check, ms) {
+    return new Promise((resolve) => {
+      const t0 = Date.now();
+      const tick = () => {
+        const r = check();
+        if (r) { resolve(r); return; }
+        if (Date.now() - t0 >= ms) { resolve(null); return; }
+        setTimeout(tick, 100);
+      };
       setTimeout(tick, 100);
-    };
-    setTimeout(tick, 100);
-  }
-  function triggerSend(el) {
-    const enterHandled = pressEnter(el, true);
-    waitForSent(el, enterHandled ? SEND_ACK_WAIT : SEND_WAIT, (sent) => {
-      if (sent) { delete el.dataset.dckCounted; logEvent('Hidden send: message went out on Enter'); return; }
-      if (enterHandled) {
-        logEvent('Hidden send was handled but not confirmed');
-        toast('Enter was accepted but the send was not confirmed - check the chat before trying again');
-        return;
-      }
-      if (!clickSend(el)) { logEvent('Hidden send failed: no send button found'); toast('Could not send automatically - press Enter to send'); return; }
-      logEvent('Hidden send: used the send button');
-      waitForSent(el, SEND_WAIT, (sent2) => {
-        if (sent2) delete el.dataset.dckCounted;
-        else { logEvent('Hidden send not confirmed'); toast('Could not confirm the message was sent - check it, then press Enter if needed'); }
-      });
     });
+  }
+
+  // Presses Enter in the message box and watches for the box to clear. Resolves with
+  //   'sent'        the box cleared
+  //   'review'      (reviewOnContext only) the Kit's own Enter handling put due context in the box instead of sending
+  //   'unconfirmed' the site took the Enter but the box did not clear in time (it is never pressed again)
+  //   'nobutton'    the site ignored the Enter and no send button was found
+  //   'failed'      the site ignored the Enter and the one fallback click did not send either
+  // opts.skipKit: the Enter bypasses the Kit's own handler (the caller has already attached the context).
+  async function sendWithConfirmation(el, opts) {
+    const o = opts || {};
+    const state = () => (boxCleared(el) ? 'sent' : o.reviewOnContext && alreadyHasContext(el.value) ? 'review' : null);
+    const handled = pressEnter(el, !!o.skipKit);
+    const first = await waitFor(state, handled ? SEND_ACK_WAIT : SEND_WAIT);
+    if (first) return first;
+    if (handled) return 'unconfirmed';
+    if (!clickSend(el)) return 'nobutton';
+    logEvent('Send: used the send button');
+    return (await waitFor(state, SEND_WAIT)) || 'failed';
+  }
+
+  // Hidden mode: the context is already in the box; send it and say so when that did not work out.
+  async function hiddenSend(el) {
+    const r = await sendWithConfirmation(el, { skipKit: true });
+    if (r === 'sent') logEvent('Hidden send: message went out');
+    else if (r === 'unconfirmed') {
+      logEvent('Hidden send was handled but not confirmed');
+      toast('Enter was accepted but the send was not confirmed - check the chat before trying again');
+    } else if (r === 'nobutton') {
+      logEvent('Hidden send failed: no send button found');
+      toast('Could not send automatically - press Enter to send');
+    } else {
+      logEvent('Hidden send not confirmed');
+      toast('Could not confirm the message was sent - check it, then press Enter if needed');
+    }
+  }
+
+  // ----- the message counter
+  // A message counts when it really leaves: once Enter (or a click on the send button) is followed by the box
+  // clearing. Counting on the keypress itself drifted whenever the site ignored it (Enter while a reply is still being
+  // written), and nothing counted a send made with the mouse. One watcher per box, however many ways it was triggered.
+  const sendWatch = new WeakSet();
+  function watchSend(el) {
+    if (sendWatch.has(el)) return;
+    sendWatch.add(el);
+    const path = location.pathname; // the chat this message belongs to, even if the page moves on before the box clears
+    waitFor(() => boxCleared(el), SEND_ACK_WAIT).then((sent) => {
+      sendWatch.delete(el);
+      if (sent) countSend(path);
+      else logEvent('Message not counted: the box did not clear after Enter');
+    });
+  }
+  // "/" is the new-chat screen. If the page already moved to the chat's own address while the box was clearing, the
+  // message belongs there, and the new-chat counter must not keep it (the 500 ms path check would have carried it over).
+  function countSend(path) {
+    const now = location.pathname;
+    if (path === '/' && now !== '/') {
+      setCount(now, newChatCount + 1);
+      newChatCount = 0;
+      lastPath = now;
+      return;
+    }
+    setCount(path, getCount(path) + 1);
   }
 
   // ---------- Chips above the message box + the strip in the drawer ----------
@@ -480,13 +556,12 @@
 
       if (alreadyHasContext(el.value)) {
         // Context is already in the box: this Enter sends.
-        if (el.dataset.dckCounted) delete el.dataset.dckCounted;
-        else setCount(p, getCount(p) + 1);
+        watchSend(el);
         return;
       }
       const count = getCount(p);
       if (!shouldInject(settings, count, memories)) {
-        setCount(p, count + 1);
+        watchSend(el);
         return;
       }
 
@@ -497,23 +572,33 @@
           e.stopImmediatePropagation();
           toast('Context added - review it, then press Enter to send');
         } else {
-          setCount(p, count + 1);
+          watchSend(el);
         }
         return;
       }
 
       // Hidden mode: attach the context and send in one step; the inserted block is hidden in the chat view.
       const prefix = buildPrefix(settings, memories, el.value, count, false, ctxFor(count));
-      if (!prefix) { setCount(p, count + 1); return; }
+      if (!prefix) { watchSend(el); return; }
       e.preventDefault();
       e.stopImmediatePropagation();
-      setCount(p, count + 1);
-      el.dataset.dckCounted = '1';
       setNativeValue(el, prefix + el.value);
-      triggerSend(el);
+      watchSend(el);
+      hiddenSend(el);
     },
     true
   );
+
+  // A send made with the mouse. The Kit adds context on Enter only, but the message still counts, so "every N
+  // messages" schedules stay in step. Nothing is blocked or changed here.
+  document.addEventListener('click', (e) => {
+    if (!settings.enabled || !settings.autoInsertOnEnter || !(e.target instanceof Element)) return;
+    if (e.target.closest('#dck-drawer, .dck-vis')) return;
+    const el = getComposer();
+    if (!el || !el.value.trim()) return;
+    const b = SITE.sendButton(el);
+    if (b && b.contains(e.target)) watchSend(el);
+  }, true);
 
   // ---------- Hide the inserted block in the chat view (hidden mode only) ----------
   function stripNode(node) {
@@ -1883,27 +1968,6 @@
   // ----- question forms (```ask blocks): answers go into the message box, or are sent straight away if you chose that
   function askLabel() { return settings.askAutoSend ? 'Send answers' : 'Add to message'; }
 
-  // Presses Enter in the message box like you would, so the Kit's own Enter handling (count, due context) applies.
-  // If the site did not take it, the send button is pressed once. done('sent' | 'review' | 'failed').
-  function sendNow(el, done) {
-    const enterHandled = pressEnter(el, false);
-    const t0 = Date.now();
-    let clicked = false;
-    const tick = () => {
-      if (!el.isConnected || !el.value.trim()) { done('sent'); return; }
-      if (alreadyHasContext(el.value)) { done('review'); return; } // the Kit added due context first: you review it, then send
-      const deadline = clicked ? SEND_WAIT * 2 : (enterHandled ? SEND_ACK_WAIT : SEND_WAIT);
-      if (Date.now() - t0 >= deadline) {
-        if (clicked) { done('failed'); return; }
-        if (enterHandled) { done('unconfirmed'); return; }
-        if (!clickSend(el)) { done('failed'); return; }
-        clicked = true;
-      }
-      setTimeout(tick, 100);
-    };
-    setTimeout(tick, 100);
-  }
-
   // Question cards whose answers were sent, remembered by their question text for as long as the page is open, so a
   // card the site redraws comes back read-only with the answers still shown. Nothing is stored.
   const askSent = new Map();
@@ -1948,7 +2012,8 @@
     }
     st.ask.lock(true);
     st.ask.note('Sending...');
-    sendNow(el, (result) => {
+    // Enter goes through the Kit's own handler (count, due context); a 'review' means it put that context in the box.
+    sendWithConfirmation(el, { reviewOnContext: true }).then((result) => {
       if (result === 'sent') { askMarkSent(st.text, st.ask.answers()); logEvent('Answers sent'); }
       else if (result === 'review') { st.ask.lock(false); st.ask.note('Context added - review it, then press Enter to send'); askWatch(st); }
       else if (result === 'unconfirmed') {

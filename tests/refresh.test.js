@@ -10,11 +10,27 @@ const lib = read('lib.js');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Boots the extension on a given URL with a given "disk" (so we can simulate a page refresh by booting again with the same disk).
-async function boot(url, disk) {
+// With { sync: true } the instance also gets chrome.storage.onChanged, fed by every write to the same disk (its own
+// included, like the real thing), so several instances on one disk behave like several open tabs.
+const buses = new WeakMap();
+async function boot(url, disk, opts) {
   const dom = new JSDOM('<!doctype html><body><div id="chat"></div><textarea></textarea><div role="button" id="send"><svg></svg></div></body>',
     { url: url, runScripts: 'outside-only', pretendToBeVisual: true });
   const w = dom.window;
-  w.chrome = { storage: { local: { get: (k, cb) => cb(JSON.parse(JSON.stringify(disk))), set: (o) => Object.assign(disk, JSON.parse(JSON.stringify(o))) } } };
+  if (!buses.has(disk)) buses.set(disk, []);
+  const bus = buses.get(disk);
+  const local = {
+    get: (k, cb) => cb(JSON.parse(JSON.stringify(disk))),
+    set: (o) => {
+      const clean = JSON.parse(JSON.stringify(o));
+      const changes = {};
+      Object.keys(clean).forEach((k) => { changes[k] = { oldValue: disk[k], newValue: clean[k] }; });
+      Object.assign(disk, clean);
+      bus.slice().forEach((f) => f(changes, 'local'));
+    },
+  };
+  w.chrome = { storage: { local } };
+  if (opts && opts.sync) w.chrome.storage.onChanged = { addListener: (f) => bus.push(f) };
   w.eval(lib);
   w.eval(site);
   w.eval(visSrc);
@@ -63,10 +79,11 @@ const settings = () => ({
     const disk = { dck_settings: settings() };
     let a = await boot('https://chat.deepseek.com/a/chat/s/xyz', disk);
     // unknown chat starts at 1; "every 3" is not due (1 % 3 != 0)
-    a.type('m'); a.enter(); // count 1 -> 2
+    // a message counts when the site takes it and the box clears; the tests clear it by hand to play the site
+    a.type('m'); a.enter(); a.type(''); await sleep(250); // count 1 -> 2
     assert.strictEqual(disk.dck_counts['/a/chat/s/xyz'], 2, 'count saved');
     a = await boot('https://chat.deepseek.com/a/chat/s/xyz', disk); // refresh
-    a.type('m'); a.enter(); // count 2 -> 3
+    a.type('m'); a.enter(); a.type(''); await sleep(250); // count 2 -> 3
     assert.strictEqual(disk.dck_counts['/a/chat/s/xyz'], 3, 'count restored after refresh and incremented');
     a = await boot('https://chat.deepseek.com/a/chat/s/xyz', disk); // refresh again
     assert.ok(a.strip().includes('Every 3'), 'every-3 is due at count 3 after a refresh: ' + a.strip());
@@ -82,6 +99,7 @@ const settings = () => ({
     assert.ok(a.enter().defaultPrevented, 'first Enter inserts context');
     assert.ok(a.ta.value.includes('Rule F'));
     assert.ok(!a.enter().defaultPrevented, 'second Enter sends');
+    a.type(''); await sleep(250); // the site takes the message and clears the box
     assert.ok(!('/' in (disk.dck_counts || {})), 'the new-chat screen is never persisted');
     a.w.history.pushState({}, '', '/a/chat/s/fresh'); // the site moves to the new chat's URL
     await sleep(650);
@@ -117,6 +135,77 @@ const settings = () => ({
     Array.from(a.w.document.querySelectorAll('button')).find((b) => b.textContent.trim() === 'Reset all').click();
     assert.strictEqual(JSON.stringify(disk.dck_counts), '{}', 'counts cleared');
     console.log('ok  Reset all clears counts');
+  }
+
+  // 6. Two tabs on two chats: each tab's count is kept, whichever tab writes last
+  {
+    const disk = { dck_settings: settings() };
+    const a = await boot('https://chat.deepseek.com/a/chat/s/tabA', disk, { sync: true });
+    const b = await boot('https://chat.deepseek.com/a/chat/s/tabB', disk, { sync: true }); // booted before A wrote anything
+    a.type('m'); a.enter(); a.type(''); await sleep(250); // tabA 1 -> 2
+    b.type('m'); b.enter(); b.type(''); await sleep(250); // tabB 1 -> 2, from a copy that never saw tabA
+    assert.strictEqual(disk.dck_counts['/a/chat/s/tabA'], 2, 'tab A kept: ' + JSON.stringify(disk.dck_counts));
+    assert.strictEqual(disk.dck_counts['/a/chat/s/tabB'], 2, 'tab B kept: ' + JSON.stringify(disk.dck_counts));
+    a.type('m'); a.enter(); a.type(''); await sleep(250); // tabA 2 -> 3, and B's entry must survive this write too
+    assert.strictEqual(disk.dck_counts['/a/chat/s/tabA'], 3);
+    assert.strictEqual(disk.dck_counts['/a/chat/s/tabB'], 2, 'tab B still kept');
+    console.log('ok  two tabs on two chats keep each other\'s counts');
+  }
+
+  // 7. Reset in one tab is not undone by another tab that still holds old counts
+  {
+    const disk = { dck_settings: settings(), dck_counts: { '/a/chat/s/old': 4 } };
+    const a = await boot('https://chat.deepseek.com/a/chat/s/old', disk, { sync: true });
+    const b = await boot('https://chat.deepseek.com/a/chat/s/other', disk, { sync: true }); // holds old: 4 too
+    a.w.chrome.storage.local.set({ dck_counts: {} }); // what "Reset all" writes
+    b.type('m'); b.enter(); b.type(''); await sleep(250);
+    assert.ok(!('/a/chat/s/old' in disk.dck_counts), 'forgotten chat did not come back: ' + JSON.stringify(disk.dck_counts));
+    assert.strictEqual(disk.dck_counts['/a/chat/s/other'], 2);
+    console.log('ok  Reset all reaches other tabs');
+  }
+
+  // 8. An Enter the site ignores (a reply is still being written) is not a message: it must not move the count
+  {
+    const disk = { dck_settings: settings(), dck_counts: { '/a/chat/s/ig': 2 } };
+    const a = await boot('https://chat.deepseek.com/a/chat/s/ig', disk);
+    assert.ok(!a.strip().includes('Every 3'), 'count 2: every-3 is not due yet');
+    a.type('x'); a.enter(); // the site does nothing: the text stays in the box
+    await sleep(5400);
+    assert.strictEqual(disk.dck_counts['/a/chat/s/ig'], 2, 'ignored Enter did not count: ' + JSON.stringify(disk.dck_counts));
+    assert.ok(!a.strip().includes('Every 3'), 'so every-3 is still not due');
+    a.type('y'); a.enter(); a.type(''); await sleep(250); // this one goes out
+    assert.strictEqual(disk.dck_counts['/a/chat/s/ig'], 3, 'a real send counts');
+    await sleep(650);
+    assert.ok(a.strip().includes('Every 3'), 'every-3 is due now: ' + a.strip());
+    console.log('ok  an Enter the site ignores is not counted');
+  }
+
+  // 9. A send made with the mouse counts too; a click elsewhere does not
+  {
+    const disk = { dck_settings: settings(), dck_counts: { '/a/chat/s/ms': 2 } };
+    const a = await boot('https://chat.deepseek.com/a/chat/s/ms', disk);
+    a.type('x');
+    a.w.document.getElementById('chat').click(); // not the send button
+    a.type(''); await sleep(250);
+    assert.strictEqual(disk.dck_counts['/a/chat/s/ms'], 2, 'clearing the box after a click elsewhere is not a send');
+    a.type('x');
+    a.w.document.getElementById('send').click();
+    a.type(''); await sleep(250);
+    assert.strictEqual(disk.dck_counts['/a/chat/s/ms'], 3, 'send button click counted once the box cleared');
+    console.log('ok  a send with the mouse is counted');
+  }
+
+  // 10. The page moves to the chat's own address before the box clears: the message still belongs to that chat
+  {
+    const disk = { dck_settings: { enabled: true, defaultEnabled: false, memoryEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [] } };
+    const a = await boot('https://chat.deepseek.com/', disk);
+    a.type('hello'); a.enter(); // nothing is due: a plain send from the new-chat screen
+    a.w.history.pushState({}, '', '/a/chat/s/nav'); // the site moves on, the path check notices
+    await sleep(650);
+    a.type(''); await sleep(250); // and only then the box clears
+    assert.strictEqual(disk.dck_counts['/a/chat/s/nav'], 1, 'counted for the new chat: ' + JSON.stringify(disk.dck_counts));
+    assert.ok(!('/' in disk.dck_counts), 'the new-chat screen kept nothing');
+    console.log('ok  a message that clears after the page moved is counted for its chat');
   }
 
   console.log('\nall refresh/count tests passed');
