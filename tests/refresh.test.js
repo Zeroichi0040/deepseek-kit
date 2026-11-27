@@ -225,6 +225,38 @@ const settings = () => ({
     console.log('ok  a message that left the new-chat screen is counted for its chat');
   }
 
+  // A successful send can also change the URL before the composer clears or the counter's first poll.
+  // Both orders must persist the first message; clearing a draft on unrelated navigation is not sufficient.
+  for (const clearFirst of [false, true]) {
+    const disk = { dck_settings: { enabled: true, defaultEnabled: false, memoryEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [] } };
+    const a = await boot('https://chat.deepseek.com/', disk);
+    a.type('hello'); a.enter();
+    if (clearFirst) a.type('');
+    a.w.history.pushState({}, '', '/a/chat/s/early');
+    if (!clearFirst) await sleep(650);
+    const msg = a.w.document.createElement('div');
+    msg.className = 'ds-message'; msg.textContent = 'hello';
+    a.w.document.getElementById('chat').append(msg);
+    if (!clearFirst) a.type('');
+    await sleep(650);
+    assert.strictEqual(disk.dck_counts['/a/chat/s/early'], 1, 'first message persisted across route transition');
+    assert.ok(!('/' in disk.dck_counts), 'home count was not persisted separately');
+    await sleep(500);
+    assert.strictEqual(disk.dck_counts['/a/chat/s/early'], 1, 'not counted twice');
+  }
+  {
+    const disk = { dck_settings: { enabled: true, defaultEnabled: false, memoryEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [] } };
+    const a = await boot('https://chat.deepseek.com/', disk);
+    a.type('unsent'); a.enter();
+    a.w.history.pushState({}, '', '/a/chat/s/unknown-old');
+    a.type('');
+    const msg = a.w.document.createElement('div');
+    msg.className = 'ds-message'; msg.textContent = 'a different historical message';
+    a.w.document.getElementById('chat').append(msg);
+    await sleep(5400);
+    assert.ok(!disk.dck_counts || !('/a/chat/s/unknown-old' in disk.dck_counts), 'unrelated history is not confirmation');
+  }
+
   const hiddenSettings = () => ({ enabled: true, defaultEnabled: false, memoryEnabled: false, visualsPrompt: false, askPrompt: false, showInjected: false, prompts: [{ id: 'f', name: 'First only', text: 'Rule F', enabled: true, schedule: 'first' }] });
   const NEXT = 'https://chat.deepseek.com/';
 
