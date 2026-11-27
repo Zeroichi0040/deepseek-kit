@@ -425,14 +425,14 @@
 
   // The srcdoc for a widget iframe: restricted resource loading, the Kit styles, an error and height reporter.
   // `theme` is { dark, text, muted, border, surface, accent }.
+  // The model's code is never inspected: it always goes into <body> of a fixed wrapper, so the CSP <meta> is the first
+  // thing the parser sees and no text in the code (an "<html>" in a comment or a string, say) can move or swallow it.
+  // The HTML parser ignores stray <html>, <head> and doctype tokens in a body and merges their attributes, so a widget
+  // that ships a full document still works.
   function buildWidgetDocument(code, theme, id) {
     const body = String(code == null ? '' : code).trim();
     const head = '<meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="' + CSP + '"><meta name="viewport" content="width=device-width,initial-scale=1">' +
       '<style>' + widgetCss(theme) + '</style>' + widgetScripts(id);
-    if (/<html[\s>]/i.test(body)) {
-      if (/<head[\s>]/i.test(body)) return body.replace(/<head[^>]*>/i, (m) => m + head);
-      return body.replace(/<html[^>]*>/i, (m) => m + '<head>' + head + '</head>');
-    }
     return '<!DOCTYPE html><html><head>' + head + '</head><body>' + body + '</body></html>';
   }
 

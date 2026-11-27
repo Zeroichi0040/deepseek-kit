@@ -173,11 +173,14 @@
     return !!raw && ('systemPrompt' in raw || 'multiPrompt' in raw || 'mode' in raw || 'everyN' in raw || 'askEnabled' in raw);
   }
 
+  // Words are runs of letters, digits and combining marks in any script. (The old class, \u00c0-\uffff, also held
+  // curly quotes, dashes and the ellipsis, so "\u201cPython\u201d" was one word and never matched the key "python".)
+  const NOT_WORD = /[^\p{L}\p{N}\p{M}]+/u;
   function tokens(s) {
     return new Set(
       String(s || '')
         .toLowerCase()
-        .split(/[^a-z0-9\u00c0-\uffff]+/)
+        .split(NOT_WORD)
         .filter((t) => t.length > 2)
     );
   }
@@ -192,7 +195,7 @@
     if (CJK.test(k)) return text.indexOf(k) !== -1;
     if (k.length >= 2 && k.length <= 3) {
       const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      return new RegExp('(^|[^a-z0-9])' + esc + '($|[^a-z0-9])').test(text);
+      return new RegExp('(^|[^\\p{L}\\p{N}\\p{M}])' + esc + '($|[^\\p{L}\\p{N}\\p{M}])', 'u').test(text);
     }
     return false;
   }
@@ -485,7 +488,7 @@
   }
 
   function cleanSnippetName(s) {
-    return String(s || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_\-\u00c0-\uffff]/g, '');
+    return String(s || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}\p{M}_-]/gu, '');
   }
 
   function filterSnippets(snippets, query, limit) {
@@ -694,6 +697,31 @@
     return isExistingChatPath(path) ? 1 : 0;
   }
 
+  // Adds this tab's not-yet-saved increments to the stored counters. Increments, never absolute values: two tabs that
+  // both sent a message in the same chat each add 1, so neither is lost. A chat that gets an increment moves to the end
+  // (the most recently used), non-counts in the stored copy are dropped.
+  // startOf(path) is where a chat with no stored count begins (default 0).
+  function addCounts(stored, adds, startOf) {
+    const out = {};
+    const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+    if (isObj(stored)) {
+      Object.keys(stored).forEach((k) => {
+        const n = Number(stored[k]);
+        if (Number.isFinite(n) && n >= 0) out[k] = Math.floor(n);
+      });
+    }
+    if (isObj(adds)) {
+      Object.keys(adds).forEach((k) => {
+        const n = Math.floor(Number(adds[k]));
+        if (!Number.isFinite(n) || n <= 0) return;
+        const v = (has(out, k) ? out[k] : typeof startOf === 'function' ? Number(startOf(k)) || 0 : 0) + n;
+        delete out[k];
+        out[k] = v;
+      });
+    }
+    return out;
+  }
+
   // Keeps only the most recently updated chats so the stored counters cannot grow without limit.
   function pruneCounts(counts, max) {
     const keys = Object.keys(counts || {});
@@ -722,7 +750,7 @@
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     LANG_EXT, normalizeLang, langFromClass, extFor, sniffLang, previewKind, detectBlock, suggestFilename, uniqueName, crc32, makeZip,
-    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryUsage, memoryStatuses, memoryTokens, firstNoteWaiting, groupMemories, cleanCategory, isExistingChatPath, resolveCount, pruneCounts, MARKER_START, MARKER_END,
+    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryUsage, memoryStatuses, memoryTokens, firstNoteWaiting, groupMemories, cleanCategory, isExistingChatPath, resolveCount, addCounts, pruneCounts, MARKER_START, MARKER_END,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   else root.DCK_LIB = core;

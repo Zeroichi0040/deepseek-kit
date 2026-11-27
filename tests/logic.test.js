@@ -119,6 +119,25 @@ assert.strictEqual(c.slashQuery('/home/user'), null);
 assert.strictEqual(c.slashQuery('hello /sum'), null);
 assert.strictEqual(c.slashQuery('/two words'), null);
 assert.strictEqual(c.cleanSnippetName('  My Snippet! '), 'my-snippet');
+// names keep letters and digits of any script, but not typographic punctuation
+assert.strictEqual(c.cleanSnippetName('Café “Menu” — 2'), 'café-menu--2');
+assert.strictEqual(c.cleanSnippetName('翻訳 テスト'), '翻訳-テスト');
+
+// ---- "when mentioned" keys next to typographic punctuation (curly quotes, dashes, ellipsis) still match
+{
+  const hit = (key, text) => { const t = text.toLowerCase(); return c.keyMatches(key, t, c.tokens(t)); };
+  assert.ok(hit('python', 'I love “Python” a lot'), 'curly double quotes');
+  assert.ok(hit('python', 'it’s about python—the language'), 'em dash');
+  assert.ok(hit('rust', 'maybe rust… or go'), 'ellipsis');
+  assert.ok(hit('python', '(python)'), 'brackets');
+  assert.ok(hit('café', 'un café, s’il vous plaît'), 'accented key with a comma after it');
+  assert.ok(hit('AI', 'what is “AI”?'), 'short key inside curly quotes');
+  assert.ok(hit('AI', 'AI—hype or not'), 'short key before an em dash');
+  assert.ok(!hit('AI', 'maintain the rail'), 'short key is still a whole word only');
+  assert.ok(!hit('AI', 'caféai'), 'short key does not match inside a word of another script block');
+  assert.ok(!hit('python', 'pythonic code'), 'longer word does not match');
+  assert.ok(hit('東京', '今日は東京に行く'), 'CJK key as written');
+}
 const snips = [{ name: 'summarize', text: 'a' }, { name: 'sum-up', text: 'b' }, { name: 'translate', text: 'to English' }, { name: 'resume', text: 'd' }];
 assert.deepStrictEqual(c.filterSnippets(snips, 'sum').map((s) => s.name), ['sum-up', 'summarize', 'resume']);
 assert.strictEqual(c.filterSnippets(snips, '').length, 4);
@@ -157,6 +176,15 @@ const pruned = c.pruneCounts(many, 4);
 assert.deepStrictEqual(Object.keys(pruned), ['/a/chat/s/6', '/a/chat/s/7', '/a/chat/s/8', '/a/chat/s/9']);
 assert.strictEqual(c.pruneCounts(many, 50), many);
 assert.deepStrictEqual(c.pruneCounts(undefined, 5), {});
+// two tabs, two chats: merging keeps both entries and the larger count of a chat both know
+assert.deepStrictEqual(c.addCounts({ '/a': 2 }, { '/b': 2 }), { '/a': 2, '/b': 2 });
+assert.deepStrictEqual(c.addCounts({ '/a': 5 }, { '/a': 3 }), { '/a': 8 }, 'increments add up');
+assert.deepStrictEqual(Object.keys(c.addCounts({ '/a': 1, '/b': 1, '/c': 1 }, { '/a': 2 })), ['/b', '/c', '/a'], 'the chat just touched is the most recent');
+assert.deepStrictEqual(c.addCounts({ '/a': 'junk', '/b': -1, '/c': NaN, '/d': 2.9 }, { '/e': 0, '/f': -2, '/g': 'x' }), { '/d': 2 }, 'non-counts are dropped');
+assert.deepStrictEqual(c.addCounts({ '/a': 1 }, { '/a': 1, '/b': 1 }, (k) => (k === '/b' ? 1 : 9)), { '/a': 2, '/b': 2 }, 'startOf only applies to chats with no stored count');
+assert.deepStrictEqual(c.addCounts(null, undefined), {});
+assert.deepStrictEqual(c.addCounts([1, 2], 'x'), {}, 'arrays and strings are not count maps');
+assert.deepStrictEqual(c.addCounts({ '/a': 0 }, null), { '/a': 0 }, 'a stored 0 stays');
 
 // ---- memory: plan, budget, status
 const notes = [

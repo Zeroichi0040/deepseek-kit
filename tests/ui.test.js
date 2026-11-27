@@ -659,6 +659,8 @@ async function boot(stored, memories) {
     assert.ok(a.ta.value.includes('Instructions (Custom):') && a.ta.value.endsWith('hello') && !a.ta.value.includes('{{'));
     const e2 = a.key(a.ta, 'Enter');
     assert.ok(!e2.defaultPrevented, 'second Enter sends');
+    a.type(a.ta, ''); // the site takes the message and clears the box: that is what counts it
+    await sleep(250);
     a.type(a.ta, 'again');
     assert.ok(!a.key(a.ta, 'Enter').defaultPrevented && a.ta.value === 'again', 'nothing due on message 2');
     assert.ok(a.doc.getElementById('dck-strip').textContent.includes('Nothing is due'), 'strip says nothing due');

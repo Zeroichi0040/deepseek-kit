@@ -503,7 +503,7 @@ async function askForms() {
     { question: 'Which features?', type: 'multi', options: [{ label: 'Login', description: 'email and password' }, 'Dashboard'] },
     { question: 'Anything else?', type: 'text' },
   ] });
-  const page = (mode) => `<body style="background:#151517;color:#eee;margin:0"><div style="width:700px;padding:20px">${fence('ask', SPEC)}<p id="gap">between</p>${fence('ask', '{ this is not json')}</div><div id="box" style="border-radius:20px;background:#2b2b2e;padding:16px;width:700px;margin:20px"><textarea id="main" style="width:100%"></textarea><div role="button" aria-label="Send" id="sendbtn" style="width:30px;height:30px"><svg width="12" height="12"><rect width="12" height="12"/></svg></div></div><script>window.__sent=[];window.__enter=0;window.__clicks=0;var m=document.getElementById("main");m.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){window.__enter++;if("${mode}"==="enter"){window.__sent.push(m.value);m.value="";}else if("${mode}"==="slow-enter"){e.preventDefault();window.__sent.push(m.value);setTimeout(function(){m.value="";},1800);}}});document.getElementById("sendbtn").addEventListener("click",function(){window.__clicks++;window.__sent.push(m.value);m.value="";});</script></body>`;
+  const page = (mode) => `<body style="background:#151517;color:#eee;margin:0"><div style="width:700px;padding:20px">${fence('ask', SPEC)}<p id="gap">between</p>${fence('ask', '{ this is not json')}</div><div id="box" style="border-radius:20px;background:#2b2b2e;padding:16px;width:700px;margin:20px"><textarea id="main" style="width:100%"></textarea><div role="button" aria-label="Send" id="sendbtn" style="width:30px;height:30px"><svg width="12" height="12"><rect width="12" height="12"/></svg></div></div><script>window.__sent=[];window.__enter=0;window.__clicks=0;var m=document.getElementById("main");m.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){window.__enter++;if("${mode}"==="enter"){window.__sent.push(m.value);m.value="";}else if("${mode}"==="slow-enter"){e.preventDefault();window.__sent.push(m.value);setTimeout(function(){m.value="";},1800);}}});document.getElementById("sendbtn").addEventListener("click",function(){window.__clicks++;if("${mode}"==="dead")return;window.__sent.push(m.value);m.value="";});</script></body>`;
   const ctx = await launch(1000, 1100);
   const p = await open(ctx, page('enter'));
   const hosts = new Set();
@@ -648,6 +648,48 @@ async function askForms() {
   assert.strictEqual(await p.evaluate(() => window.__clicks), 0, 'no fallback click after Enter was accepted, even with a 1.8 s composer delay');
   await p.waitForFunction(() => document.querySelector('.dck-ask-note').textContent === 'Answers sent');
   ok('Send straight away: a handled Enter is never followed by a delayed fallback click');
+
+  // Hidden mode with context due and a composer that clears 1.8 s after the Enter: the form must not mistake the
+  // context sitting in the box for "review it" - it is the Kit's own send in progress.
+  await p.click('#dck-fab');
+  await p.locator('#dck-drawer button:has-text("Hidden")').first().click();
+  await close(p);
+  await p.goto('https://chat.deepseek.com/'); // new chat: the first-message context is due
+  await p.waitForSelector('.dck-ask .dck-ask-opt');
+  const f5 = p.locator('.dck-vis[data-kind=ask]').first();
+  await f5.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
+  await f5.locator('[aria-label=\"Next question\"]').click();
+  await f5.locator('[aria-label=\"Next question\"]').click();
+  await f5.locator('.dck-ask-submit').click();
+  await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 6000 });
+  await p.waitForFunction(() => document.querySelector('.dck-ask-note').textContent === 'Answers sent', null, { timeout: 8000 });
+  const hsent = await p.evaluate(() => ({ sent: window.__sent.slice(), clicks: window.__clicks, box: document.getElementById('main').value }));
+  assert.strictEqual(hsent.sent.length, 1, 'sent exactly once');
+  assert.ok(hsent.sent[0].indexOf('[DeepSeek Kit]') >= 0 && hsent.sent[0].indexOf('Web application') > 0, 'with the context attached: ' + hsent.sent[0].slice(0, 200));
+  assert.strictEqual(hsent.clicks, 0, 'no fallback click');
+  assert.strictEqual(hsent.box, '');
+  ok('Send straight away: Hidden mode, context due and a slow composer clear still ends as sent');
+
+  // A send that does not happen (the site ignores both Enter and the button): deleting the message by hand is not "sent"
+  await ctx.unroute('https://chat.deepseek.com/**');
+  await ctx.route('https://chat.deepseek.com/**', (r) => r.fulfill({ contentType: 'text/html', body: page('dead') }));
+  await p.goto('https://chat.deepseek.com/a/chat/s/1');
+  await p.waitForSelector('.dck-ask .dck-ask-opt');
+  const f6 = p.locator('.dck-vis[data-kind=ask]').first();
+  await f6.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
+  await f6.locator('[aria-label=\"Next question\"]').click();
+  await f6.locator('[aria-label=\"Next question\"]').click();
+  await f6.locator('.dck-ask-submit').click();
+  await p.waitForTimeout(400);
+  await p.focus('#main');
+  await p.keyboard.press('Control+A');
+  await p.keyboard.press('Backspace'); // you delete the unsent message yourself
+  await p.waitForTimeout(2800);
+  const dead = await p.evaluate(() => ({ note: document.querySelector('.dck-ask-note').textContent, clicks: window.__clicks, sent: window.__sent.length }));
+  assert.ok(!/Answers sent/.test(dead.note), 'not marked as sent: ' + dead.note);
+  assert.strictEqual(dead.clicks, 0, 'and no send button click after you deleted it');
+  assert.ok(await f6.locator('input[type=radio]').first().isEnabled(), 'the form is unlocked again');
+  ok('Send straight away: deleting an unsent message by hand does not mark the form as sent');
 
   // there is no Questions section any more: forms are always drawn, and Send answers straight away lives under Messages
   await settingsTab(p, 'Messages');
@@ -1017,6 +1059,7 @@ async function firstMessageMemory() {
     + ' e.preventDefault();'
     + ' if (!ta.value.trim()) return;'
     + ' window.__sent.push(ta.value);'
+    + ' const msg = document.createElement("div"); msg.className = "ds-message"; msg.textContent = ta.value; document.body.insertBefore(msg, ta);'
     + ' Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(ta, "");'
     + ' ta.dispatchEvent(new Event("input", { bubbles: true }));'
     + ' if (location.pathname === "/") history.pushState({}, "", "/a/chat/s/" + Date.now());'

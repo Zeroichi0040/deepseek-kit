@@ -63,6 +63,13 @@
     return best;
   }
 
+  // Chat message containers, not composer mirrors or Kit-generated UI. A new matching message is
+  // supporting evidence for a send across the new-chat URL transition.
+  function chatMessages(doc) {
+    const d = doc || document;
+    return Array.from(d.querySelectorAll('.ds-message')).filter((m) => !m.closest(OURS) && !m.querySelector('textarea'));
+  }
+
   const NOT_SEND = /attach|upload|file|mic|voice|record|search|think|reason|model|stop|cancel|clear|emoji/i;
   const IS_SEND = /send|submit|\u53d1\u9001/i;
   const nameOf = (b) => [b.getAttribute('aria-label'), b.getAttribute('title'), b.getAttribute('data-testid'), b.getAttribute('name'), b.id].filter(Boolean).join(' ');
@@ -70,7 +77,9 @@
   // The send button for the message box. Candidates are the enabled icon buttons around the box that are not ours.
   // A button named like "send" or type=submit wins; buttons named like attach, voice, search and so on are never
   // chosen; otherwise the right-most one is taken (the send button sits at the right end of the toolbar).
-  function sendButton(el) {
+  // strict: only a button that says it is the send button (name or type=submit), never the right-most guess. Used to
+  // decide whether a click was a send, where guessing wrong would act on an unrelated toolbar click.
+  function sendButton(el, strict) {
     let node = el;
     for (let i = 0; i < 6 && node && node.parentElement; i++) {
       node = node.parentElement;
@@ -80,6 +89,7 @@
       if (!btns.length) continue;
       const named = btns.filter((b) => IS_SEND.test(nameOf(b)) || b.getAttribute('type') === 'submit');
       if (named.length) return named[named.length - 1];
+      if (strict) continue;
       const rest = btns.filter((b) => !NOT_SEND.test(nameOf(b)));
       if (!rest.length) continue;
       let best = rest[rest.length - 1];
@@ -227,7 +237,7 @@
   }
 
   const api = {
-    BLOCK_SEL, oncePerFrame, textNodes, findByText, firstText, composer, sendButton, composerBox, toolbarPills,
+    BLOCK_SEL, oncePerFrame, textNodes, findByText, firstText, composer, chatMessages, sendButton, composerBox, toolbarPills,
     copyButton, codeBlocks, blockBox, blockLang, blockBusy, reasoningBlocks, blockOfHeader, blockKey, blockIsOpen, blockLabel, blockLive, blockThoughtLength, probe,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
