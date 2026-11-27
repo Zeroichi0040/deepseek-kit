@@ -70,7 +70,8 @@
   let pendingFresh = {}; // chats whose very first messages these are: no earlier message to assume (see resolveCount)
   let inflightAdds = {};
   let inflightFresh = {};
-  let countEpoch = 0;
+  let countEpoch = 0; // bumped by this tab's Reset all: a save already reading must write nothing
+  let countGen = ''; // which Reset all the counters belong to (stored beside them, so every tab sees a reset)
   let countQueue = Promise.resolve();
   const lastError = () => typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
   function storeGet(keys) {
@@ -105,13 +106,20 @@
   async function flushCounts() {
     if (!Object.keys(pendingAdds).length) return;
     const epoch = countEpoch;
+    const gen = countGen;
     const mine = pendingAdds;
     const mineFresh = pendingFresh;
     pendingAdds = {}; pendingFresh = {};
     inflightAdds = mine; inflightFresh = mineFresh;
     try {
-      const r = await storeGet(['dck_counts']);
-      if (epoch !== countEpoch) return; // Reset all happened while reading: these increments belong to counts that were just wiped
+      const r = await storeGet(['dck_counts', 'dck_counts_gen']);
+      if (epoch !== countEpoch) return;
+      if ((r && r.dck_counts_gen || '') !== gen) { // another tab did Reset all after these messages were counted here
+        countGen = (r && r.dck_counts_gen) || '';
+        pendingAdds = {}; pendingFresh = {};
+        counts = viewOf(r && r.dck_counts);
+        return;
+      } // Reset all happened while reading: these increments belong to counts that were just wiped
       const merged = pruneCounts(addCounts(r && r.dck_counts, mine, startOf(mineFresh)), 300);
       await storePut({ dck_counts: merged });
       if (epoch === countEpoch) { inflightAdds = {}; inflightFresh = {}; counts = viewOf(merged); }
@@ -141,7 +149,9 @@
     counts = {};
     pendingAdds = {}; pendingFresh = {};
     inflightAdds = {}; inflightFresh = {};
-    queueCounts(() => storePut({ dck_counts: {} }));
+    countGen = newId();
+    const gen = countGen;
+    queueCounts(() => storePut({ dck_counts: {}, dck_counts_gen: gen }));
   }
   // A change to the stored counters made by another tab (or echoed back from this one). Reset all stores an empty
   // object, which then clears them here too (what this tab has not saved yet is kept).
@@ -161,12 +171,13 @@
         settings = migrateSettings(r.dck_settings);
         memories = cleanMemories(r.dck_memories);
         let dirty = hasLegacyKeys(r.dck_settings) || (r.dck_settings && 'starterSeeded' in r.dck_settings);
+        countGen = typeof r.dck_counts_gen === 'string' ? r.dck_counts_gen : '';
         counts = r.dck_counts && typeof r.dck_counts === 'object' && !Array.isArray(r.dck_counts) ? r.dck_counts : {};
         if (dirty) save(); // write the migrated shape back once
         resolve();
       };
       try {
-        store.get(['dck_settings', 'dck_memories', 'dck_counts', 'dck_fab'], (r) => {
+        store.get(['dck_settings', 'dck_memories', 'dck_counts', 'dck_counts_gen', 'dck_fab'], (r) => {
           const e = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
           if (e) storage.error = e.message;
           done(r);
@@ -188,6 +199,10 @@
       if (!chrome.storage.onChanged) return;
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area !== 'local') return;
+        if (changes.dck_counts_gen) {
+          const g = changes.dck_counts_gen.newValue || '';
+          if (g !== countGen) { countGen = g; pendingAdds = {}; pendingFresh = {}; } // a reset elsewhere: unsaved increments here are from before it
+        }
         if (changes.dck_counts) adoptCounts(changes.dck_counts.newValue);
         if (!changes.dck_rev || myRevs.indexOf(changes.dck_rev.newValue) >= 0) return;
         const s = changes.dck_settings;
@@ -355,8 +370,9 @@
     if (o.reviewOnContext && !hadContext && alreadyHasContext(el.value)) return 'review';
     const base = el.value;
     const state = () => {
+      if (editsOf(el) !== stamp) return 'cancelled'; // you changed or deleted the draft: an empty box is then not a send
       if (boxCleared(el)) return 'sent';
-      if (editsOf(el) !== stamp || el.value !== base) return 'cancelled';
+      if (el.value !== base) return 'cancelled';
       return null;
     };
     const first = await waitFor(state, handled ? SEND_ACK_WAIT : SEND_WAIT);
@@ -404,10 +420,13 @@
     sends.delete(r);
     if (sent) countSend(r.path);
   }
+  // A record belongs to the chat it was made in. If the page has moved on, whatever happens to the box now (the site
+  // redrawing it for another chat, you opening an old chat from the new-chat screen) is not that message leaving.
   function checkSends() {
     const now = Date.now();
     Array.from(sends).forEach((r) => {
-      if (boxCleared(r.el)) finishSend(r, true);
+      if (location.pathname !== r.path) finishSend(r, false);
+      else if (boxCleared(r.el)) finishSend(r, true);
       else if (now - r.t0 >= SEND_ACK_WAIT) { finishSend(r, false); logEvent('Message not counted: the box did not clear after Enter'); }
     });
     if (!sends.size) { clearInterval(sendTimer); sendTimer = 0; }
@@ -425,19 +444,11 @@
   // You are editing the box: a send that already went out (box cleared) counts, one still waiting is dropped.
   function editedBox(el) {
     Array.from(sends).forEach((r) => {
-      if (r.el === el) finishSend(r, boxCleared(el));
+      if (r.el === el) finishSend(r, location.pathname === r.path && boxCleared(el));
     });
   }
-  // "/" is the new-chat screen. If the page already moved to the chat's own address while the box was clearing, the
-  // message belongs there, and the new-chat counter must not keep it (the 500 ms path check would have carried it over).
+  // "/" is the new-chat screen: its messages are held in newChatCount until the page moves to the chat's own address.
   function countSend(path) {
-    const now = location.pathname;
-    if (path === '/' && now !== '/') {
-      addCount(now, newChatCount + 1, true);
-      newChatCount = 0;
-      lastPath = now;
-      return;
-    }
     addCount(path, 1);
   }
 
@@ -688,7 +699,7 @@
     if (e.target.closest('#dck-drawer, .dck-vis')) return;
     const el = getComposer();
     if (!el || !el.value.trim()) return;
-    const b = SITE.sendButton(el);
+    const b = SITE.sendButton(el, true); // only a button that says it sends: an unrelated toolbar click is left alone
     if (b && b.contains(e.target)) onSendIntent(e, el);
   }, true);
 

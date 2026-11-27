@@ -14,7 +14,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // included, like the real thing), so several instances on one disk behave like several open tabs.
 const buses = new WeakMap();
 async function boot(url, disk, opts) {
-  const dom = new JSDOM('<!doctype html><body><div id="chat"></div><textarea></textarea><div role="button" id="send"><svg></svg></div></body>',
+  const dom = new JSDOM('<!doctype html><body>' + ((opts && opts.body) || '<div id="chat"></div><textarea></textarea><div role="button" id="send" aria-label="Send"><svg></svg></div>') + '</body>',
     { url: url, runScripts: 'outside-only', pretendToBeVisual: true });
   const w = dom.window;
   if (!buses.has(disk)) buses.set(disk, []);
@@ -213,17 +213,16 @@ const settings = () => ({
     console.log('ok  a send with the mouse is counted');
   }
 
-  // 10. The page moves to the chat's own address before the box clears: the message still belongs to that chat
+  // 10. A message that really left from the new-chat screen is carried to its chat; one that did not is not
   {
     const disk = { dck_settings: { enabled: true, defaultEnabled: false, memoryEnabled: false, visualsPrompt: false, askPrompt: false, prompts: [] } };
     const a = await boot('https://chat.deepseek.com/', disk);
-    a.type('hello'); a.enter(); // nothing is due: a plain send from the new-chat screen
-    a.w.history.pushState({}, '', '/a/chat/s/nav'); // the site moves on, the path check notices
+    a.type('hello'); a.enter(); a.type(''); await sleep(250); // the site takes it and clears the box
+    a.w.history.pushState({}, '', '/a/chat/s/nav'); // and then moves to the chat's own address
     await sleep(650);
-    a.type(''); await sleep(250); // and only then the box clears
     assert.strictEqual(disk.dck_counts['/a/chat/s/nav'], 1, 'counted for the new chat: ' + JSON.stringify(disk.dck_counts));
     assert.ok(!('/' in disk.dck_counts), 'the new-chat screen kept nothing');
-    console.log('ok  a message that clears after the page moved is counted for its chat');
+    console.log('ok  a message that left the new-chat screen is counted for its chat');
   }
 
   const hiddenSettings = () => ({ enabled: true, defaultEnabled: false, memoryEnabled: false, visualsPrompt: false, askPrompt: false, showInjected: false, prompts: [{ id: 'f', name: 'First only', text: 'Rule F', enabled: true, schedule: 'first' }] });
@@ -366,6 +365,71 @@ const settings = () => ({
     await sleep(200);
     assert.strictEqual(enters, 1, 'and sent it');
     console.log('ok  a mouse send gets the first-message context like Enter');
+  }
+
+  // 18. Opening an existing chat from the new-chat screen after an Enter the site ignored makes no phantom message
+  {
+    const disk = { dck_settings: settings(), dck_counts: { '/a/chat/s/old': 2 } };
+    const a = await boot(NEXT, disk);
+    a.type('draft'); a.enter(); // ignored
+    await sleep(200);
+    a.w.history.pushState({}, '', '/a/chat/s/old'); // you click an old chat
+    a.type(''); // and the page drops the draft
+    await sleep(900);
+    assert.strictEqual(disk.dck_counts['/a/chat/s/old'], 2, 'no phantom increment: ' + JSON.stringify(disk.dck_counts));
+    console.log('ok  opening an old chat after an ignored Enter on the new-chat screen counts nothing');
+  }
+
+  // 19. Navigating from one chat to another after an ignored Enter does not count in either
+  {
+    const disk = { dck_settings: settings(), dck_counts: { '/a/chat/s/one': 2, '/a/chat/s/two': 2 } };
+    const a = await boot('https://chat.deepseek.com/a/chat/s/one', disk);
+    a.type('draft'); a.enter(); // ignored
+    await sleep(200);
+    a.w.history.pushState({}, '', '/a/chat/s/two');
+    a.type('');
+    await sleep(900);
+    assert.deepStrictEqual(disk.dck_counts, { '/a/chat/s/one': 2, '/a/chat/s/two': 2 }, JSON.stringify(disk.dck_counts));
+    console.log('ok  navigating away after an ignored Enter does not increment the count');
+  }
+
+  // 20. A click on an unrelated toolbar button is not a send: no context, no Enter (the site's send button has no name here,
+  // so the right-most button is only a guess, which is fine for a fallback click but not for deciding a click was a send)
+  {
+    const body = '<div id="chat"></div><textarea></textarea><div role="button" id="go"><svg></svg></div><div role="button" id="toolbar" aria-label="Expert mode"><svg></svg></div>';
+    const a = await boot(NEXT, { dck_settings: hiddenSettings() }, { body });
+    let enters = 0;
+    a.ta.addEventListener('keydown', (e) => { if (e.key === 'Enter') enters++; });
+    a.type('hello');
+    const tb = new a.w.MouseEvent('click', { bubbles: true, cancelable: true });
+    a.w.document.getElementById('toolbar').dispatchEvent(tb);
+    await sleep(300);
+    assert.ok(!tb.defaultPrevented, 'the click is left alone');
+    assert.strictEqual(a.ta.value, 'hello', 'no context inserted');
+    assert.strictEqual(enters, 0, 'no synthetic Enter');
+    const v = await boot(NEXT, { dck_settings: settings() }, { body }); // visible mode, same
+    v.type('hello');
+    v.w.document.getElementById('toolbar').dispatchEvent(new v.w.MouseEvent('click', { bubbles: true, cancelable: true }));
+    assert.strictEqual(v.ta.value, 'hello', 'visible mode: nothing inserted either');
+    console.log('ok  unrelated toolbar clicks never insert context or press Enter');
+  }
+
+  // 21. Reset all in one tab cancels increments another tab has counted but not saved yet
+  {
+    const disk = { dck_settings: settings(), dck_counts: { '/a/chat/s/x': 5 } };
+    const a = await boot('https://chat.deepseek.com/a/chat/s/x', disk, { sync: true, delay: 10, locks: true });
+    const b = await boot('https://chat.deepseek.com/a/chat/s/y', disk, { sync: true, delay: 60, locks: true });
+    b.type('1'); b.enter(); b.type(''); // counted at ~100 ms, its save runs 100-220 ms
+    await sleep(130);
+    b.type('2'); b.enter(); b.type(''); // counted at ~230 ms - waits behind the first save
+    await sleep(90);
+    a.w.confirm = () => true; // Reset all in tab A at ~220 ms, before B's second save asks for the lock
+    a.w.document.getElementById('dck-fab').click();
+    Array.from(a.w.document.querySelectorAll('[role=tab]')).find((t) => t.textContent.startsWith('Settings')).click();
+    Array.from(a.w.document.querySelectorAll('button')).find((t) => t.textContent.trim() === 'Reset all').click();
+    await sleep(900);
+    assert.strictEqual(JSON.stringify(disk.dck_counts), '{}', 'nothing from before the reset survives: ' + JSON.stringify(disk.dck_counts));
+    console.log('ok  Reset all invalidates unsaved increments in other tabs');
   }
 
   console.log('\nall refresh/count tests passed');

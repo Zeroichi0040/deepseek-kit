@@ -70,7 +70,9 @@
   // The send button for the message box. Candidates are the enabled icon buttons around the box that are not ours.
   // A button named like "send" or type=submit wins; buttons named like attach, voice, search and so on are never
   // chosen; otherwise the right-most one is taken (the send button sits at the right end of the toolbar).
-  function sendButton(el) {
+  // strict: only a button that says it is the send button (name or type=submit), never the right-most guess. Used to
+  // decide whether a click was a send, where guessing wrong would act on an unrelated toolbar click.
+  function sendButton(el, strict) {
     let node = el;
     for (let i = 0; i < 6 && node && node.parentElement; i++) {
       node = node.parentElement;
@@ -80,6 +82,7 @@
       if (!btns.length) continue;
       const named = btns.filter((b) => IS_SEND.test(nameOf(b)) || b.getAttribute('type') === 'submit');
       if (named.length) return named[named.length - 1];
+      if (strict) continue;
       const rest = btns.filter((b) => !NOT_SEND.test(nameOf(b)));
       if (!rest.length) continue;
       let best = rest[rest.length - 1];
