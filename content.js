@@ -9,7 +9,7 @@
     buildPrefix, summarize, describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList,
     cleanSnippetName, filterSnippets, searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     langFromClass, detectBlock, suggestFilename, uniqueName, makeZip, MEMORY_GENERAL,
-    memoryUsage, groupMemories, cleanCategory, resolveCount, mergeCounts, pruneCounts, MARKER_START,
+    memoryUsage, groupMemories, cleanCategory, resolveCount, addCounts, pruneCounts, MARKER_START,
   } = globalThis.DCK_LIB;
   const SITE = globalThis.DCK_SITE;
   const VIS = globalThis.DCK_VIS;
@@ -60,30 +60,93 @@
   function getCount(path) {
     return path === '/' ? newChatCount : resolveCount(counts, path);
   }
-  function setCount(path, n) {
-    if (path === '/') { newChatCount = n; return; }
-    delete counts[path]; // re-insert so the most recent chats stay at the end
-    counts[path] = n;
-    persistCounts(path);
+
+  // The counters are shared by every open tab, so a tab never stores its own copy of them. It stores increments:
+  // pendingAdds waits to be saved, inflightAdds is being saved right now, and the stored copy plus both is what this
+  // tab shows (counts). Saving is read-add-write, one at a time inside this tab (countQueue) and across tabs (a Web
+  // Lock), so two tabs sending in the same chat each add 1 and two tabs on different chats each keep their entry.
+  // Reset all bumps countEpoch: a save that was already reading when it happened sees the new epoch and writes nothing.
+  let pendingAdds = {};
+  let pendingFresh = {}; // chats whose very first messages these are: no earlier message to assume (see resolveCount)
+  let inflightAdds = {};
+  let inflightFresh = {};
+  let countEpoch = 0;
+  let countQueue = Promise.resolve();
+  const lastError = () => typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
+  function storeGet(keys) {
+    return new Promise((resolve, reject) => {
+      try {
+        store.get(keys, (r) => { const e = lastError(); if (e) reject(new Error(e.message)); else resolve(r); });
+      } catch (e) { reject(e); }
+    });
   }
-  // The counters are shared by every open tab, so a write never replaces what is stored with this tab's copy: the stored
-  // copy is read first and merged in (a chat's count only grows, see mergeCounts), then written back.
-  function persistCounts(touched) {
-    counts = pruneCounts(counts, 300);
+  function storePut(obj) {
+    return new Promise((resolve, reject) => {
+      try {
+        store.set(obj, () => { const e = lastError(); if (e) reject(new Error(e.message)); else { storage.error = ''; resolve(); } });
+      } catch (e) { reject(e); }
+    });
+  }
+  function withCountLock(fn) {
     try {
-      store.get(['dck_counts'], (r) => {
-        const e = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError;
-        if (e) { storageFailed(e.message); return; }
-        counts = pruneCounts(mergeCounts(r && r.dck_counts, counts, touched), 300);
-        storeSet({ dck_counts: counts });
-      });
-    } catch (e) { storageFailed(e && e.message); }
+      if (navigator.locks && navigator.locks.request) return navigator.locks.request('dck_counts', fn);
+    } catch (e) { /* no Web Locks here: tabs are then only ordered by the storage itself */ }
+    return fn();
   }
-  // A change to the stored counters made by another tab (or echoed back from this one). An empty object is how
-  // "Reset all" writes them, and nothing else ever stores one, so it means forget everything.
+  // A chat with no stored count starts at 1 (it already has messages) unless these are its first messages.
+  const startOf = (fresh) => (k) => (fresh[k] ? 0 : resolveCount({}, k));
+  function viewOf(stored) {
+    return pruneCounts(addCounts(addCounts(stored, inflightAdds, startOf(inflightFresh)), pendingAdds, startOf(pendingFresh)), 300);
+  }
+  function queueCounts(op) {
+    countQueue = countQueue.then(() => withCountLock(op)).catch((e) => storageFailed(e && e.message));
+    return countQueue;
+  }
+  async function flushCounts() {
+    if (!Object.keys(pendingAdds).length) return;
+    const epoch = countEpoch;
+    const mine = pendingAdds;
+    const mineFresh = pendingFresh;
+    pendingAdds = {}; pendingFresh = {};
+    inflightAdds = mine; inflightFresh = mineFresh;
+    try {
+      const r = await storeGet(['dck_counts']);
+      if (epoch !== countEpoch) return; // Reset all happened while reading: these increments belong to counts that were just wiped
+      const merged = pruneCounts(addCounts(r && r.dck_counts, mine, startOf(mineFresh)), 300);
+      await storePut({ dck_counts: merged });
+      if (epoch === countEpoch) { inflightAdds = {}; inflightFresh = {}; counts = viewOf(merged); }
+    } catch (e) {
+      if (epoch === countEpoch) { // keep them for the next save
+        pendingAdds = addCounts(mine, pendingAdds);
+        pendingFresh = Object.assign({}, mineFresh, pendingFresh);
+      }
+      throw e;
+    } finally {
+      if (epoch === countEpoch) { inflightAdds = {}; inflightFresh = {}; }
+    }
+  }
+  // fresh: the chat is brand new (its first message(s) came from the new-chat screen)
+  function addCount(path, n, fresh) {
+    if (path === '/') { newChatCount += n; return; }
+    const has = Object.prototype.hasOwnProperty.call(counts, path);
+    const v = (has ? Number(counts[path]) || 0 : fresh ? 0 : resolveCount(counts, path)) + n;
+    delete counts[path]; // re-insert so the most recent chats stay at the end
+    counts[path] = v;
+    pendingAdds[path] = (pendingAdds[path] || 0) + n;
+    if (fresh) pendingFresh[path] = true;
+    queueCounts(flushCounts);
+  }
+  function resetCounts() {
+    countEpoch++;
+    counts = {};
+    pendingAdds = {}; pendingFresh = {};
+    inflightAdds = {}; inflightFresh = {};
+    queueCounts(() => storePut({ dck_counts: {} }));
+  }
+  // A change to the stored counters made by another tab (or echoed back from this one). Reset all stores an empty
+  // object, which then clears them here too (what this tab has not saved yet is kept).
   function adoptCounts(stored) {
-    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return;
-    counts = Object.keys(stored).length ? mergeCounts(stored, counts) : {};
+    counts = viewOf(stored);
   }
 
   function kitVersion() {
@@ -154,7 +217,7 @@
     const p = location.pathname;
     if (p !== lastPath) {
       if (lastPath === '/' && p !== '/') {
-        if (newChatCount > 0) setCount(p, newChatCount);
+        if (newChatCount > 0) addCount(p, newChatCount, true);
         newChatCount = 0;
       }
       lastPath = p;
@@ -217,7 +280,9 @@
   function clickSend(el) {
     const b = SITE.sendButton(el);
     if (!b) return false;
-    b.click();
+    const was = bypass;
+    bypass = true; // our own click: the Kit's click handler must not treat it as a new send
+    try { b.click(); } finally { bypass = was; }
     return true;
   }
 
@@ -254,54 +319,113 @@
     });
   }
 
+  // ----- what you typed vs what the site did to the box
+  // beforeinput fires only for real edits (typing, paste, cut, delete, IME); the site clearing the box after a send
+  // fires nothing. When it fires the box still holds the old value: empty means the site already cleared it (the
+  // earlier message went out, and this is a new draft); anything else means you are changing the draft.
+  const editStamp = new WeakMap(); // how many times you changed the draft in this box
+  const editsOf = (el) => editStamp.get(el) || 0;
+  document.addEventListener('beforeinput', (e) => {
+    const el = e.target;
+    if (!(el instanceof HTMLTextAreaElement)) return;
+    if (el.value.trim()) editStamp.set(el, editsOf(el) + 1);
+    editedBox(el);
+  }, true);
+
   // Presses Enter in the message box and watches for the box to clear. Resolves with
   //   'sent'        the box cleared
   //   'review'      (reviewOnContext only) the Kit's own Enter handling put due context in the box instead of sending
+  //   'cancelled'   you changed the draft, or the page moved to another chat, before the fallback click: nothing more is sent
   //   'unconfirmed' the site took the Enter but the box did not clear in time (it is never pressed again)
   //   'nobutton'    the site ignored the Enter and no send button was found
   //   'failed'      the site ignored the Enter and the one fallback click did not send either
   // opts.skipKit: the Enter bypasses the Kit's own handler (the caller has already attached the context).
+  const hiddenSends = new WeakMap(); // box -> the hidden send in progress (its context is in the box until it clears)
   async function sendWithConfirmation(el, opts) {
     const o = opts || {};
-    const state = () => (boxCleared(el) ? 'sent' : o.reviewOnContext && alreadyHasContext(el.value) ? 'review' : null);
+    const path = location.pathname;
+    const stamp = editsOf(el);
+    const hadContext = alreadyHasContext(el.value);
+    const earlier = hiddenSends.get(el);
     const handled = pressEnter(el, !!o.skipKit);
+    // The Kit's own Enter handling started a hidden send: that is this send, and the context sitting in the box
+    // until the site clears it is not a "review".
+    const running = hiddenSends.get(el);
+    if (running && running !== earlier) return running;
+    if (o.reviewOnContext && !hadContext && alreadyHasContext(el.value)) return 'review';
+    const base = el.value;
+    const state = () => {
+      if (boxCleared(el)) return 'sent';
+      if (editsOf(el) !== stamp || el.value !== base) return 'cancelled';
+      return null;
+    };
     const first = await waitFor(state, handled ? SEND_ACK_WAIT : SEND_WAIT);
     if (first) return first;
     if (handled) return 'unconfirmed';
+    const now = state();
+    if (now) return now;
+    if (location.pathname !== path) return 'cancelled'; // the fallback click would send into another chat
     if (!clickSend(el)) return 'nobutton';
     logEvent('Send: used the send button');
     return (await waitFor(state, SEND_WAIT)) || 'failed';
   }
 
   // Hidden mode: the context is already in the box; send it and say so when that did not work out.
-  async function hiddenSend(el) {
-    const r = await sendWithConfirmation(el, { skipKit: true });
-    if (r === 'sent') logEvent('Hidden send: message went out');
-    else if (r === 'unconfirmed') {
-      logEvent('Hidden send was handled but not confirmed');
-      toast('Enter was accepted but the send was not confirmed - check the chat before trying again');
-    } else if (r === 'nobutton') {
-      logEvent('Hidden send failed: no send button found');
-      toast('Could not send automatically - press Enter to send');
-    } else {
-      logEvent('Hidden send not confirmed');
-      toast('Could not confirm the message was sent - check it, then press Enter if needed');
-    }
+  function hiddenSend(el) {
+    const p = sendWithConfirmation(el, { skipKit: true }).then((r) => {
+      if (r === 'sent') logEvent('Hidden send: message went out');
+      else if (r === 'cancelled') logEvent('Hidden send cancelled: the draft or the chat changed');
+      else if (r === 'unconfirmed') {
+        logEvent('Hidden send was handled but not confirmed');
+        toast('Enter was accepted but the send was not confirmed - check the chat before trying again');
+      } else if (r === 'nobutton') {
+        logEvent('Hidden send failed: no send button found');
+        toast('Could not send automatically - press Enter to send');
+      } else {
+        logEvent('Hidden send not confirmed');
+        toast('Could not confirm the message was sent - check it, then press Enter if needed');
+      }
+      if (hiddenSends.get(el) === p) hiddenSends.delete(el);
+      return r;
+    });
+    hiddenSends.set(el, p);
+    return p;
   }
 
   // ----- the message counter
   // A message counts when it really leaves: once Enter (or a click on the send button) is followed by the box
   // clearing. Counting on the keypress itself drifted whenever the site ignored it (Enter while a reply is still being
-  // written), and nothing counted a send made with the mouse. One watcher per box, however many ways it was triggered.
-  const sendWatch = new WeakSet();
+  // written). Every send is its own record, so a second message sent right after the first is counted too; a record
+  // ends when the box clears (counted), when you change the draft (not counted: you cleared it yourself, or edited it
+  // and it is a different message now), or when 5 s pass without a clear.
+  const sends = new Set();
+  let sendTimer = 0;
+  function finishSend(r, sent) {
+    sends.delete(r);
+    if (sent) countSend(r.path);
+  }
+  function checkSends() {
+    const now = Date.now();
+    Array.from(sends).forEach((r) => {
+      if (boxCleared(r.el)) finishSend(r, true);
+      else if (now - r.t0 >= SEND_ACK_WAIT) { finishSend(r, false); logEvent('Message not counted: the box did not clear after Enter'); }
+    });
+    if (!sends.size) { clearInterval(sendTimer); sendTimer = 0; }
+  }
   function watchSend(el) {
-    if (sendWatch.has(el)) return;
-    sendWatch.add(el);
-    const path = location.pathname; // the chat this message belongs to, even if the page moves on before the box clears
-    waitFor(() => boxCleared(el), SEND_ACK_WAIT).then((sent) => {
-      sendWatch.delete(el);
-      if (sent) countSend(path);
-      else logEvent('Message not counted: the box did not clear after Enter');
+    const text = el.value;
+    for (const r of Array.from(sends)) {
+      if (r.el !== el) continue;
+      if (r.text === text) return; // the same send, triggered twice (Enter and a click, or Enter pressed again)
+      finishSend(r, true); // the box holds something else now with no edit from you: the site cleared it and it was refilled
+    }
+    sends.add({ el: el, path: location.pathname, text: text, t0: Date.now() });
+    if (!sendTimer) sendTimer = setInterval(checkSends, 100);
+  }
+  // You are editing the box: a send that already went out (box cleared) counts, one still waiting is dropped.
+  function editedBox(el) {
+    Array.from(sends).forEach((r) => {
+      if (r.el === el) finishSend(r, boxCleared(el));
     });
   }
   // "/" is the new-chat screen. If the page already moved to the chat's own address while the box was clearing, the
@@ -309,12 +433,12 @@
   function countSend(path) {
     const now = location.pathname;
     if (path === '/' && now !== '/') {
-      setCount(now, newChatCount + 1);
+      addCount(now, newChatCount + 1, true);
       newChatCount = 0;
       lastPath = now;
       return;
     }
-    setCount(path, getCount(path) + 1);
+    addCount(path, 1);
   }
 
   // ---------- Chips above the message box + the strip in the drawer ----------
@@ -552,53 +676,57 @@
       if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
       if (!settings.enabled || !settings.autoInsertOnEnter) return;
       if (!el.value.trim()) return;
-      const p = location.pathname;
-
-      if (alreadyHasContext(el.value)) {
-        // Context is already in the box: this Enter sends.
-        watchSend(el);
-        return;
-      }
-      const count = getCount(p);
-      if (!shouldInject(settings, count, memories)) {
-        watchSend(el);
-        return;
-      }
-
-      if (settings.showInjected !== false) {
-        // Visible mode: put the context in the box, you review it and press Enter again.
-        if (insertContext(false)) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          toast('Context added - review it, then press Enter to send');
-        } else {
-          watchSend(el);
-        }
-        return;
-      }
-
-      // Hidden mode: attach the context and send in one step; the inserted block is hidden in the chat view.
-      const prefix = buildPrefix(settings, memories, el.value, count, false, ctxFor(count));
-      if (!prefix) { watchSend(el); return; }
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      setNativeValue(el, prefix + el.value);
-      watchSend(el);
-      hiddenSend(el);
+      onSendIntent(e, el);
     },
     true
   );
 
-  // A send made with the mouse. The Kit adds context on Enter only, but the message still counts, so "every N
-  // messages" schedules stay in step. Nothing is blocked or changed here.
+  // A send made with the mouse goes through the same steps as Enter: due context is attached (or put in the box for
+  // review), the message is counted. Otherwise "first message" and "every N messages" schedules would depend on how you send.
   document.addEventListener('click', (e) => {
-    if (!settings.enabled || !settings.autoInsertOnEnter || !(e.target instanceof Element)) return;
+    if (bypass || !settings.enabled || !settings.autoInsertOnEnter || !(e.target instanceof Element)) return;
     if (e.target.closest('#dck-drawer, .dck-vis')) return;
     const el = getComposer();
     if (!el || !el.value.trim()) return;
     const b = SITE.sendButton(el);
-    if (b && b.contains(e.target)) watchSend(el);
+    if (b && b.contains(e.target)) onSendIntent(e, el);
   }, true);
+
+  // The message in `el` is about to be sent by Enter or by a click on the send button (e is that event).
+  function onSendIntent(e, el) {
+    const p = location.pathname;
+    if (alreadyHasContext(el.value)) {
+      // Context is already in the box: this one sends.
+      watchSend(el);
+      return;
+    }
+    const count = getCount(p);
+    if (!shouldInject(settings, count, memories)) {
+      watchSend(el);
+      return;
+    }
+
+    if (settings.showInjected !== false) {
+      // Visible mode: put the context in the box, you review it and send again.
+      if (insertContext(false)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        toast('Context added - review it, then send');
+      } else {
+        watchSend(el);
+      }
+      return;
+    }
+
+    // Hidden mode: attach the context and send in one step; the inserted block is hidden in the chat view.
+    const prefix = buildPrefix(settings, memories, el.value, count, false, ctxFor(count));
+    if (!prefix) { watchSend(el); return; }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    setNativeValue(el, prefix + el.value);
+    watchSend(el);
+    hiddenSend(el);
+  }
 
   // ---------- Hide the inserted block in the chat view (hidden mode only) ----------
   function stripNode(node) {
@@ -1456,7 +1584,7 @@
           type: 'button', class: 'dck-btn danger',
           onclick: () => {
             if (!window.confirm('Reset all Kit settings, prompts, memory and snippets?')) return;
-            settings = migrateSettings({}); memories = []; ui.editingMemory = null; counts = {}; storeSet({ dck_counts: counts }); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); syncAll(); render();
+            settings = migrateSettings({}); memories = []; ui.editingMemory = null; resetCounts(); resetFab(); ui.editingId = null; ui.editingSnippetId = null; commit(); syncAll(); render();
           },
         }, 'Reset all'));
     } else {
@@ -2016,6 +2144,7 @@
     sendWithConfirmation(el, { reviewOnContext: true }).then((result) => {
       if (result === 'sent') { askMarkSent(st.text, st.ask.answers()); logEvent('Answers sent'); }
       else if (result === 'review') { st.ask.lock(false); st.ask.note('Context added - review it, then press Enter to send'); askWatch(st); }
+      else if (result === 'cancelled') { st.ask.lock(false); st.ask.note('Not sent: the message or the chat changed - your answers are in the message box'); logEvent('Answers not sent: draft or chat changed'); }
       else if (result === 'unconfirmed') {
         st.ask.lock(false);
         st.ask.note('Enter was accepted but the send was not confirmed - check the chat before trying again');

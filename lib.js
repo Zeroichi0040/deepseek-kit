@@ -697,22 +697,28 @@
     return isExistingChatPath(path) ? 1 : 0;
   }
 
-  // Combines two copies of the per-chat counters (what is stored, and what this tab holds). A chat's count only ever
-  // goes up, so per chat the larger value wins: two tabs on two chats then never erase each other's entries. Order is
-  // recency (the stored order first, then entries only this tab has); `last`, the chat just touched, goes to the end.
-  // Entries that are not a count (negative, NaN, text) are dropped.
-  function mergeCounts(stored, local, last) {
+  // Adds this tab's not-yet-saved increments to the stored counters. Increments, never absolute values: two tabs that
+  // both sent a message in the same chat each add 1, so neither is lost. A chat that gets an increment moves to the end
+  // (the most recently used), non-counts in the stored copy are dropped.
+  // startOf(path) is where a chat with no stored count begins (default 0).
+  function addCounts(stored, adds, startOf) {
     const out = {};
     const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
-    [stored, local].forEach((src) => {
-      if (!isObj(src)) return;
-      Object.keys(src).forEach((k) => {
-        const n = Number(src[k]);
-        if (!Number.isFinite(n) || n < 0) return;
-        out[k] = has(out, k) ? Math.max(out[k], Math.floor(n)) : Math.floor(n);
+    if (isObj(stored)) {
+      Object.keys(stored).forEach((k) => {
+        const n = Number(stored[k]);
+        if (Number.isFinite(n) && n >= 0) out[k] = Math.floor(n);
       });
-    });
-    if (last !== undefined && has(out, last)) { const v = out[last]; delete out[last]; out[last] = v; }
+    }
+    if (isObj(adds)) {
+      Object.keys(adds).forEach((k) => {
+        const n = Math.floor(Number(adds[k]));
+        if (!Number.isFinite(n) || n <= 0) return;
+        const v = (has(out, k) ? out[k] : typeof startOf === 'function' ? Number(startOf(k)) || 0 : 0) + n;
+        delete out[k];
+        out[k] = v;
+      });
+    }
     return out;
   }
 
@@ -744,7 +750,7 @@
     describeSummary, memoryLabel, alreadyHasContext, stripContext, slashQuery, continueList, cleanSnippetName, filterSnippets,
     searchSnippets, describeSchedule, insertAt, defaultPromptText, newId,
     LANG_EXT, normalizeLang, langFromClass, extFor, sniffLang, previewKind, detectBlock, suggestFilename, uniqueName, crc32, makeZip,
-    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryUsage, memoryStatuses, memoryTokens, firstNoteWaiting, groupMemories, cleanCategory, isExistingChatPath, resolveCount, mergeCounts, pruneCounts, MARKER_START, MARKER_END,
+    MEMORY_GENERAL, memoryLine, memoryCategory, memoryPlan, memoryUsage, memoryStatuses, memoryTokens, firstNoteWaiting, groupMemories, cleanCategory, isExistingChatPath, resolveCount, addCounts, pruneCounts, MARKER_START, MARKER_END,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = core;
   else root.DCK_LIB = core;

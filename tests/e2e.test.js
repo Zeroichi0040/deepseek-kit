@@ -649,6 +649,27 @@ async function askForms() {
   await p.waitForFunction(() => document.querySelector('.dck-ask-note').textContent === 'Answers sent');
   ok('Send straight away: a handled Enter is never followed by a delayed fallback click');
 
+  // Hidden mode with context due and a composer that clears 1.8 s after the Enter: the form must not mistake the
+  // context sitting in the box for "review it" - it is the Kit's own send in progress.
+  await p.click('#dck-fab');
+  await p.locator('#dck-drawer button:has-text("Hidden")').first().click();
+  await close(p);
+  await p.goto('https://chat.deepseek.com/'); // new chat: the first-message context is due
+  await p.waitForSelector('.dck-ask .dck-ask-opt');
+  const f5 = p.locator('.dck-vis[data-kind=ask]').first();
+  await f5.locator('.dck-ask-opt', { hasText: 'Web application' }).click();
+  await f5.locator('[aria-label=\"Next question\"]').click();
+  await f5.locator('[aria-label=\"Next question\"]').click();
+  await f5.locator('.dck-ask-submit').click();
+  await p.waitForFunction(() => window.__sent.length === 1, null, { timeout: 6000 });
+  await p.waitForFunction(() => document.querySelector('.dck-ask-note').textContent === 'Answers sent', null, { timeout: 8000 });
+  const hsent = await p.evaluate(() => ({ sent: window.__sent.slice(), clicks: window.__clicks, box: document.getElementById('main').value }));
+  assert.strictEqual(hsent.sent.length, 1, 'sent exactly once');
+  assert.ok(hsent.sent[0].indexOf('[DeepSeek Kit]') >= 0 && hsent.sent[0].indexOf('Web application') > 0, 'with the context attached: ' + hsent.sent[0].slice(0, 200));
+  assert.strictEqual(hsent.clicks, 0, 'no fallback click');
+  assert.strictEqual(hsent.box, '');
+  ok('Send straight away: Hidden mode, context due and a slow composer clear still ends as sent');
+
   // there is no Questions section any more: forms are always drawn, and Send answers straight away lives under Messages
   await settingsTab(p, 'Messages');
   assert.strictEqual(await p.locator('.dck-acchead:has-text("Questions")').count(), 0, 'no Questions section');

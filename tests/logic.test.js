@@ -177,15 +177,14 @@ assert.deepStrictEqual(Object.keys(pruned), ['/a/chat/s/6', '/a/chat/s/7', '/a/c
 assert.strictEqual(c.pruneCounts(many, 50), many);
 assert.deepStrictEqual(c.pruneCounts(undefined, 5), {});
 // two tabs, two chats: merging keeps both entries and the larger count of a chat both know
-assert.deepStrictEqual(c.mergeCounts({ '/a': 2 }, { '/b': 2 }), { '/a': 2, '/b': 2 });
-assert.deepStrictEqual(c.mergeCounts({ '/a': 5 }, { '/a': 3 }), { '/a': 5 }, 'a stale tab cannot lower a count');
-assert.deepStrictEqual(c.mergeCounts({ '/a': 3 }, { '/a': 5 }), { '/a': 5 });
-assert.deepStrictEqual(Object.keys(c.mergeCounts({ '/a': 1, '/b': 1, '/c': 1 }, { '/a': 2 }, '/a')), ['/b', '/c', '/a'], 'the chat just touched is the most recent');
-assert.deepStrictEqual(Object.keys(c.mergeCounts({ '/a': 1 }, { '/b': 1 }, '/zzz')), ['/a', '/b'], 'an unknown "last" changes nothing');
-assert.deepStrictEqual(c.mergeCounts({ '/a': 'junk', '/b': -1, '/c': NaN, '/d': 2.9 }, null), { '/d': 2 }, 'non-counts are dropped');
-assert.deepStrictEqual(c.mergeCounts(null, undefined), {});
-assert.deepStrictEqual(c.mergeCounts([1, 2], 'x'), {}, 'arrays and strings are not count maps');
-assert.deepStrictEqual(c.mergeCounts({ '/a': 0 }, { '/a': 0 }), { '/a': 0 }, 'a stored 0 stays');
+assert.deepStrictEqual(c.addCounts({ '/a': 2 }, { '/b': 2 }), { '/a': 2, '/b': 2 });
+assert.deepStrictEqual(c.addCounts({ '/a': 5 }, { '/a': 3 }), { '/a': 8 }, 'increments add up');
+assert.deepStrictEqual(Object.keys(c.addCounts({ '/a': 1, '/b': 1, '/c': 1 }, { '/a': 2 })), ['/b', '/c', '/a'], 'the chat just touched is the most recent');
+assert.deepStrictEqual(c.addCounts({ '/a': 'junk', '/b': -1, '/c': NaN, '/d': 2.9 }, { '/e': 0, '/f': -2, '/g': 'x' }), { '/d': 2 }, 'non-counts are dropped');
+assert.deepStrictEqual(c.addCounts({ '/a': 1 }, { '/a': 1, '/b': 1 }, (k) => (k === '/b' ? 1 : 9)), { '/a': 2, '/b': 2 }, 'startOf only applies to chats with no stored count');
+assert.deepStrictEqual(c.addCounts(null, undefined), {});
+assert.deepStrictEqual(c.addCounts([1, 2], 'x'), {}, 'arrays and strings are not count maps');
+assert.deepStrictEqual(c.addCounts({ '/a': 0 }, null), { '/a': 0 }, 'a stored 0 stays');
 
 // ---- memory: plan, budget, status
 const notes = [
