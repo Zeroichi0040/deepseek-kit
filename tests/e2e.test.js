@@ -1059,6 +1059,7 @@ async function firstMessageMemory() {
     + ' e.preventDefault();'
     + ' if (!ta.value.trim()) return;'
     + ' window.__sent.push(ta.value);'
+    + ' const msg = document.createElement("div"); msg.className = "ds-message"; msg.textContent = ta.value; document.body.insertBefore(msg, ta);'
     + ' Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(ta, "");'
     + ' ta.dispatchEvent(new Event("input", { bubbles: true }));'
     + ' if (location.pathname === "/") history.pushState({}, "", "/a/chat/s/" + Date.now());'
